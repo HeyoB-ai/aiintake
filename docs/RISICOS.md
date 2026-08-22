@@ -494,11 +494,11 @@ In productie ging die stilte gewoon naar de avatar en wachtte de cliënt hem uit
 **Gebouwd, 23 augustus 2026.** De Cartesia-adapter snijdt de aanloopstilte weg. Gemeten
 over zeven zinnen die een assistent werkelijk zegt:
 
-| | weggesneden |
-| --- | --- |
-| p50 | 204 ms |
-| min – max | 37 – 370 ms |
-| over zeven beurten samen | 1263 ms |
+|                          | weggesneden |
+| ------------------------ | ----------- |
+| p50                      | 204 ms      |
+| min – max                | 37 – 370 ms |
+| over zeven beurten samen | 1263 ms     |
 
 Dat is ongeveer een zesde van het totaalbudget van 1,2 s, en het is de enige post tot nu
 toe die volledig in eigen beheer bleek te liggen.

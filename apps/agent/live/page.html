@@ -54,6 +54,17 @@
         opacity: 0.45;
         cursor: default;
       }
+      video#avatar {
+        display: none;
+        width: 100%;
+        max-width: 420px;
+        border-radius: 10px;
+        background: #000;
+        margin-bottom: 16px;
+      }
+      video#avatar.aan {
+        display: block;
+      }
       #niveau {
         height: 6px;
         background: #1b222c;
@@ -134,6 +145,7 @@
       <p class="sub">
         Nederlands, microfoon aan. Onderbreek gerust terwijl hij praat — dat is de test.
       </p>
+      <video id="avatar" autoplay playsinline></video>
       <button id="start" class="primair">Start gesprek</button>
       <button id="stop" disabled>Stop</button>
       <div id="niveau"><div></div></div>
@@ -173,6 +185,27 @@
       let volgendeStart = 0;
       let bronnen = [];
 
+      /**
+       * De avatar, als hij aanstaat.
+       *
+       * Anam draait volledig in de browser: hun SDK zet de WebRTC-verbinding op en er is
+       * geen serverkant waar wij audio in kunnen duwen. De PCM die de server stuurt gaat
+       * daarom niet naar de speakers maar naar hún invoerstroom, en wat je hoort is wat
+       * zij terugsturen — gesynchroniseerd met het gezicht.
+       */
+      let anam = null;
+      let anamInvoer = null;
+      const SR_UIT = 16000;
+
+      function nieuweAnamStroom() {
+        if (!anam) return null;
+        return anam.createAgentAudioInputStream({
+          encoding: 'pcm_s16le',
+          sampleRate: SR_UIT,
+          channels: 1,
+        });
+      }
+
       function regel(rol, tekst, hud, klasse = '') {
         const d = document.createElement('div');
         d.className = 'beurt ' + klasse;
@@ -184,6 +217,15 @@
 
       /** Audio afspelen op volgorde, zodat er geen gaten of overlap ontstaan. */
       function speel(int16) {
+        // Met avatar gaat de audio hun kant op; lokaal afspelen zou hem dubbel laten
+        // klinken en bovendien vóór het gezicht uit lopen.
+        if (anam) {
+          anamInvoer ??= nieuweAnamStroom();
+          anamInvoer?.sendAudioChunk(
+            new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength),
+          );
+          return;
+        }
         if (!ctxUit) return;
         const buf = ctxUit.createBuffer(1, int16.length, SR);
         const kanaal = buf.getChannelData(0);
@@ -201,6 +243,18 @@
 
       /** Barge-in: alles wat nog klaarstaat weggooien, niet uitspelen. */
       function stopGeluid() {
+        if (anam) {
+          // Hun eigen onderbreekhaak. Zonder dit praat het gezicht door nadat de server
+          // allang gestopt is, en dan lijkt barge-in kapot terwijl hij werkt.
+          try {
+            anam.interruptPersona();
+          } catch {}
+          try {
+            anamInvoer?.endSequence();
+          } catch {}
+          anamInvoer = null;
+          return;
+        }
         for (const b of bronnen) {
           try {
             b.stop();
@@ -240,8 +294,24 @@
           if (m.type === 'ready') {
             // Pas starten als de server zegt dat de keten er is. De server vangt een te
             // vroege start ook af, maar twee keer voorzichtig kost hier niets.
-            status('klaar — hij begint zo');
-            ws.send(JSON.stringify({ type: 'start' }));
+            if (m.anamToken) {
+              status('avatar verbinden…');
+              startAvatar(m.anamToken)
+                .then(() => {
+                  status('klaar — hij begint zo');
+                  ws.send(JSON.stringify({ type: 'start' }));
+                })
+                .catch((e) => status('avatar mislukt: ' + e.message));
+            } else {
+              status('klaar — hij begint zo');
+              ws.send(JSON.stringify({ type: 'start' }));
+            }
+          }
+          if (m.type === 'endturn' && anam) {
+            try {
+              anamInvoer?.endSequence();
+            } catch {}
+            anamInvoer = null;
           }
           if (m.type === 'turn') {
             if (m.client) regel('u', m.client, '', 'client');
@@ -345,8 +415,21 @@
         stil.connect(ctxIn.destination);
       }
 
+      /** De SDK van een CDN, zoals hun quickstart. Geen bundler nodig voor een devpagina. */
+      async function startAvatar(token) {
+        const { createClient } = await import('https://esm.sh/@anam-ai/js-sdk@4');
+        anam = createClient(token);
+        document.getElementById('avatar').classList.add('aan');
+        await anam.streamToVideoElement('avatar');
+      }
+
       function stop() {
         stopGeluid();
+        if (anam) {
+          anam.stopStreaming().catch(() => {});
+          anam = null;
+          document.getElementById('avatar').classList.remove('aan');
+        }
         ws?.close();
         ctxIn?.close();
         ctxUit?.close();

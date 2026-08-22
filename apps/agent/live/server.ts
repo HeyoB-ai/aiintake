@@ -13,6 +13,7 @@ import type {
   TrackHandle,
 } from '@intake/provider-avatar';
 import { AnthropicLlmProvider } from '@intake/provider-llm';
+import { AnamAvatarProvider } from '../src/avatar/anam';
 import type { OrgConfig } from '@intake/domain';
 import { IntakeSession } from '../src/intake-session';
 import { mediaConfigFrom, startEchoSession } from '../src/echo-session';
@@ -56,6 +57,18 @@ if (!env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
+/**
+ * Met of zonder gezicht.
+ *
+ * Sluit aan op de bestaande `AVATAR_PROVIDER` uit .env: `null` is geen gezicht — de
+ * browser speelt onze TTS dan rechtstreeks af, wat geen avatarminuten kost — en `anam`
+ * zet het pratende gezicht aan.
+ *
+ * Dit is geen providerkeuze. Bey blijft de tegenhanger in de bakeoff zodra hun support
+ * reageert; dit is er om te horen en te zien hoe het gesprek voelt mét beeld.
+ */
+const AVATAR = process.env['AVATAR_PROVIDER'] ?? 'null';
+
 const ORG: OrgConfig = {
   id: '00000000-0000-0000-0000-000000000001',
   name: 'Kantoor De Vries',
@@ -88,7 +101,12 @@ function browserAvatar(inner: AvatarProvider, ws: WebSocket): AvatarProvider {
           if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'clear' }));
           return s.interrupt();
         },
-        endTurn: () => s.endTurn?.(),
+        endTurn: () => {
+          // De browser moet weten wanneer een beurt af is: met een avatar sluit hij dan
+          // de audiostroom naar hun SDK, en zonder avatar is het een no-op.
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'endturn' }));
+          s.endTurn?.();
+        },
         videoTrack: () => s.videoTrack() as Promise<TrackHandle>,
         on: <E extends keyof AvatarEvents>(e: E, h: AvatarEvents[E]) => s.on(e, h),
         disconnect: () => s.disconnect(),
@@ -208,12 +226,31 @@ wss.on('connection', async (ws) => {
     return;
   }
 
-  stuur({ type: 'ready' });
+  // Het sessietoken voor de avatar wordt hier gemaakt en niet in de browser: de API-key
+  // hoort op de server te blijven (zelfde principe als ADR-0007).
+  let anamToken: string | null = null;
+  if (AVATAR === 'anam') {
+    try {
+      anamToken = await new AnamAvatarProvider({
+        apiKey: process.env['ANAM_API_KEY']!,
+        personaId: process.env['ANAM_AVATAR_ID']!,
+      }).issueSessionToken();
+    } catch (error) {
+      stuur({ type: 'error', waar: 'avatar', wat: String(error) });
+    }
+  }
+
+  stuur({ type: 'ready', ...(anamToken ? { anamToken } : {}) });
   if (wilStarten) void sessie.loop.open();
 });
 
 server.listen(POORT, () => {
   console.log(`\n  Praat met de intake:  http://localhost:${POORT}\n`);
   console.log(`  model ${env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001'} · ${SAMPLE_RATE} Hz`);
+  console.log(
+    AVATAR === 'anam'
+      ? '  avatar: Anam (kost avatarminuten)'
+      : '  avatar: geen — zet AVATAR_PROVIDER=anam voor een pratend gezicht',
+  );
   console.log('  Stop met ctrl-c.\n');
 });
