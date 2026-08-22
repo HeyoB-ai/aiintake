@@ -37,6 +37,14 @@ export interface EngineInput {
    */
   readonly signals?: VisualSignals;
   readonly mode: 'realtime' | 'chat';
+  /**
+   * De klok, geïnjecteerd en niet gelezen.
+   *
+   * Termijnregels rekenen in dagen tot een datum. Zou de engine zelf `new Date()`
+   * aanroepen, dan is geen enkele test over een naderende vervaltermijn reproduceerbaar
+   * en verandert het gedrag stilletjes met de dag waarop je hem draait.
+   */
+  readonly now: Date;
   /** Wat de cliënt zojuist zei; leeg bij de openingsbeurt. */
   readonly lastClientUtterance?: string;
   /**
@@ -103,6 +111,19 @@ export interface ObservationResult {
   readonly riskFlags: readonly { ruleKey: string; level: string; label: string }[];
   readonly completeness: number;
   readonly missingRequiredKeys: readonly string[];
+  /**
+   * Feiten die de hallucinatiecheck heeft geweigerd, met de reden.
+   *
+   * Dit veld bestaat omdat een controle die stilzwijgend weggooit niet te onderscheiden
+   * is van een controle die niets doet. Als het model structureel citaten verzint die
+   * niet in het transcript staan, moet dat een zichtbaar getal zijn en geen stilte.
+   */
+  readonly rejectedFacts?: readonly RejectedFact[];
+}
+
+export interface RejectedFact {
+  readonly key: string;
+  readonly reason: string;
 }
 
 export interface FactUpdate {

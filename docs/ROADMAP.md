@@ -87,12 +87,24 @@ avataradapters en de bakeoff.
 **Klaar wanneer:** een volledige NL-intake van het VSO-scenario natuurlijk verloopt, met
 maximaal één hoofdvraag per beurt en geen herhalingen.
 
-- `QuestionPlanner` met deterministische scoring (urgentie, template, conditie,
-  kantoorcriterium, reeds bekend, recent gevraagd, vermoeidheid)
-- Arbeidsrecht-template v1 op de bestaande feitcatalogus
-- Hot path: plat tekstmodel, zinsgewijs flushen, prompt caching
-- Promptsjablonen met versiebeheer; `llm_calls` verwijst naar template + versie
-- Hot path vervangt de echo uit Fase 1
+- [x] `QuestionPlanner` met deterministische scoring (urgentie, template, conditie,
+      kantoorcriterium, reeds bekend, vermoeidheid) — `planner.ts`, 16 tests
+- [x] Arbeidsrecht-template v1 en de urgentieregels op de bestaande feitcatalogus —
+      `employment-template.ts`
+- [x] `IntakeConversationEngine`: hot path streamt platte tekst, cold path met gesloten
+      schema en één herstelpoging — `engine.ts`, 11 tests, geen netwerkcall
+- [x] `CompletenessScorer` — naar voren gehaald uit Fase 3, want de planner kan zonder
+      volledigheidsscore niet beslissen wanneer hij moet afronden
+- [x] Promptsjablonen met versiebeheer en een register dat dubbele sleutels weigert
+- [ ] Prompt caching op het hot path
+- [ ] `llm_calls` daadwerkelijk vullen vanuit de worker (de engine levert de sleutel en
+      versie al via `onPrompt`)
+- [ ] Hot path vervangt de echo uit Fase 1 in `apps/agent`
+
+**Onderweg gevonden.** `IntakeTemplate.requiredFactKeys` dupliceerde precies wat de
+feitcatalogus al als `required` markeerde: twee bronnen voor dezelfde waarheid, waarvan
+er één niets deed. De catalogus bepaalt nu wat er standaard nodig is (per feit, per
+voorwaarde), het template is de kantoorspecifieke laag erbovenop.
 
 ## Fase 3 — cold path en dashboard
 

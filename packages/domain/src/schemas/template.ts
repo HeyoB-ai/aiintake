@@ -40,7 +40,7 @@ export interface IntakeRule {
   readonly level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   readonly label: { readonly nl: string; readonly en: string };
   /** Wanneer slaat deze regel aan? */
-  readonly when: FactCondition | DeadlineCondition;
+  readonly when: FactCondition | DeadlineCondition | ElapsedCondition;
   /** Extra gewicht dat de planner geeft aan feiten die deze regel kunnen bevestigen. */
   readonly plannerBoost: number;
 }
