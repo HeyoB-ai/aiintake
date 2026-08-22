@@ -25,6 +25,40 @@ EU-regio.
 **Signaal dat het misgaat.** `session_metrics` p50 boven 1,5 s na tuning, of een enkele
 stap die structureel boven zijn p95-budget zit.
 
+### Eerste echte meting van het hot path — 22 augustus 2026
+
+Tot nu toe stond hier 0,3 ms voor de LLM-stap. Dat was geen prestatie maar een leeg
+meetpunt: de echo-agent had geen model, dus er viel niets te wachten. Met het model in de
+lus (`claude-haiku-4-5`, 8 beurten van een VSO-gesprek, vanaf Nederland):
+
+```
+ruw   611, 603, 537, 617, 898, 585, 536, 524 ms
+p50   594 ms   (budget 300)
+p95   800 ms   (budget 600)
+```
+
+**De stap zit er twee keer overheen op p50 en een derde op p95.** Er is geen ruimte; er is
+een tekort van ongeveer 290 ms per beurt.
+
+Wat de cijfers verder zeggen. De vloer ligt op 524 ms en zeven van de acht waarden liggen
+tussen 524 en 617 — dat is een strakke verdeling, geen ruis. De 898 is de enige
+uitschieter en staat alleen; er zit geen oplopende trend in, dus het is niet de groeiende
+promptlengte maar een incident.
+
+Dat een strakke verdeling zo hoog ligt, is het echte signaal: dit is geen variabiliteit die
+je wegtuned, dit is waar deze opstelling structureel uitkomt.
+
+**Wat er nog niet in zit, en dus nog kan helpen.** Prompt caching staat nog open in de
+roadmap. Het systeemprompt wordt elke beurt volledig opnieuw gestuurd, inclusief de lijst
+met bekende feiten. Dat is de eerste hefboom en die is niet klein.
+
+**Waarom dit samen met risico 8 gelezen moet worden.** Anam kost in passthrough ~807 ms
+voordat er geluid komt. Die twee stappen tellen niet volledig bij elkaar op — de TTS
+levert audio terwijl het model nog genereert — maar 594 ms LLM plus een avatarvloer van
+~800 ms past niet in een totaalbudget van 1200 ms p50. Op dit moment is het totaalbudget
+niet krap maar onhaalbaar, en de twee grootste posten zijn allebei gemeten en allebei te
+groot.
+
 ---
 
 ## 2. De STT knipt een uitspraak doormidden en niemand merkt het
