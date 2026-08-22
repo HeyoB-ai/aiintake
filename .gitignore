@@ -1,0 +1,33 @@
+node_modules/
+dist/
+.next/
+out/
+build/
+coverage/
+.turbo/
+
+# env — nooit committen
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# supabase
+supabase/.temp/
+supabase/.branches/
+
+# editors / os
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# artefacten van metingen (bevatten timings, geen pii, maar horen niet in git)
+/measurements/
+*.tsbuildinfo

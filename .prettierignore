@@ -1,0 +1,11 @@
+node_modules
+dist
+.next
+.turbo
+coverage
+pnpm-lock.yaml
+# SQL wordt met de hand uitgelijnd; prettier heeft geen Postgres-parser en zou de
+# kolomuitlijning in de migraties slopen.
+supabase/migrations
+supabase/seed
+docs/01-architectuur-en-providerkeuze.md

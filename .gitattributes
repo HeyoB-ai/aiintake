@@ -1,0 +1,15 @@
+# Normaliseer regeleindes in de repository, ongeacht het platform van de committer.
+# Zonder dit levert een Windows-werkplek CRLF aan en een CI-runner LF, en dan ruist
+# elke diff vol met regels die niet veranderd zijn.
+* text=auto eol=lf
+
+# Binaire bestanden nooit converteren.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

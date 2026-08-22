@@ -1,0 +1,16 @@
+{
+  // Alleen voor dependency-cruiser. Die leest één tsconfig voor het hele project,
+  // terwijl `@/*` per app is gedefinieerd (apps/web/tsconfig.json). Zonder deze
+  // padmapping zou elke `@/`-import als onoplosbaar gelden, en dan is de
+  // no-unresolvable-regel — die echte boundary-overtredingen vangt — onbruikbaar.
+  //
+  // Dit bestand wordt nergens gecompileerd; het beschrijft alleen hoe imports
+  // resolven. De echte compilatie gebruikt de tsconfig van de betreffende app.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["apps/web/src/*"]
+    }
+  }
+}

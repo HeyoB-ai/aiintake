@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # De architectuurgrens is een build-fout, geen afspraak. Breekt hij, dan werkt
+      # de intake-intelligentie niet langer identiek in video en chat.
+      - name: Architectuurgrenzen
+        run: pnpm boundaries
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      # Geen ESLint-stap: er is nog geen flat config. Type-strictheid (tsc --strict +
+      # noUncheckedIndexedAccess) en de architectuurgrenzen dekken nu het meeste af.
+      # Zie docs/ROADMAP.md.
+      - name: Formattering
+        run: pnpm format:check
+
+  # De tenant-isolatietests draaien tegen een echt Supabase-testproject. Zonder
+  # secrets slaan ze zichzelf over — daarom staan ze in een aparte job, zodat het in
+  # de UI zichtbaar is dat ze niet hebben gedraaid in plaats van te verdwijnen in
+  # een groene suite.
+  tenant-isolation:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tenant-isolatie
+        env:
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+          SUPABASE_TEST_JWT_SECRET: ${{ secrets.SUPABASE_TEST_JWT_SECRET }}
+        run: pnpm test:isolation
