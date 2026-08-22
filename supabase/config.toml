@@ -1,0 +1,49 @@
+# Supabase projectconfiguratie.
+#
+# Regio: het project MOET in een EU-regio staan (eu-central-1 of eu-west-1). Dat is
+# geen voorkeur maar een eis uit §8.2 van het architectuurdocument: één trans-
+# atlantische hop kost 80-120 ms per beurt, en een Nederlands advocatenkantoor kan
+# een verwerker buiten de EU niet contracteren. De regio wordt bij projectcreatie
+# gekozen en is daarna niet meer te wijzigen.
+
+project_id = "legal-intake-ai"
+
+[api]
+enabled = true
+port = 54321
+# `app` is het RPC-oppervlak voor de publieke intakeroute en de agent-worker.
+# Alles daarin is standaard REVOKEd; 0600 grant expliciet per functie.
+schemas = ["public", "app"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+# Documenten: max 20 MB (§9).
+file_size_limit = "20MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = false          # uitnodiging-only; kantoren worden aangemaakt door een admin
+
+[auth.email]
+enable_signup = false
+double_confirm_changes = true
+enable_confirmations = true
+
+[analytics]
+enabled = false
