@@ -1,84 +1,63 @@
-import { SignJWT, jwtVerify } from 'jose';
-
 /**
- * Het kortlevende sessietoken van de agent-worker.
+ * Het sessietoken van de agent-worker.
  *
- * Achtergrond: een langlevend proces met een service-role key kan bij elke tenant.
- * Dat is het grootste RLS-omzeilingsrisico in dit project (§4). De mitigatie is dat
- * het agentproces die key niet krijgt. In plaats daarvan mint de web-app bij
- * sessiestart dit token, gebonden aan één intake, met een TTL van de sessieduur plus
- * vijf minuten. Alles wat de agent daarna schrijft, gaat via de `app.agent_*` RPC's
- * die `intake_id` uit dit token verifiëren.
+ * Achtergrond: een langlevend proces met een sleutel die RLS omzeilt, kan bij elke
+ * tenant. Dat is het grootste RLS-omzeilingsrisico in dit project (§4). De mitigatie
+ * is dat het agentproces zo'n sleutel niet krijgt. In plaats daarvan geeft de web-app
+ * bij sessiestart dit token uit, gebonden aan één intake, met een TTL van de
+ * sessieduur plus marge.
  *
- * Het token draagt `role: 'authenticated'` zodat PostgREST het accepteert, maar levert
- * géén organisatielidmaatschap op — elke RLS-policy wijst het dus af. De RPC's zijn
- * het enige oppervlak dat het kan bereiken.
+ * Het is een ondoorzichtig token, geen JWT. Twee redenen:
+ *
+ *  1. Dit project gebruikt de nieuwe API-keys en dus asymmetrische JWT signing keys.
+ *     PostgREST verifieert een bearer token tegen de JWKS van het project, en die
+ *     private key zit in Supabase Auth. Wij kunnen geen JWT maken dat als
+ *     Authorization-header wordt geaccepteerd — dat levert 401 op vóórdat er een RPC
+ *     draait. Het token moet dus hoe dan ook als RPC-parameter reizen, en dan verliest
+ *     een zelfgedragen handtekening zijn hele voordeel.
+ *  2. Een opaque token is intrekbaar. `app.agent_end_session()` zet `revoked_at`
+ *     zodra de sessie eindigt, en dat is meestal ruim vóór de TTL. Een JWT blijft
+ *     geldig tot zijn `exp`, wat je ook doet.
+ *
+ * Zie docs/ADR-0007-agent-sessietoken.md.
  */
 
-export interface AgentTokenClaims {
-  /** De enige intake die dit token mag aanraken. */
-  readonly intakeId: string;
-  readonly organizationId: string;
-  readonly sessionId: string;
+/**
+ * 32 bytes uit de CSPRNG. Base64url levert 43 tekens op, zonder padding en zonder
+ * tekens die in een URL of header ontsnapt moeten worden.
+ *
+ * 256 bit is ruim: raden is uitgesloten, en daarom is een timing-veilige vergelijking
+ * bij de lookup ook niet nodig — bij een willekeurig token van deze lengte valt er
+ * niets uit responstijden af te leiden.
+ */
+const TOKEN_BYTES = 32;
+
+export interface IssuedToken {
+  /** Het ruwe token. Bestaat alleen in het geheugen; gaat naar de worker, nergens anders. */
+  readonly token: string;
+  /** Wat de database te zien krijgt. Hex-gecodeerde SHA-256. */
+  readonly tokenHash: string;
 }
 
-export interface MintOptions extends AgentTokenClaims {
-  /** Supabase JWT secret. Alleen serverside beschikbaar. */
-  readonly jwtSecret: string;
-  /** Maximale sessieduur in minuten, uit organizations.session_limits. */
-  readonly maxSessionMinutes: number;
+export async function createSessionToken(): Promise<IssuedToken> {
+  const bytes = new Uint8Array(TOKEN_BYTES);
+  crypto.getRandomValues(bytes);
+  const token = base64url(bytes);
+  return { token, tokenHash: await hashSessionToken(token) };
 }
 
-const GRACE_MINUTES = 5;
-
-export async function mintAgentToken(
-  opts: MintOptions,
-): Promise<{ token: string; expiresAt: Date }> {
-  if (!opts.jwtSecret) throw new Error('jwtSecret ontbreekt');
-
-  const ttlSeconds = (opts.maxSessionMinutes + GRACE_MINUTES) * 60;
-  const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-  const key = new TextEncoder().encode(opts.jwtSecret);
-
-  const token = await new SignJWT({
-    // PostgREST leest `role` om de databaserol te kiezen.
-    role: 'authenticated',
-    // Onze eigen discriminator; app.is_agent_token() controleert hierop.
-    token_type: 'intake_agent',
-    intake_id: opts.intakeId,
-    organization_id: opts.organizationId,
-    session_id: opts.sessionId,
-  })
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    // `sub` is de sessie, niet een gebruiker. Er hoort geen mens bij dit token.
-    .setSubject(opts.sessionId)
-    .setIssuedAt()
-    .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
-    .sign(key);
-
-  return { token, expiresAt };
+/**
+ * Moet exact overeenkomen met `app.hash_session_token()` in migratie 0600.
+ * Wijkt één van de twee af, dan valideert geen enkel token meer — de isolatietest
+ * `mag naar zijn eigen intake schrijven` vangt dat.
+ */
+export async function hashSessionToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function verifyAgentToken(
-  token: string,
-  jwtSecret: string,
-): Promise<AgentTokenClaims> {
-  const key = new TextEncoder().encode(jwtSecret);
-  const { payload } = await jwtVerify(token, key, { algorithms: ['HS256'] });
-
-  if (payload['token_type'] !== 'intake_agent') {
-    throw new Error('geen agent-token');
-  }
-  const intakeId = payload['intake_id'];
-  const organizationId = payload['organization_id'];
-  const sessionId = payload['session_id'];
-
-  if (
-    typeof intakeId !== 'string' ||
-    typeof organizationId !== 'string' ||
-    typeof sessionId !== 'string'
-  ) {
-    throw new Error('agent-token mist verplichte claims');
-  }
-  return { intakeId, organizationId, sessionId };
+function base64url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

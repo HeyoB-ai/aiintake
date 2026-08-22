@@ -1,4 +1,4 @@
-import { createAgentClient, agentContext } from '@intake/db-core';
+import { createAgentClient, createAgentRpc, type AgentRpc } from '@intake/db-core';
 import { readAgentEnv } from './env.js';
 import { log } from './log.js';
 
@@ -19,33 +19,42 @@ import { log } from './log.js';
 export interface SessionHandle {
   readonly intakeId: string;
   readonly sessionId: string;
+  readonly rpc: AgentRpc;
 }
 
 /**
- * Start de verwerking van één intake. De worker krijgt het token aangereikt — hij
- * mint het niet zelf, want dan zou hij het ondertekeningsgeheim moeten kennen en
- * daarmee tokens voor willekeurige intakes kunnen maken.
+ * Start de verwerking van één intake.
+ *
+ * De worker krijgt het sessietoken aangereikt en maakt het niet zelf: wie zijn eigen
+ * credential mag uitgeven, heeft er geen. Het token is ondoorzichtig, gebonden aan
+ * deze ene intake, en verloopt met de sessie.
  */
 export async function attachToIntake(args: {
   intakeId: string;
   sessionToken: string;
 }): Promise<SessionHandle> {
   const env = readAgentEnv();
-  const client = createAgentClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, args.sessionToken);
+  const client = createAgentClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY);
+  const rpc = createAgentRpc(client, {
+    sessionToken: args.sessionToken,
+    intakeId: args.intakeId,
+  });
 
   // Eén call haalt organisatieconfiguratie, feiten, transcript en openstaande
-  // advocaatverzoeken op. Mislukt dit, dan is het token verlopen of niet aan deze
-  // intake gebonden — in beide gevallen stopt de sessie hier.
-  const context = await agentContext(client, args.intakeId);
+  // advocaatverzoeken op. Dit is meteen de eerste tokenverificatie: is het verlopen,
+  // ingetrokken of aan een andere intake gebonden, dan gooit dit AgentTokenRejected
+  // en stopt de sessie hier.
+  const context = await rpc.context();
 
   log.info('intake gekoppeld', {
     intakeId: args.intakeId,
+    sessionId: context.sessionId,
     turnCount: context.intake.turn_count,
     factCount: context.facts.length,
     avatarProvider: env.AVATAR_PROVIDER,
   });
 
-  return { intakeId: args.intakeId, sessionId: '' };
+  return { intakeId: args.intakeId, sessionId: context.sessionId, rpc };
 }
 
 async function main(): Promise<void> {

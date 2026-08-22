@@ -3,10 +3,9 @@ import type { AppClient } from './client';
 /**
  * Getypte wrappers rond het RPC-oppervlak uit migratie 0600.
  *
- * Reden om dit hier te centraliseren in plaats van per aanroepplaats `.rpc()` te
- * schrijven: de parameternamen zijn de enige koppeling tussen TypeScript en SQL, en
- * een typefout daarin faalt pas op runtime. Één plek betekent één plek om te
- * corrigeren als een signatuur verandert.
+ * Reden om dit te centraliseren in plaats van per aanroepplaats `.rpc()` te schrijven:
+ * de parameternamen zijn de enige koppeling tussen TypeScript en SQL, en een typefout
+ * daarin faalt pas op runtime.
  */
 
 export class RpcError extends Error {
@@ -20,10 +19,22 @@ export class RpcError extends Error {
   }
 }
 
+/** Het token is ongeldig, verlopen of ingetrokken: de sessie moet stoppen. */
+export class AgentTokenRejected extends RpcError {
+  constructor(message: string, code: string | undefined, rpc: string) {
+    super(message, code, rpc);
+    this.name = 'AgentTokenRejected';
+  }
+}
+
 async function call<T>(client: AppClient, fn: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.rpc(fn, args);
   if (error) {
-    // Geen argumenten in de melding: die kunnen persoonsgegevens bevatten (§14).
+    // Geen argumenten in de melding: die bevatten het sessietoken en mogelijk
+    // persoonsgegevens (§14).
+    if (error.code === '42501') {
+      throw new AgentTokenRejected(error.message, error.code, fn);
+    }
     throw new RpcError(error.message, error.code, fn);
   }
   return data as T;
@@ -89,130 +100,6 @@ export async function publicOrgBySlug(
 
 // --------------------------------------------------------------------- agent
 
-export async function agentStartSession(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    channel: 'video' | 'voice' | 'chat';
-    roomName: string | null;
-    avatarProvider: string | null;
-    sttProvider: string | null;
-    ttsProvider: string | null;
-    llmModel: string | null;
-    prewarmedAt?: string | null;
-  },
-): Promise<string> {
-  return call<string>(client, 'agent_start_session', {
-    p_intake_id: args.intakeId,
-    p_channel: args.channel,
-    p_room_name: args.roomName,
-    p_avatar_provider: args.avatarProvider,
-    p_stt_provider: args.sttProvider,
-    p_tts_provider: args.ttsProvider,
-    p_llm_model: args.llmModel,
-    p_prewarmed_at: args.prewarmedAt ?? null,
-  });
-}
-
-export async function agentEndSession(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    sessionId: string;
-    endReason: 'completed' | 'client_left' | 'timeout' | 'error' | 'budget';
-    billedSeconds?: number | null;
-  },
-): Promise<void> {
-  await call<void>(client, 'agent_end_session', {
-    p_intake_id: args.intakeId,
-    p_session_id: args.sessionId,
-    p_end_reason: args.endReason,
-    p_billed_seconds: args.billedSeconds ?? null,
-  });
-}
-
-export async function agentAppendMessage(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    sessionId: string;
-    turnIndex: number;
-    role: 'assistant' | 'client' | 'system';
-    /** Uitsluitend wat de cliënt daadwerkelijk heeft gehoord of gelezen. */
-    content: string;
-    intendedContent?: string | null;
-    interruptedAtChar?: number | null;
-    spokenMs?: number | null;
-    plannedQuestionKeys?: string[];
-    llmCallId?: string | null;
-  },
-): Promise<string> {
-  return call<string>(client, 'agent_append_message', {
-    p_intake_id: args.intakeId,
-    p_session_id: args.sessionId,
-    p_turn_index: args.turnIndex,
-    p_role: args.role,
-    p_content: args.content,
-    p_intended_content: args.intendedContent ?? null,
-    p_interrupted_at_char: args.interruptedAtChar ?? null,
-    p_spoken_ms: args.spokenMs ?? null,
-    p_planned_question_keys: args.plannedQuestionKeys ?? [],
-    p_llm_call_id: args.llmCallId ?? null,
-  });
-}
-
-export async function agentUpsertFact(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    key: string;
-    value: unknown;
-    valueType: 'string' | 'number' | 'date' | 'boolean' | 'enum';
-    status: 'confirmed' | 'inferred' | 'unknown' | 'contradicted';
-    confidence: number;
-    source: 'client_statement' | 'document' | 'lawyer_input';
-    sourceRef: string | null;
-    evidenceQuote?: string | null;
-    llmCallId?: string | null;
-  },
-): Promise<string> {
-  return call<string>(client, 'agent_upsert_fact', {
-    p_intake_id: args.intakeId,
-    p_key: args.key,
-    p_value: args.value ?? null,
-    p_value_type: args.valueType,
-    p_status: args.status,
-    p_confidence: args.confidence,
-    p_source: args.source,
-    p_source_ref: args.sourceRef,
-    p_evidence_quote: args.evidenceQuote ?? null,
-    p_llm_call_id: args.llmCallId ?? null,
-  });
-}
-
-export async function agentSetRiskFlag(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    ruleKey: string;
-    level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-    label: string;
-    detectedBy: 'rule' | 'rule+ai';
-    sourceRef?: string | null;
-    independentlyConfirmed?: boolean;
-  },
-): Promise<string> {
-  return call<string>(client, 'agent_set_risk_flag', {
-    p_intake_id: args.intakeId,
-    p_rule_key: args.ruleKey,
-    p_level: args.level,
-    p_label: args.label,
-    p_detected_by: args.detectedBy,
-    p_source_ref: args.sourceRef ?? null,
-    p_independently_confirmed: args.independentlyConfirmed ?? false,
-  });
-}
-
 export interface TurnMetrics {
   speechEndToSttFinalMs?: number;
   sttToLlmFirstTokenMs?: number;
@@ -223,74 +110,8 @@ export interface TurnMetrics {
   wasInterrupted?: boolean;
 }
 
-export async function agentRecordMetric(
-  client: AppClient,
-  args: { intakeId: string; sessionId: string; turnIndex: number; metrics: TurnMetrics },
-): Promise<void> {
-  await call<void>(client, 'agent_record_metric', {
-    p_intake_id: args.intakeId,
-    p_session_id: args.sessionId,
-    p_turn_index: args.turnIndex,
-    p_metrics: args.metrics,
-  });
-}
-
-export async function agentLogLlmCall(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    sessionId: string | null;
-    purpose: 'conversation' | 'extraction' | 'urgency' | 'document' | 'summary';
-    model: string;
-    inputTokens: number | null;
-    outputTokens: number | null;
-    latencyMs: number | null;
-    schemaValid?: boolean | null;
-    repairAttempts?: number;
-    promptTemplateKey?: string | null;
-    promptVersion?: number | null;
-  },
-): Promise<string> {
-  return call<string>(client, 'agent_log_llm_call', {
-    p_intake_id: args.intakeId,
-    p_session_id: args.sessionId,
-    p_purpose: args.purpose,
-    p_model: args.model,
-    p_input_tokens: args.inputTokens,
-    p_output_tokens: args.outputTokens,
-    p_latency_ms: args.latencyMs,
-    p_schema_valid: args.schemaValid ?? null,
-    p_repair_attempts: args.repairAttempts ?? 0,
-    p_prompt_template_key: args.promptTemplateKey ?? null,
-    p_prompt_version: args.promptVersion ?? null,
-  });
-}
-
-export async function agentUpdateProgress(
-  client: AppClient,
-  args: {
-    intakeId: string;
-    completeness?: number | null;
-    /** De agent mag nooit ACCEPTED/REJECTED/REFERRED zetten; de RPC weigert dat. */
-    status?: 'IN_PROGRESS' | 'READY_FOR_REVIEW' | 'NEEDS_HUMAN_CHECK' | null;
-    subject?: string | null;
-    clientName?: string | null;
-    clientEmail?: string | null;
-    clientPhone?: string | null;
-  },
-): Promise<void> {
-  await call<void>(client, 'agent_update_progress', {
-    p_intake_id: args.intakeId,
-    p_completeness: args.completeness ?? null,
-    p_status: args.status ?? null,
-    p_subject: args.subject ?? null,
-    p_client_name: args.clientName ?? null,
-    p_client_email: args.clientEmail ?? null,
-    p_client_phone: args.clientPhone ?? null,
-  });
-}
-
 export interface AgentContext {
+  sessionId: string;
   intake: {
     id: string;
     language: 'nl' | 'en';
@@ -326,6 +147,188 @@ export interface AgentContext {
   }[];
 }
 
-export async function agentContext(client: AppClient, intakeId: string): Promise<AgentContext> {
-  return call<AgentContext>(client, 'agent_context', { p_intake_id: intakeId });
+/**
+ * Alles wat de worker mag doen, gebonden aan één token en één intake.
+ *
+ * Token en intake-id worden hier één keer vastgelegd in plaats van bij elke aanroep
+ * meegegeven. Dat scheelt niet alleen herhaling: het maakt het onmogelijk om per
+ * ongeluk een token van sessie A met een intake-id van B te combineren. De database
+ * zou dat weigeren, maar een fout die niet te maken is, hoeft ook niet geweigerd te
+ * worden.
+ *
+ * De sessie-id komt uit het token en is dus geen parameter — de RPC leidt hem af.
+ */
+export interface AgentRpc {
+  readonly intakeId: string;
+  context(): Promise<AgentContext>;
+  setSessionProviders(providers: {
+    avatar: string | null;
+    stt: string | null;
+    tts: string | null;
+    llmModel: string | null;
+  }): Promise<void>;
+  appendMessage(args: {
+    turnIndex: number;
+    role: 'assistant' | 'client' | 'system';
+    /** Uitsluitend wat de cliënt daadwerkelijk heeft gehoord of gelezen. */
+    content: string;
+    intendedContent?: string | null;
+    interruptedAtChar?: number | null;
+    spokenMs?: number | null;
+    plannedQuestionKeys?: string[];
+    llmCallId?: string | null;
+  }): Promise<string>;
+  upsertFact(args: {
+    key: string;
+    value: unknown;
+    valueType: 'string' | 'number' | 'date' | 'boolean' | 'enum';
+    status: 'confirmed' | 'inferred' | 'unknown' | 'contradicted';
+    confidence: number;
+    source: 'client_statement' | 'document' | 'lawyer_input';
+    sourceRef: string | null;
+    evidenceQuote?: string | null;
+    llmCallId?: string | null;
+  }): Promise<string>;
+  setRiskFlag(args: {
+    ruleKey: string;
+    level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    label: string;
+    detectedBy: 'rule' | 'rule+ai';
+    sourceRef?: string | null;
+    independentlyConfirmed?: boolean;
+  }): Promise<string>;
+  recordMetric(turnIndex: number, metrics: TurnMetrics): Promise<void>;
+  logLlmCall(args: {
+    purpose: 'conversation' | 'extraction' | 'urgency' | 'document' | 'summary';
+    model: string;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    latencyMs: number | null;
+    schemaValid?: boolean | null;
+    repairAttempts?: number;
+    promptTemplateKey?: string | null;
+    promptVersion?: number | null;
+  }): Promise<string>;
+  updateProgress(args: {
+    completeness?: number | null;
+    /** De agent mag nooit ACCEPTED/REJECTED/REFERRED zetten; de RPC weigert dat. */
+    status?: 'IN_PROGRESS' | 'READY_FOR_REVIEW' | 'NEEDS_HUMAN_CHECK' | null;
+    subject?: string | null;
+    clientName?: string | null;
+    clientEmail?: string | null;
+    clientPhone?: string | null;
+  }): Promise<void>;
+  endSession(
+    endReason: 'completed' | 'client_left' | 'timeout' | 'error' | 'budget',
+    billedSeconds?: number | null,
+  ): Promise<void>;
+}
+
+export function createAgentRpc(
+  client: AppClient,
+  session: { sessionToken: string; intakeId: string },
+): AgentRpc {
+  const t = session.sessionToken;
+  const id = session.intakeId;
+
+  return {
+    intakeId: id,
+
+    context: () =>
+      call<AgentContext>(client, 'agent_context', { p_session_token: t, p_intake_id: id }),
+
+    setSessionProviders: (providers) =>
+      call<void>(client, 'agent_set_session_providers', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_avatar_provider: providers.avatar,
+        p_stt_provider: providers.stt,
+        p_tts_provider: providers.tts,
+        p_llm_model: providers.llmModel,
+      }),
+
+    appendMessage: (args) =>
+      call<string>(client, 'agent_append_message', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_turn_index: args.turnIndex,
+        p_role: args.role,
+        p_content: args.content,
+        p_intended_content: args.intendedContent ?? null,
+        p_interrupted_at_char: args.interruptedAtChar ?? null,
+        p_spoken_ms: args.spokenMs ?? null,
+        p_planned_question_keys: args.plannedQuestionKeys ?? [],
+        p_llm_call_id: args.llmCallId ?? null,
+      }),
+
+    upsertFact: (args) =>
+      call<string>(client, 'agent_upsert_fact', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_key: args.key,
+        p_value: args.value ?? null,
+        p_value_type: args.valueType,
+        p_status: args.status,
+        p_confidence: args.confidence,
+        p_source: args.source,
+        p_source_ref: args.sourceRef,
+        p_evidence_quote: args.evidenceQuote ?? null,
+        p_llm_call_id: args.llmCallId ?? null,
+      }),
+
+    setRiskFlag: (args) =>
+      call<string>(client, 'agent_set_risk_flag', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_rule_key: args.ruleKey,
+        p_level: args.level,
+        p_label: args.label,
+        p_detected_by: args.detectedBy,
+        p_source_ref: args.sourceRef ?? null,
+        p_independently_confirmed: args.independentlyConfirmed ?? false,
+      }),
+
+    recordMetric: (turnIndex, metrics) =>
+      call<void>(client, 'agent_record_metric', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_turn_index: turnIndex,
+        p_metrics: metrics,
+      }),
+
+    logLlmCall: (args) =>
+      call<string>(client, 'agent_log_llm_call', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_purpose: args.purpose,
+        p_model: args.model,
+        p_input_tokens: args.inputTokens,
+        p_output_tokens: args.outputTokens,
+        p_latency_ms: args.latencyMs,
+        p_schema_valid: args.schemaValid ?? null,
+        p_repair_attempts: args.repairAttempts ?? 0,
+        p_prompt_template_key: args.promptTemplateKey ?? null,
+        p_prompt_version: args.promptVersion ?? null,
+      }),
+
+    updateProgress: (args) =>
+      call<void>(client, 'agent_update_progress', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_completeness: args.completeness ?? null,
+        p_status: args.status ?? null,
+        p_subject: args.subject ?? null,
+        p_client_name: args.clientName ?? null,
+        p_client_email: args.clientEmail ?? null,
+        p_client_phone: args.clientPhone ?? null,
+      }),
+
+    endSession: (endReason, billedSeconds) =>
+      call<void>(client, 'agent_end_session', {
+        p_session_token: t,
+        p_intake_id: id,
+        p_end_reason: endReason,
+        p_billed_seconds: billedSeconds ?? null,
+      }),
+  };
 }

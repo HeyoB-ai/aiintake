@@ -20,7 +20,7 @@ Legenda: ✅ klaar · 🟡 deels · ⬜ open
 | ✅  | Databaseschema: 19 tabellen, 7 migraties                                                                        |
 | ✅  | RLS-policies op elke tabel; `schema-parity` bewaakt dat er geen tabel zonder RLS bij komt                       |
 | ✅  | RPC-oppervlak voor de publieke route en de agent (`app.create_public_intake`, `app.agent_*`)                    |
-| ✅  | Kortlevend intake-token + pakketsplitsing db / db-core                                                          |
+| ✅  | Ondoorzichtig, intrekbaar sessietoken (ADR-0007) + pakketsplitsing db / db-core                                 |
 | ✅  | Auth: login, sessie-middleware, uitnodigingscallback, uitloggen                                                 |
 | ✅  | Organisaties, rollen (4), rolrangorde in code én SQL                                                            |
 | ✅  | Dashboardskelet met kaarten en intakelijst                                                                      |
@@ -29,7 +29,7 @@ Legenda: ✅ klaar · 🟡 deels · ⬜ open
 | ✅  | Rate limiting op de publieke intakeroute (kostenmaatregel)                                                      |
 | ✅  | CI: boundaries, typecheck, tests, formattering                                                                  |
 | ✅  | Seed: demo-kantoor + 5 intakes met feiten en risicovlaggen                                                      |
-| 🟡  | **Tenant-isolatietests: geschreven (27 assertions), nog niet gedraaid — vereist een Supabase-project in de EU** |
+| 🟡  | **Tenant-isolatietests: geschreven (44 assertions), nog niet gedraaid — vereist een Supabase-project in de EU** |
 | ⬜  | Supabase-project aanmaken (eu-central-1 / eu-west-1) en migraties pushen                                        |
 
 ## Fase 1 — "Hello face" (de risicospike)

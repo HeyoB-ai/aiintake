@@ -68,36 +68,20 @@ as $$
 $$;
 
 -- -----------------------------------------------------------------------------
--- Het sessietoken van de agent-worker
+-- Het sessietoken van de agent-worker: zie 0300 (tabel) en 0600 (verificatie)
 -- -----------------------------------------------------------------------------
--- De agent krijgt GEEN service-role key (§4). Bij sessiestart mint de web-app een
--- kortlevend JWT met claim `intake_id`. Alles wat de agent schrijft, gaat via RPC's
--- die deze claim verifiëren — daardoor kan een gecompromitteerde worker hooguit één
--- intake aanraken in plaats van elke tenant.
-create or replace function app.session_intake_id()
-returns uuid
-language sql
-stable
-parallel safe
-set search_path = ''
-as $$
-  select nullif(app.jwt() ->> 'intake_id', '')::uuid;
-$$;
-
--- Het token draagt `role: authenticated` zodat PostgREST het accepteert; het
--- onderscheid zit in `token_type`. Een agent-token levert géén org-lidmaatschap op,
--- dus alle RLS-policies wijzen het af. Dat is de bedoeling: de agent leest en
--- schrijft uitsluitend via de RPC's in 0600, nooit rechtstreeks op een tabel.
-create or replace function app.is_agent_token()
-returns boolean
-language sql
-stable
-parallel safe
-set search_path = ''
-as $$
-  select app.jwt() ->> 'token_type' = 'intake_agent'
-     and app.session_intake_id() is not null;
-$$;
+-- Hier stond eerder een paar helpers die het agent-token uit `request.jwt.claims`
+-- lazen. Dat werkt niet meer, en het is nuttig te weten waarom:
+--
+-- Die opzet legde het token in de Authorization-header en liet PostgREST het
+-- verifiëren. Bij asymmetrische JWT signing keys verifieert PostgREST tegen de JWKS
+-- van het project, en die private key zit in Supabase Auth — wij kunnen dus geen
+-- token maken dat PostgREST accepteert. Elk zelfgemaakt token levert 401 op vóórdat
+-- er een RPC draait.
+--
+-- Het token reist daarom niet meer als bearer credential maar als expliciete
+-- RPC-parameter, en wordt geverifieerd met een lookup in `public.session_tokens`.
+-- Zie docs/ADR-0007-agent-sessietoken.md.
 
 -- -----------------------------------------------------------------------------
 -- Lidmaatschap en rollen
@@ -208,7 +192,5 @@ as $$
   );
 $$;
 
-comment on function app.session_intake_id() is
-  'Intake-id uit het kortlevende agent-JWT. Bepaalt de volledige schrijfreikwijdte van de agent-worker.';
 comment on function app.org_ids() is
   'SECURITY DEFINER om policy-recursie op organization_users te voorkomen.';

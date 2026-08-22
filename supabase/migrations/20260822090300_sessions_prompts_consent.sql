@@ -45,6 +45,57 @@ alter table public.lawyer_requests
   foreign key (asked_in_session) references public.sessions(id) on delete set null;
 
 -- -----------------------------------------------------------------------------
+-- session_tokens  — de credential van de agent-worker
+-- -----------------------------------------------------------------------------
+-- De worker krijgt geen sleutel die verder reikt dan één intake. Hij krijgt een
+-- ondoorzichtig, willekeurig token van 256 bit; hier staat alleen de SHA-256 daarvan.
+--
+-- Waarom een hash en niet het token zelf: wie leestoegang tot deze tabel krijgt —
+-- via een backup, een dump, een verkeerd gerichte policy — heeft dan nog steeds geen
+-- werkend token. Dezelfde reden waarom je wachtwoorden niet in platte tekst bewaart.
+--
+-- Waarom geen JWT: zie docs/ADR-0007-agent-sessietoken.md. Kort: PostgREST verifieert
+-- bij asymmetrische signing keys tegen de JWKS van het project, dus wij kunnen geen
+-- token maken dat als bearer credential wordt geaccepteerd. En een opaque token is
+-- intrekbaar; een JWT is dat niet.
+create table if not exists public.session_tokens (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  intake_id       uuid not null references public.intakes(id) on delete cascade,
+  session_id      uuid not null references public.sessions(id) on delete cascade,
+
+  -- SHA-256 van het ruwe token, als hex. Het ruwe token bestaat maar op één moment:
+  -- in het antwoord van app.issue_agent_session().
+  token_hash      text not null unique check (token_hash ~ '^[0-9a-f]{64}$'),
+
+  expires_at      timestamptz not null,
+  -- Ingetrokken bij sessie-einde, of handmatig als er iets misgaat. Een JWT kun je
+  -- niet intrekken; dit is het concrete voordeel van de lookup.
+  revoked_at      timestamptz,
+  -- Voor audit en voor het opsporen van een token dat nog gebruikt wordt nadat de
+  -- sessie had moeten eindigen. Bewust grofmazig bijgewerkt (hooguit eens per
+  -- minuut): een exacte teller zou een schrijfactie per RPC kosten op een rij waar
+  -- de hele beurtcyclus overheen gaat.
+  last_used_at    timestamptz,
+
+  created_at      timestamptz not null default now()
+);
+
+-- De lookup bij elke agent-RPC gaat hier overheen. Partieel op nog-geldige tokens.
+create index if not exists session_tokens_active_idx
+  on public.session_tokens (token_hash)
+  where revoked_at is null;
+
+create index if not exists session_tokens_expiry_idx
+  on public.session_tokens (expires_at);
+
+create index if not exists session_tokens_session_idx
+  on public.session_tokens (session_id);
+
+comment on table public.session_tokens is
+  'Hashes van agent-sessietokens. Geen enkele client leest of schrijft deze tabel rechtstreeks; alleen de functies in 0600.';
+
+-- -----------------------------------------------------------------------------
 -- session_metrics  — de latencybegroting per beurt
 -- -----------------------------------------------------------------------------
 -- Wegschrijven is geen luxe: zo zie je regressies over releases heen in plaats van
@@ -185,6 +236,7 @@ create index if not exists intake_rate_limits_window_idx
 -- =============================================================================
 
 alter table public.sessions            enable row level security;
+alter table public.session_tokens      enable row level security;
 alter table public.session_metrics     enable row level security;
 alter table public.prompt_templates    enable row level security;
 alter table public.prompt_versions     enable row level security;
@@ -234,3 +286,9 @@ create policy prompt_versions_write_super on public.prompt_versions
 
 -- intake_rate_limits is puur infrastructuur: geen enkele client leest of schrijft
 -- hem rechtstreeks. Er staat bewust geen policy — alleen de RPC's in 0600 raken hem.
+
+-- session_tokens krijgt bewust ook geen enkele policy, ook geen select voor
+-- ORG_ADMIN. Er is geen legitieme reden voor een client om zelfs maar de hashes te
+-- zien, en "we tonen alleen de hash" is een geruststelling die je niet nodig hebt als
+-- niemand erbij kan. Wat een kantoor wél moet kunnen zien — welke sessies er liepen
+-- en hoe lang — staat in public.sessions.

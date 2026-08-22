@@ -1,55 +1,51 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { SignJWT } from 'jose';
+import { createSessionToken } from '../agent-token';
 
 /**
  * Testharnas voor de tenant-isolatietests.
  *
  * Deze tests draaien tegen een échte Supabase-database, niet tegen een mock. Dat is
- * geen keuze maar een noodzaak: RLS-policies zijn Postgres-gedrag, en een mock die
- * ze nabootst test alleen de mock. Zonder database worden ze overgeslagen met een
+ * geen keuze maar een noodzaak: RLS-policies zijn Postgres-gedrag, en een mock die ze
+ * nabootst test alleen de mock. Zonder database worden ze overgeslagen met een
  * expliciete melding — nooit stilzwijgend groen.
+ *
+ * Gebruikerstokens worden hier via een echte inlogflow opgehaald en niet zelf
+ * ondertekend. Dat kán ook niet meer: met asymmetrische signing keys zit de private
+ * key in Supabase Auth. Dat is meteen de reden dat het agent-token geen JWT meer is;
+ * zie docs/ADR-0007-agent-sessietoken.md.
  *
  * Benodigde env (zie .env.example):
  *   SUPABASE_TEST_URL
- *   SUPABASE_TEST_SERVICE_ROLE_KEY
- *   SUPABASE_TEST_ANON_KEY
- *   SUPABASE_TEST_JWT_SECRET
+ *   SUPABASE_TEST_SECRET_KEY
+ *   SUPABASE_TEST_PUBLISHABLE_KEY
  */
 
 export interface TestEnv {
   url: string;
-  serviceRoleKey: string;
-  anonKey: string;
-  jwtSecret: string;
+  secretKey: string;
+  publishableKey: string;
 }
 
 export function readTestEnv(): TestEnv | null {
   const url = process.env['SUPABASE_TEST_URL'];
-  const serviceRoleKey = process.env['SUPABASE_TEST_SERVICE_ROLE_KEY'];
-  const anonKey = process.env['SUPABASE_TEST_ANON_KEY'];
-  const jwtSecret = process.env['SUPABASE_TEST_JWT_SECRET'];
-  if (!url || !serviceRoleKey || !anonKey || !jwtSecret) return null;
-  return { url, serviceRoleKey, anonKey, jwtSecret };
+  const secretKey = process.env['SUPABASE_TEST_SECRET_KEY'];
+  const publishableKey = process.env['SUPABASE_TEST_PUBLISHABLE_KEY'];
+  if (!url || !secretKey || !publishableKey) return null;
+  return { url, secretKey, publishableKey };
 }
 
-export function serviceClient(env: TestEnv): SupabaseClient {
-  return createClient(env.url, env.serviceRoleKey, {
+export function serviceClient(env: TestEnv, schema: 'public' | 'app' = 'public'): SupabaseClient {
+  return createClient(env.url, env.secretKey, {
+    db: { schema } as never,
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-/**
- * Mint een gebruikers-JWT rechtstreeks in plaats van via een inlogflow. Scheelt een
- * mailbox en test exact wat we willen testen: wat een geldig gebruikerstoken mag.
- */
-export async function userToken(env: TestEnv, userId: string): Promise<string> {
-  const key = new TextEncoder().encode(env.jwtSecret);
-  return new SignJWT({ role: 'authenticated', aud: 'authenticated' })
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    .setSubject(userId)
-    .setIssuedAt()
-    .setExpirationTime(Math.floor(Date.now() / 1000) + 3600)
-    .sign(key);
+export function anonUser(env: TestEnv, schema: 'public' | 'app' = 'public'): SupabaseClient {
+  return createClient(env.url, env.publishableKey, {
+    db: { schema } as never,
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 export function asUser(
@@ -57,18 +53,23 @@ export function asUser(
   token: string,
   schema: 'public' | 'app' = 'public',
 ): SupabaseClient {
-  return createClient(env.url, env.anonKey, {
+  return createClient(env.url, env.publishableKey, {
     db: { schema } as never,
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
 }
 
-export function anonUser(env: TestEnv, schema: 'public' | 'app' = 'public'): SupabaseClient {
-  return createClient(env.url, env.anonKey, {
-    db: { schema } as never,
+/** Echte inlogflow: levert een JWT dat door de auth-server is ondertekend. */
+async function signIn(env: TestEnv, email: string, password: string): Promise<string> {
+  const client = createClient(env.url, env.publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  if (error || !data.session) {
+    throw new Error(`kon niet inloggen als ${email}: ${error?.message ?? 'geen sessie'}`);
+  }
+  return data.session.access_token;
 }
 
 /** Een compleet tweetenant-decor: twee kantoren, twee gebruikers, twee intakes. */
@@ -83,6 +84,8 @@ export interface Fixture {
   tokenB: string;
   suffix: string;
 }
+
+const PASSWORD = 'Test-Isolatie-2026!aA1';
 
 export async function createFixture(env: TestEnv): Promise<Fixture> {
   const svc = serviceClient(env);
@@ -100,8 +103,10 @@ export async function createFixture(env: TestEnv): Promise<Fixture> {
   const orgA = orgs!.find((o) => o.slug === `test-a-${suffix}`)!.id as string;
   const orgB = orgs!.find((o) => o.slug === `test-b-${suffix}`)!.id as string;
 
-  const userA = await createAuthUser(svc, `a-${suffix}@example.test`);
-  const userB = await createAuthUser(svc, `b-${suffix}@example.test`);
+  const emailA = `a-${suffix}@example.test`;
+  const emailB = `b-${suffix}@example.test`;
+  const userA = await createAuthUser(env, emailA);
+  const userB = await createAuthUser(env, emailB);
 
   const { error: memberErr } = await svc.from('organization_users').insert([
     { organization_id: orgA, user_id: userA, role: 'ORG_ADMIN' },
@@ -128,47 +133,89 @@ export async function createFixture(env: TestEnv): Promise<Fixture> {
     userB,
     intakeA,
     intakeB,
-    tokenA: await userToken(env, userA),
-    tokenB: await userToken(env, userB),
+    tokenA: await signIn(env, emailA, PASSWORD),
+    tokenB: await signIn(env, emailB, PASSWORD),
     suffix,
   };
 }
 
 export async function destroyFixture(env: TestEnv, fixture: Fixture): Promise<void> {
   const svc = serviceClient(env);
-  // Cascade ruimt intakes, lidmaatschappen en kindrijen op.
+  // Cascade ruimt intakes, sessies, tokens en lidmaatschappen op.
   await svc.from('organizations').delete().in('id', [fixture.orgA, fixture.orgB]);
-  await svc.auth.admin.deleteUser(fixture.userA).catch(() => undefined);
-  await svc.auth.admin.deleteUser(fixture.userB).catch(() => undefined);
+  const admin = createClient(env.url, env.secretKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  await admin.auth.admin.deleteUser(fixture.userA).catch(() => undefined);
+  await admin.auth.admin.deleteUser(fixture.userB).catch(() => undefined);
 }
 
-async function createAuthUser(svc: SupabaseClient, email: string): Promise<string> {
-  const { data, error } = await svc.auth.admin.createUser({
+async function createAuthUser(env: TestEnv, email: string): Promise<string> {
+  const admin = createClient(env.url, env.secretKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await admin.auth.admin.createUser({
     email,
     email_confirm: true,
-    password: `Test!${Math.random().toString(36).slice(2)}Aa1`,
+    password: PASSWORD,
   });
   if (error) throw new Error(`kon auth-gebruiker niet aanmaken: ${error.message}`);
   return data.user.id;
 }
 
-/** Mint een agent-token voor één intake — dezelfde vorm als packages/db/src/agent-token.ts. */
-export async function agentToken(
+// ---------------------------------------------------------------- agentsessie
+
+export interface AgentSessionFixture {
+  sessionId: string;
+  sessionToken: string;
+  expiresAt: string;
+}
+
+/**
+ * Geeft een agentsessie uit zoals apps/web dat doet: token hier genereren, alleen de
+ * hash de database in. De database ziet het ruwe token nooit.
+ */
+export async function issueSession(
   env: TestEnv,
-  args: { intakeId: string; organizationId: string; sessionId: string },
-): Promise<string> {
-  const key = new TextEncoder().encode(env.jwtSecret);
-  return new SignJWT({
-    role: 'authenticated',
-    aud: 'authenticated',
-    token_type: 'intake_agent',
-    intake_id: args.intakeId,
-    organization_id: args.organizationId,
-    session_id: args.sessionId,
-  })
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    .setSubject(args.sessionId)
-    .setIssuedAt()
-    .setExpirationTime(Math.floor(Date.now() / 1000) + 900)
-    .sign(key);
+  args: { intakeId: string; channel?: 'video' | 'voice' | 'chat'; ttlMinutes?: number },
+): Promise<AgentSessionFixture> {
+  const { token, tokenHash } = await createSessionToken();
+  const svc = serviceClient(env, 'app');
+
+  const { data, error } = await svc.rpc('issue_agent_session', {
+    p_intake_id: args.intakeId,
+    p_channel: args.channel ?? 'video',
+    p_token_hash: tokenHash,
+    p_ttl_minutes: args.ttlMinutes ?? null,
+    p_room_name: null,
+    p_prewarmed_at: null,
+  });
+  if (error) throw new Error(`kon sessie niet uitgeven: ${error.message}`);
+
+  const row = (data as { session_id: string; expires_at: string }[])[0]!;
+  return { sessionId: row.session_id, sessionToken: token, expiresAt: row.expires_at };
+}
+
+/**
+ * Zet een bestaand token in het verleden.
+ *
+ * Bewust via een directe update en niet via een negatieve TTL: issue_agent_session
+ * weigert die, en dat hoort zo. Een test mag de productie-API niet slapper maken om
+ * zichzelf makkelijker te maken.
+ */
+export async function expireSessionToken(env: TestEnv, sessionId: string): Promise<void> {
+  const svc = serviceClient(env);
+  const { error } = await svc
+    .from('session_tokens')
+    .update({ expires_at: new Date(Date.now() - 60_000).toISOString() })
+    .eq('session_id', sessionId);
+  if (error) throw new Error(`kon token niet laten verlopen: ${error.message}`);
+}
+
+/** De agentclient: publishable key, geen Authorization-header. Het token gaat per call mee. */
+export function agentClient(env: TestEnv): SupabaseClient {
+  return createClient(env.url, env.publishableKey, {
+    db: { schema: 'app' } as never,
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }

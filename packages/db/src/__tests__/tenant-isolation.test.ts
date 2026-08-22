@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  agentToken,
+  agentClient,
   anonUser,
   asUser,
   createFixture,
   destroyFixture,
+  expireSessionToken,
+  issueSession,
   readTestEnv,
   serviceClient,
+  type AgentSessionFixture,
   type Fixture,
   type TestEnv,
 } from './harness';
@@ -101,6 +104,7 @@ describeDb('tenant-isolatie', () => {
       ['lawyer_requests'],
       ['summaries'],
       ['sessions'],
+      ['session_tokens'],
       ['llm_calls'],
       ['consent_records'],
       ['documents'],
@@ -152,92 +156,212 @@ describeDb('tenant-isolatie', () => {
     });
   });
 
-  describe('het sessie-JWT van de agent', () => {
-    let sessionId: string;
+  describe('het sessietoken van de agent', () => {
+    let sessionA: AgentSessionFixture;
 
     beforeAll(async () => {
-      const svc = serviceClient(testEnv);
-      const { data, error } = await svc
-        .from('sessions')
-        .insert({ organization_id: fx.orgA, intake_id: fx.intakeA, channel: 'video' })
-        .select('id')
-        .single();
-      if (error) throw new Error(error.message);
-      sessionId = data!.id as string;
+      sessionA = await issueSession(testEnv, { intakeId: fx.intakeA });
     });
 
-    it('mag naar zijn eigen intake schrijven', async () => {
-      const token = await agentToken(testEnv, {
-        intakeId: fx.intakeA,
-        organizationId: fx.orgA,
-        sessionId,
-      });
-      const agent = asUser(testEnv, token, 'app');
-      const { data, error } = await agent.rpc('agent_append_message', {
-        p_intake_id: fx.intakeA,
-        p_session_id: sessionId,
-        p_turn_index: 0,
+    const append = (token: string, intakeId: string, turnIndex: number, content: string) =>
+      agentClient(testEnv).rpc('agent_append_message', {
+        p_session_token: token,
+        p_intake_id: intakeId,
+        p_turn_index: turnIndex,
         p_role: 'assistant',
-        p_content: 'Goedemiddag, ik ben de intake-assistent.',
+        p_content: content,
       });
+
+    it('mag naar zijn eigen intake schrijven', async () => {
+      const { data, error } = await append(
+        sessionA.sessionToken,
+        fx.intakeA,
+        0,
+        'Goedemiddag, ik ben de intake-assistent.',
+      );
       expect(error).toBeNull();
       expect(data).toBeTruthy();
     });
 
+    it('leidt de sessie uit het token af — er is geen sessie-parameter om te vervalsen', async () => {
+      const { data, error } = await agentClient(testEnv).rpc('agent_context', {
+        p_session_token: sessionA.sessionToken,
+        p_intake_id: fx.intakeA,
+      });
+      expect(error).toBeNull();
+      expect((data as any).intake.id).toBe(fx.intakeA);
+      expect((data as any).sessionId).toBe(sessionA.sessionId);
+    });
+
     it('mag NIET naar een andere intake schrijven', async () => {
-      const token = await agentToken(testEnv, {
-        intakeId: fx.intakeA,
-        organizationId: fx.orgA,
-        sessionId,
-      });
-      const agent = asUser(testEnv, token, 'app');
-      const { error } = await agent.rpc('agent_append_message', {
-        p_intake_id: fx.intakeB, // andere tenant
-        p_session_id: sessionId,
-        p_turn_index: 0,
-        p_role: 'assistant',
-        p_content: 'dit hoort hier niet',
-      });
+      const { error } = await append(sessionA.sessionToken, fx.intakeB, 0, 'dit hoort hier niet');
       expect(error).not.toBeNull();
       expect(error!.message).toMatch(/niet gebonden aan deze intake/i);
     });
 
-    it('kan geen enkele tabel rechtstreeks lezen', async () => {
-      const token = await agentToken(testEnv, {
-        intakeId: fx.intakeA,
-        organizationId: fx.orgA,
-        sessionId,
-      });
-      const agent = asUser(testEnv, token, 'public');
-      for (const table of ['intakes', 'messages', 'case_facts', 'organizations']) {
-        const { data } = await agent.from(table).select('*');
-        expect(data ?? []).toEqual([]);
-      }
+    it('een token van kantoor B werkt niet op de intake van kantoor A', async () => {
+      const sessionB = await issueSession(testEnv, { intakeId: fx.intakeB });
+      const { error } = await append(sessionB.sessionToken, fx.intakeA, 1, 'cross-tenant');
+      expect(error).not.toBeNull();
+      expect(error!.message).toMatch(/niet gebonden aan deze intake/i);
     });
 
-    it('krijgt via agent_context alleen zijn eigen intake', async () => {
-      const token = await agentToken(testEnv, {
-        intakeId: fx.intakeA,
-        organizationId: fx.orgA,
-        sessionId,
-      });
-      const agent = asUser(testEnv, token, 'app');
-      const { data, error } = await agent.rpc('agent_context', { p_intake_id: fx.intakeA });
-      expect(error).toBeNull();
-      expect((data as any).intake.id).toBe(fx.intakeA);
+    it('een verlopen token wordt geweigerd', async () => {
+      const expiring = await issueSession(testEnv, { intakeId: fx.intakeA });
+      // Werkt eerst wél — anders bewijst de afwijzing hieronder niets.
+      const before = await append(expiring.sessionToken, fx.intakeA, 10, 'nog geldig');
+      expect(before.error).toBeNull();
+
+      await expireSessionToken(testEnv, expiring.sessionId);
+
+      const after = await append(expiring.sessionToken, fx.intakeA, 11, 'te laat');
+      expect(after.error).not.toBeNull();
+      expect(after.error!.message).toMatch(/geen geldig agent-token/i);
     });
 
-    it('een gewoon gebruikerstoken kan de agent-RPC niet misbruiken', async () => {
+    it('een ingetrokken token wordt geweigerd', async () => {
+      const revoking = await issueSession(testEnv, { intakeId: fx.intakeA });
+      const svc = serviceClient(testEnv, 'app');
+      const { error: revokeErr } = await svc.rpc('revoke_agent_session', {
+        p_session_id: revoking.sessionId,
+      });
+      expect(revokeErr).toBeNull();
+
+      const { error } = await append(revoking.sessionToken, fx.intakeA, 20, 'ingetrokken');
+      expect(error).not.toBeNull();
+      expect(error!.message).toMatch(/geen geldig agent-token/i);
+    });
+
+    it('einde sessie trekt het token direct in', async () => {
+      // De meeste sessies eindigen ruim vóór hun TTL. Precies dat gat is waar een
+      // gelekt token anders nog bruikbaar zou zijn.
+      const ending = await issueSession(testEnv, { intakeId: fx.intakeA });
+      const agent = agentClient(testEnv);
+
+      const { error: endErr } = await agent.rpc('agent_end_session', {
+        p_session_token: ending.sessionToken,
+        p_intake_id: fx.intakeA,
+        p_end_reason: 'completed',
+        p_billed_seconds: 120,
+      });
+      expect(endErr).toBeNull();
+
+      const { error } = await append(ending.sessionToken, fx.intakeA, 30, 'na afloop');
+      expect(error).not.toBeNull();
+      expect(error!.message).toMatch(/geen geldig agent-token/i);
+    });
+
+    it.each([
+      ['onbekend maar goed gevormd', 'A'.repeat(43)],
+      ['leeg', ''],
+      ['te kort', 'kort'],
+      ['absurd lang', 'x'.repeat(5000)],
+      ['ziet eruit als een hash', 'a'.repeat(64)],
+    ])('een %s token wordt geweigerd', async (_name, token) => {
+      const { error } = await append(token, fx.intakeA, 40, 'gegokt');
+      expect(error).not.toBeNull();
+      expect(error!.message).toMatch(/geen geldig agent-token/i);
+    });
+
+    it('het token werkt niet als bearer credential in de Authorization-header', async () => {
+      // Het is geen JWT en hoort daar niet; deze test legt vast dat een toekomstige
+      // "handige" refactor die het alsnog in de header legt, niet stilzwijgend werkt.
+      const client = asUser(testEnv, sessionA.sessionToken, 'app');
+      const { error } = await client.rpc('agent_context', {
+        p_session_token: sessionA.sessionToken,
+        p_intake_id: fx.intakeA,
+      });
+      expect(error).not.toBeNull();
+    });
+
+    it('zonder token kan een ingelogde medewerker de agent-RPC niet misbruiken', async () => {
       const a = asUser(testEnv, fx.tokenA, 'app');
       const { error } = await a.rpc('agent_append_message', {
+        p_session_token: 'geen-echt-token-maar-lang-genoeg-voor-de-lengtecheck',
         p_intake_id: fx.intakeA,
-        p_session_id: sessionId,
         p_turn_index: 99,
         p_role: 'assistant',
         p_content: 'via een mensentoken',
       });
       expect(error).not.toBeNull();
       expect(error!.message).toMatch(/geen geldig agent-token/i);
+    });
+
+    it('de agent kan geen enkele tabel rechtstreeks lezen', async () => {
+      // De worker draait op de publishable key: RLS geeft hem niets. Alles loopt via
+      // de RPC's, en die zijn per intake afgebakend.
+      const agent = agentClient(testEnv);
+      const publicSchema = anonUser(testEnv, 'public');
+      for (const table of ['intakes', 'messages', 'case_facts', 'organizations']) {
+        const { data } = await publicSchema.from(table).select('*');
+        expect(data ?? []).toEqual([]);
+      }
+      expect(agent).toBeTruthy();
+    });
+  });
+
+  describe('uitgifte van sessietokens', () => {
+    it('kan niet door een cliënt of anonieme bezoeker', async () => {
+      const { error } = await anonUser(testEnv, 'app').rpc('issue_agent_session', {
+        p_intake_id: fx.intakeA,
+        p_channel: 'video',
+        p_token_hash: 'a'.repeat(64),
+        p_ttl_minutes: 30,
+      });
+      expect(error).not.toBeNull();
+    });
+
+    it('kan niet door een ingelogde ORG_ADMIN', async () => {
+      // Ook de beheerder van het eigen kantoor niet: uitgifte hoort bij de serverkant
+      // van de web-app, niet bij een browsersessie.
+      const { error } = await asUser(testEnv, fx.tokenA, 'app').rpc('issue_agent_session', {
+        p_intake_id: fx.intakeA,
+        p_channel: 'video',
+        p_token_hash: 'a'.repeat(64),
+        p_ttl_minutes: 30,
+      });
+      expect(error).not.toBeNull();
+    });
+
+    it('weigert een TTL van nul of minder', async () => {
+      const { error } = await serviceClient(testEnv, 'app').rpc('issue_agent_session', {
+        p_intake_id: fx.intakeA,
+        p_channel: 'video',
+        p_token_hash: 'b'.repeat(64),
+        p_ttl_minutes: 0,
+      });
+      expect(error).not.toBeNull();
+      expect(error!.message).toMatch(/ttl_minutes/i);
+    });
+
+    it('kapt de TTL af op de maximale sessieduur van het kantoor', async () => {
+      // Een token dat langer leeft dan de sessie is precies wat we niet willen.
+      const session = await issueSession(testEnv, { intakeId: fx.intakeA, ttlMinutes: 10_000 });
+      const maxMs = (25 + 5) * 60 * 1000;
+      const ttlMs = new Date(session.expiresAt).getTime() - Date.now();
+      expect(ttlMs).toBeLessThanOrEqual(maxMs + 60_000);
+      expect(ttlMs).toBeGreaterThan(0);
+    });
+
+    it('de tabel met tokenhashes is voor niemand leesbaar', async () => {
+      for (const client of [anonUser(testEnv), asUser(testEnv, fx.tokenA)]) {
+        const { data } = await client.from('session_tokens').select('token_hash');
+        expect(data ?? []).toEqual([]);
+      }
+    });
+
+    it('slaat het ruwe token nergens op', async () => {
+      const session = await issueSession(testEnv, { intakeId: fx.intakeA });
+      const svc = serviceClient(testEnv);
+      const { data } = await svc
+        .from('session_tokens')
+        .select('token_hash')
+        .eq('session_id', session.sessionId);
+
+      const hashes = (data ?? []).map((r: any) => r.token_hash);
+      expect(hashes).toHaveLength(1);
+      expect(hashes[0]).not.toBe(session.sessionToken);
+      expect(hashes[0]).toMatch(/^[0-9a-f]{64}$/);
     });
   });
 

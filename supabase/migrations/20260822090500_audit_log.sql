@@ -103,7 +103,10 @@ begin
     )
     values (
       new.organization_id, 'intake.status_changed', app.current_user_id(),
-      case when app.is_agent_token() then 'agent' else 'user' end,
+      -- Er hoort geen mens bij een statuswijziging die de worker doet: die draait op
+      -- de publishable key zonder ingelogde gebruiker. Is er wél een `sub` in het
+      -- JWT, dan handelde een medewerker.
+      case when app.current_user_id() is null then 'agent' else 'user' end,
       'intake', new.id, new.id,
       jsonb_build_object('from', old.status, 'to', new.status)
     );

@@ -45,7 +45,7 @@ packages/
   prompts         promptsjablonen + versiebeheer
   intake-engine   engine, planner, regels                ← geen I/O, geen vendor-SDK
   db-core         anon- en agent-client, RPC-wrappers    ← waar apps/agent aan hangt
-  db              + service-role client, env, tokens     ← waar apps/web aan hangt
+  db              + RLS-omzeilende client, env, uitgifte ← waar apps/web aan hangt
   providers/*     LLM, STT, TTS, avatar, visual          ← Fase 1
   ui              design tokens, gedeelde presentatie
 ```
@@ -96,7 +96,7 @@ het statement staat onderaan `supabase/seed/seed.sql`. Er is bewust geen zelfreg
 |                       |                                                                    |
 | --------------------- | ------------------------------------------------------------------ |
 | `pnpm dev`            | web + agent in watch-modus                                         |
-| `pnpm test`           | alle tests (79 groen; 27 isolatietests slaan over zonder database) |
+| `pnpm test`           | alle tests (86 groen; 44 isolatietests slaan over zonder database) |
 | `pnpm typecheck`      | TypeScript over de hele monorepo                                   |
 | `pnpm boundaries`     | architectuurgrenzen — faalt bij een overtreding                    |
 | `pnpm test:isolation` | tenant-isolatie tegen een echte database                           |
@@ -117,13 +117,12 @@ het soort geruststelling waar dit project niet tegen kan.
 
 ```bash
 export SUPABASE_TEST_URL=...                 # gebruik een APART testproject
-export SUPABASE_TEST_ANON_KEY=...
-export SUPABASE_TEST_SERVICE_ROLE_KEY=...
-export SUPABASE_TEST_JWT_SECRET=...
+export SUPABASE_TEST_PUBLISHABLE_KEY=sb_publishable_...
+export SUPABASE_TEST_SECRET_KEY=sb_secret_...
 pnpm test:isolation
 ```
 
-De suite maakt twee kantoren, twee gebruikers en twee intakes aan, controleert 27
+De suite maakt twee kantoren, twee gebruikers en twee intakes aan, controleert 44
 assertions en ruimt alles weer op. Draai hem nooit tegen productie.
 
 Wat er wordt bewezen:
@@ -132,9 +131,11 @@ Wat er wordt bewezen:
   ook via update, ook via de kindtabellen en de storage-paden;
 - `anon` komt nergens bij, en krijgt via `public_org_by_slug` alleen naam, logo en taal
   — niet de providerconfiguratie of de acceptatiecriteria;
-- het kortlevende agent-token kan alleen zijn eigen intake beschrijven, kan geen enkele
-  tabel rechtstreeks lezen, en een gewoon gebruikerstoken kan de agent-RPC niet
-  misbruiken;
+- het kortlevende agent-sessietoken kan alleen zijn eigen intake beschrijven, en wordt
+  geweigerd zodra het verlopen, ingetrokken, van een ander kantoor, of gewoon verzonnen
+  is — ook direct na afloop van de sessie, want die trekt het token in;
+- uitgifte van sessietokens kan alleen serverside: niet door een anonieme bezoeker en
+  niet door een ingelogde ORG_ADMIN;
 - een verwijderd lidmaatschap geeft direct geen toegang meer;
 - het auditlog is niet te wijzigen of te verwijderen, ook niet door een ORG_ADMIN.
 
@@ -159,7 +160,9 @@ Deze staan hier omdat ze in code zijn afgedwongen en niet alleen in een document
 7. **AI-output is per definitie onbetrouwbaar.** Gesloten schema's, `unknown` blijft
    `unknown`, feiten zonder citaat in de bron worden geweigerd.
 8. **Geen secrets in de browser, geen RLS-omzeilende sleutel in het agentproces**
-   ([ADR-0002](docs/ADR-0002-agent-zonder-service-role-key.md)).
+   ([ADR-0002](docs/ADR-0002-agent-zonder-service-role-key.md)). De worker draait op de
+   publishable key en legitimeert zich met een ondoorzichtig, intrekbaar sessietoken dat
+   aan één intake is gebonden ([ADR-0007](docs/ADR-0007-agent-sessietoken.md)).
 
 ---
 
@@ -171,4 +174,5 @@ Deze staan hier omdat ze in code zijn afgedwongen en niet alleen in een document
 | [ROADMAP.md](docs/ROADMAP.md)                                                   | taken per fase, met status                                              |
 | [RISICOS.md](docs/RISICOS.md)                                                   | vijf technische risico's met mitigatie                                  |
 | [DPIA-input.md](docs/DPIA-input.md)                                             | verwerkingen, categorieën, subverwerkers                                |
+| [ADR-0007](docs/ADR-0007-agent-sessietoken.md)                                  | waarom het agent-credential geen JWT is                                 |
 | `ADR-*.md`                                                                      | architectuurbeslissingen, met de overwogen alternatieven                |

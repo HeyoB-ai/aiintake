@@ -49,14 +49,21 @@ truncatietest uit §11.
 
 ## 3. De tenantgrens is geschreven maar niet bewezen
 
-**Stand van zaken.** 27 isolatie-assertions staan klaar en zijn nog nooit tegen een
+**Stand van zaken.** 44 isolatie-assertions staan klaar en zijn nog nooit tegen een
 database gedraaid, want er is nog geen Supabase-project. RLS-policies zijn Postgres-
 gedrag; tot ze draaien, is de tenantgrens een bewering.
 
-Het zwaarst wegende deel is de agent: die krijgt bewust geen service-role key en werkt
-via RPC's met `assert_agent_scope`. De statische helft daarvan is groen (de broncodescan
-faalt zodra `apps/agent` de sleutelnamen noemt), maar dat een agent-token van intake A
-daadwerkelijk 42501 krijgt op intake B, is nog niet aangetoond.
+Het zwaarst wegende deel is de agent: die krijgt bewust geen RLS-omzeilende sleutel en
+werkt via RPC's met `assert_agent_scope`. De statische helft daarvan is groen (de
+broncodescan faalt zodra `apps/agent` de sleutelnamen noemt), maar dat een sessietoken
+van intake A daadwerkelijk 42501 krijgt op intake B — en dat een verlopen of ingetrokken
+token wordt geweigerd — is nog niet aangetoond.
+
+Er is één concreet faalscenario bij gekomen sinds
+[ADR-0007](ADR-0007-agent-sessietoken.md): de tokenhash wordt aan twee kanten berekend,
+in TypeScript en in plpgsql. Wijken die af, dan valideert geen enkele agentsessie. De
+TypeScript-kant is los getest tegen bekende SHA-256-vectoren; of de twee overeenkomen,
+blijkt pas uit de eerste isolatietest.
 
 **Mitigatie.** Een Supabase-project in de EU aanmaken, migraties pushen, `pnpm
 test:isolation`. Dat is een taak van hooguit een uur zodra het project bestaat, en het is

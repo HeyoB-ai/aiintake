@@ -6,10 +6,19 @@ import { z } from 'zod';
  * Dit proces leest opzettelijk een eigen, kleinere envset in plaats van die van de
  * web-app: alles wat hier niet in staat, kan de worker ook niet per ongeluk gaan
  * gebruiken. Er zit geen sleutel in waarmee dit proces bij meer dan één intake kan.
+ *
+ * De publishable key mag publiek zijn en geeft op zichzelf geen enkel recht. Wat de
+ * worker mag, bepaalt het sessietoken dat hij per sessie aangereikt krijgt — hij kan
+ * er zelf geen maken.
  */
 const AgentEnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
-  SUPABASE_ANON_KEY: z.string().min(20),
+  SUPABASE_PUBLISHABLE_KEY: z
+    .string()
+    .min(20)
+    .refine((k) => !k.startsWith('sb_secret_'), {
+      message: 'dit is een secret key; de worker hoort die niet te hebben',
+    }),
 
   LIVEKIT_URL: z.string().url(),
   LIVEKIT_API_KEY: z.string().min(1),
