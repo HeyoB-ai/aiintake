@@ -84,60 +84,21 @@ $$;
 -- Zie docs/ADR-0007-agent-sessietoken.md.
 
 -- -----------------------------------------------------------------------------
--- Lidmaatschap en rollen
+-- Lidmaatschap en rollen: zie 0100
 -- -----------------------------------------------------------------------------
-
-create or replace function app.is_super_admin()
-returns boolean
-language sql
-stable
-parallel safe
-security definer
-set search_path = ''
-as $$
-  select exists (
-    select 1
-    from public.organization_users ou
-    where ou.user_id = app.current_user_id()
-      and ou.role = 'SUPER_ADMIN'
-      and ou.deleted_at is null
-  );
-$$;
-
--- Alle organisaties waar de huidige gebruiker lid van is.
-create or replace function app.org_ids()
-returns setof uuid
-language sql
-stable
-parallel safe
-security definer
-set search_path = ''
-as $$
-  select ou.organization_id
-  from public.organization_users ou
-  where ou.user_id = app.current_user_id()
-    and ou.deleted_at is null;
-$$;
-
-create or replace function app.has_org_access(target_org uuid)
-returns boolean
-language sql
-stable
-parallel safe
-security definer
-set search_path = ''
-as $$
-  select target_org is not null and (
-    app.is_super_admin()
-    or exists (
-      select 1
-      from public.organization_users ou
-      where ou.user_id = app.current_user_id()
-        and ou.organization_id = target_org
-        and ou.deleted_at is null
-    )
-  );
-$$;
+-- app.is_super_admin(), app.org_ids(), app.has_org_access() en app.has_org_role()
+-- stonden hier, maar konden hier niet blijven.
+--
+-- Een functie met `language sql` krijgt zijn referenties al bij CREATE FUNCTION
+-- geresolved, niet pas bij de eerste aanroep. Deze vier lezen public.organization_users,
+-- en die tabel bestaat pas in 0100. Op een database waar hij al stond werkte dit; op
+-- een verse database faalt het met 42P01. Zulke volgordefouten zijn onzichtbaar zodra
+-- je één keer succesvol hebt gemigreerd, en duiken pas weer op in de volgende verse
+-- omgeving.
+--
+-- Ze staan nu in 0100, direct na de tabellen die ze lezen en vóór de policies die ze
+-- gebruiken. `pnpm db:check` draait de hele reeks tegen een lege Postgres en bewaakt
+-- dat het zo blijft.
 
 -- Rangorde spiegelt ROLE_RANK in packages/domain/src/enums.ts.
 create or replace function app.role_rank(r text)
@@ -156,41 +117,5 @@ as $$
   end;
 $$;
 
-create or replace function app.has_org_role(target_org uuid, min_role text)
-returns boolean
-language sql
-stable
-parallel safe
-security definer
-set search_path = ''
-as $$
-  select app.is_super_admin()
-    or exists (
-      select 1
-      from public.organization_users ou
-      where ou.user_id = app.current_user_id()
-        and ou.organization_id = target_org
-        and ou.deleted_at is null
-        and app.role_rank(ou.role) >= app.role_rank(min_role)
-    );
-$$;
-
--- Voor policies op kindtabellen: hoort deze intake bij een org waar ik bij mag?
-create or replace function app.can_read_intake(target_intake uuid)
-returns boolean
-language sql
-stable
-parallel safe
-security definer
-set search_path = ''
-as $$
-  select exists (
-    select 1
-    from public.intakes i
-    where i.id = target_intake
-      and app.has_org_access(i.organization_id)
-  );
-$$;
-
-comment on function app.org_ids() is
-  'SECURITY DEFINER om policy-recursie op organization_users te voorkomen.';
+comment on function app.role_rank(text) is
+  'Spiegelt ROLE_RANK in packages/domain/src/enums.ts. Raakt geen tabellen aan en kan daarom hier staan.';

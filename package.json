@@ -12,9 +12,10 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:isolation": "pnpm --filter @intake/db test:isolation",
+    "db:check": "node scripts/check-migrations.mjs",
     "boundaries": "depcruise --config .dependency-cruiser.cjs packages apps",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md,sql}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,json,md,sql}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,mjs,json,md,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,mjs,json,md,yml}\"",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "db:types": "supabase gen types typescript --linked > packages/db/src/generated/database.types.ts"
@@ -22,6 +23,8 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "dependency-cruiser": "^16.9.0",
+    "embedded-postgres": "18.4.0-beta.17",
+    "pg": "^8.23.0",
     "prettier": "^3.4.2",
     "supabase": "^2.6.8",
     "turbo": "^2.3.3",

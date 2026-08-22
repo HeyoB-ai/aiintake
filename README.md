@@ -93,15 +93,43 @@ het statement staat onderaan `supabase/seed/seed.sql`. Er is bewust geen zelfreg
 
 ## Commando's
 
-|                       |                                                                    |
-| --------------------- | ------------------------------------------------------------------ |
-| `pnpm dev`            | web + agent in watch-modus                                         |
-| `pnpm test`           | alle tests (86 groen; 44 isolatietests slaan over zonder database) |
-| `pnpm typecheck`      | TypeScript over de hele monorepo                                   |
-| `pnpm boundaries`     | architectuurgrenzen — faalt bij een overtreding                    |
-| `pnpm test:isolation` | tenant-isolatie tegen een echte database                           |
-| `pnpm db:push`        | migraties naar het gekoppelde project                              |
-| `pnpm db:types`       | genereer TypeScript-types uit het schema                           |
+|                       |                                                                     |
+| --------------------- | ------------------------------------------------------------------- |
+| `pnpm dev`            | web + agent in watch-modus                                          |
+| `pnpm test`           | alle tests (86 groen; 44 isolatietests slaan over zonder database)  |
+| `pnpm typecheck`      | TypeScript over de hele monorepo                                    |
+| `pnpm boundaries`     | architectuurgrenzen — faalt bij een overtreding                     |
+| `pnpm test:isolation` | tenant-isolatie tegen een echte database                            |
+| `pnpm db:check`       | volledige migratiereeks tegen een LEGE Postgres (geen Docker nodig) |
+| `pnpm db:push`        | migraties naar het gekoppelde project                               |
+| `pnpm db:types`       | genereer TypeScript-types uit het schema                            |
+
+---
+
+## Migratievolgorde
+
+`pnpm db:check` draait bootstrap + alle migraties + de seed tegen een **lege** database
+en faalt op de eerste fout, met bestand, regel en kolom.
+
+Dit is geen luxe. Een functie met `language sql` krijgt zijn referenties al bij
+`CREATE FUNCTION` geresolved, niet pas bij de eerste aanroep. Een helper die een tabel
+noemt die later pas ontstaat, werkt daardoor prima op een database die al eens
+gemigreerd is — en valt om op een verse. Dat merk je pas in de volgende nieuwe
+omgeving, meestal die van de klant.
+
+Lokaal start het script een embedded Postgres; **Docker is niet nodig**. In CI staat
+`DATABASE_URL` en gebruikt het de service container (`postgres:15`, gelijk aan de major
+version in `supabase/config.toml`).
+
+`supabase/tests/bootstrap.sql` maakt vooraf precies aan wat Supabase zelf meelevert:
+de rollen `anon`/`authenticated`/`service_role`, het `extensions`-schema, en minimale
+`auth.users` en `storage`-tabellen. Alles wat onze eigen migraties horen te maken, staat
+daar bewust niet in — anders zou de check een ontbrekende definitie kunnen maskeren.
+
+De check controleert daarnaast dat er geen tabel zonder row level security ontstaat.
+
+> Het script dropt schema's. Het weigert daarom te draaien tegen een `DATABASE_URL`
+> waarvan de databasenaam geen `test` bevat, tenzij je `--force` meegeeft.
 
 ---
 

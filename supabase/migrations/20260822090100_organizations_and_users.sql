@@ -112,6 +112,98 @@ create trigger organization_users_touch
   for each row execute function app.touch_updated_at();
 
 -- =============================================================================
+-- Lidmaatschap en rollen
+-- =============================================================================
+-- Deze helpers staan hier en niet in 0000, en dat is geen indeling maar een harde
+-- eis: een functie met `language sql` krijgt zijn referenties al bij CREATE FUNCTION
+-- geresolved. Ze lezen public.organization_users, dus die tabel moet er eerst zijn.
+--
+-- Ze zijn SECURITY DEFINER, om twee redenen:
+--
+--   1. Recursie. Een policy op `organization_users` die zelf `organization_users`
+--      bevraagt, geeft "infinite recursion detected in policy". Binnen een SECURITY
+--      DEFINER functie wordt RLS niet opnieuw toegepast, dus de lus breekt.
+--   2. Snelheid. STABLE en PARALLEL SAFE, zodat de planner ze per query één keer
+--      evalueert in plaats van per rij.
+--
+-- search_path staat expliciet leeg zodat een aanvaller met CREATE-rechten op een
+-- ander schema geen functie kan kapen.
+
+create or replace function app.is_super_admin()
+returns boolean
+language sql
+stable
+parallel safe
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.organization_users ou
+    where ou.user_id = app.current_user_id()
+      and ou.role = 'SUPER_ADMIN'
+      and ou.deleted_at is null
+  );
+$$;
+
+-- Alle organisaties waar de huidige gebruiker lid van is.
+create or replace function app.org_ids()
+returns setof uuid
+language sql
+stable
+parallel safe
+security definer
+set search_path = ''
+as $$
+  select ou.organization_id
+  from public.organization_users ou
+  where ou.user_id = app.current_user_id()
+    and ou.deleted_at is null;
+$$;
+
+create or replace function app.has_org_access(target_org uuid)
+returns boolean
+language sql
+stable
+parallel safe
+security definer
+set search_path = ''
+as $$
+  select target_org is not null and (
+    app.is_super_admin()
+    or exists (
+      select 1
+      from public.organization_users ou
+      where ou.user_id = app.current_user_id()
+        and ou.organization_id = target_org
+        and ou.deleted_at is null
+    )
+  );
+$$;
+
+create or replace function app.has_org_role(target_org uuid, min_role text)
+returns boolean
+language sql
+stable
+parallel safe
+security definer
+set search_path = ''
+as $$
+  select app.is_super_admin()
+    or exists (
+      select 1
+      from public.organization_users ou
+      where ou.user_id = app.current_user_id()
+        and ou.organization_id = target_org
+        and ou.deleted_at is null
+        and app.role_rank(ou.role) >= app.role_rank(min_role)
+    );
+$$;
+
+comment on function app.org_ids() is
+  'SECURITY DEFINER om policy-recursie op organization_users te voorkomen.';
+
+-- =============================================================================
 -- RLS
 -- =============================================================================
 

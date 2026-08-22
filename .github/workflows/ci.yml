@@ -12,6 +12,21 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: migratietest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +48,18 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # De volledige migratiereeks tegen een LEGE database. Zonder deze stap vind je
+      # volgordefouten pas in de volgende verse omgeving — meestal die van de klant.
+      # Een `create function ... language sql` resolvet zijn referenties al bij CREATE,
+      # dus een functie die een tabel noemt die later pas ontstaat, werkt wel op een
+      # gemigreerde database en niet op een nieuwe.
+      #
+      # postgres:15 om de major version van Supabase te volgen (supabase/config.toml).
+      - name: Migratievolgorde
+        run: pnpm db:check
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/migratietest
 
       - name: Tests
         run: pnpm test

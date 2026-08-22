@@ -4,8 +4,10 @@ dist
 .turbo
 coverage
 pnpm-lock.yaml
-# SQL wordt met de hand uitgelijnd; prettier heeft geen Postgres-parser en zou de
-# kolomuitlijning in de migraties slopen.
-supabase/migrations
-supabase/seed
+
+# SQL staat bewust niet in de format-globs: prettier heeft geen Postgres-parser en
+# faalt op elk .sql-bestand dat hij tegenkomt. De migraties worden met de hand
+# uitgelijnd; die kolomuitlijning is er om de constraints leesbaar te houden.
+
+# Aangeleverd document, laten zoals het is.
 docs/01-architectuur-en-providerkeuze.md

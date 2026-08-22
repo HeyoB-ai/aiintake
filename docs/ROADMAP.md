@@ -27,7 +27,8 @@ Legenda: ✅ klaar · 🟡 deels · ⬜ open
 | ✅  | Feitcatalogus arbeidsrecht: 17 categorieën, 45 feiten, conditioneel                                             |
 | ✅  | Auditlog, append-only, met trigger op statuswijziging                                                           |
 | ✅  | Rate limiting op de publieke intakeroute (kostenmaatregel)                                                      |
-| ✅  | CI: boundaries, typecheck, tests, formattering                                                                  |
+| ✅  | CI: boundaries, typecheck, tests, migratievolgorde, formattering                                                |
+| ✅  | `pnpm db:check`: hele migratiereeks + seed tegen een lege Postgres, zonder Docker                               |
 | ✅  | Seed: demo-kantoor + 5 intakes met feiten en risicovlaggen                                                      |
 | 🟡  | **Tenant-isolatietests: geschreven (44 assertions), nog niet gedraaid — vereist een Supabase-project in de EU** |
 | ⬜  | Supabase-project aanmaken (eu-central-1 / eu-west-1) en migraties pushen                                        |
