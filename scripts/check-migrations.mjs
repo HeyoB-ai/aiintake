@@ -26,7 +26,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const MIGRATIONS_DIR = join(ROOT, 'supabase', 'migrations');
 const BOOTSTRAP = join(ROOT, 'supabase', 'tests', 'bootstrap.sql');
-const SEED = join(ROOT, 'supabase', 'seed', 'seed.sql');
 
 const WITH_SEED = !process.argv.includes('--no-seed');
 
@@ -173,10 +172,19 @@ async function run(connectionString) {
     }
   }
 
-  // De seed hoort ook tegen een verse database te werken; hij gebruikt dezelfde
-  // constraints als de applicatie.
+  // De seed hoort ook tegen een verse database te werken: hij loopt tegen dezelfde
+  // constraints aan als de applicatie, en case_facts_traceable weigert een vastgesteld
+  // feit zonder herkomst. Zelfde data als `pnpm db:seed`, ander transport.
   if (ok && WITH_SEED) {
-    ok = await applyFile(client, SEED, 'seed/seed.sql');
+    try {
+      const { buildSeed } = await import('../supabase/seed/demo-data.mjs');
+      const { seedOverPostgres } = await import('./seed.mjs');
+      await seedOverPostgres(client, buildSeed());
+      process.stdout.write('  ok   demo-seed\n');
+    } catch (error) {
+      process.stdout.write(`  FAIL demo-seed\n\n       ${error.message}\n\n`);
+      ok = false;
+    }
   }
 
   if (ok) {
