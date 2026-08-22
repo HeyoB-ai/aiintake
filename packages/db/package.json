@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:isolation": "vitest run src/__tests__/tenant-isolation.test.ts --reporter verbose"
+    "test:isolation": "vitest run --config vitest.isolation.config.ts --reporter verbose"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

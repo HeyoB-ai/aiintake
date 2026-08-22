@@ -26,12 +26,43 @@ export interface TestEnv {
   publishableKey: string;
 }
 
+const REQUIRED_TEST_VARS = [
+  'SUPABASE_TEST_URL',
+  'SUPABASE_TEST_PUBLISHABLE_KEY',
+  'SUPABASE_TEST_SECRET_KEY',
+] as const;
+
 export function readTestEnv(): TestEnv | null {
   const url = process.env['SUPABASE_TEST_URL'];
   const secretKey = process.env['SUPABASE_TEST_SECRET_KEY'];
   const publishableKey = process.env['SUPABASE_TEST_PUBLISHABLE_KEY'];
   if (!url || !secretKey || !publishableKey) return null;
   return { url, secretKey, publishableKey };
+}
+
+/**
+ * Legt uit waaróm de suite overslaat.
+ *
+ * Onderscheidt de twee gevallen die er in de praktijk toe doen: er is geen
+ * `.env`-bestand gevonden (dan ligt het aan het inlezen), of het bestand is gelezen
+ * maar mist een variabele (dan ligt het aan de waarde). "Geen env gevonden" zonder dat
+ * onderscheid laat je precies de verkeerde kant op zoeken.
+ */
+export function explainMissingTestEnv(): string {
+  const missing = REQUIRED_TEST_VARS.filter((name) => !process.env[name]);
+  const present = REQUIRED_TEST_VARS.filter((name) => process.env[name]);
+  const files = process.env['INTAKE_ENV_FILES_LOADED'];
+
+  const lines = [
+    `Ontbreekt: ${missing.join(', ') || '(niets — dit zou niet moeten gebeuren)'}`,
+    present.length > 0 ? `Wel gevonden: ${present.join(', ')}` : 'Geen van de drie gevonden.',
+    files
+      ? `Gelezen env-bestanden: ${files}`
+      : 'Er is geen .env-bestand gelezen. Verwacht op de repo-root; ' +
+        'controleer of packages/db/vitest.config.ts de setupFiles laadt.',
+  ];
+
+  return lines.join('\n');
 }
 
 export function serviceClient(env: TestEnv, schema: 'public' | 'app' = 'public'): SupabaseClient {

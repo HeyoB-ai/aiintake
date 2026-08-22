@@ -96,7 +96,7 @@ het statement staat onderaan `supabase/seed/seed.sql`. Er is bewust geen zelfreg
 |                       |                                                                     |
 | --------------------- | ------------------------------------------------------------------- |
 | `pnpm dev`            | web + agent in watch-modus                                          |
-| `pnpm test`           | alle tests (86 groen; 44 isolatietests slaan over zonder database)  |
+| `pnpm test`           | alle tests behalve de isolatiesuite (91 groen, raakt geen database) |
 | `pnpm typecheck`      | TypeScript over de hele monorepo                                    |
 | `pnpm boundaries`     | architectuurgrenzen — faalt bij een overtreding                     |
 | `pnpm test:isolation` | tenant-isolatie tegen een echte database                            |
@@ -139,19 +139,39 @@ De tenant-isolatiesuite draait tegen een echt Supabase-project, niet tegen een m
 Dat is geen keuze maar een noodzaak: RLS-policies zijn Postgres-gedrag, en een mock die
 ze nabootst test alleen de mock.
 
-Zonder credentials slaat de suite zichzelf over — met een expliciete melding, nooit
-stilzwijgend. Een overgeslagen isolatietest die eruitziet als een geslaagde is precies
-het soort geruststelling waar dit project niet tegen kan.
+Zet de drie waarden in `.env` op de repo-root:
+
+```
+SUPABASE_TEST_URL=https://<ref>.supabase.co
+SUPABASE_TEST_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_TEST_SECRET_KEY=sb_secret_...
+```
+
+en draai:
 
 ```bash
-export SUPABASE_TEST_URL=...                 # gebruik een APART testproject
-export SUPABASE_TEST_PUBLISHABLE_KEY=sb_publishable_...
-export SUPABASE_TEST_SECRET_KEY=sb_secret_...
 pnpm test:isolation
 ```
 
+Exporteren in de shell is niet nodig. `packages/db/vitest.config.ts` laadt `.env` via
+een setupbestand vóórdat de testbestanden worden geïmporteerd — vitest doet dat niet
+uit zichzelf, want Vite leest `.env` alleen voor `VITE_`-variabelen in
+`import.meta.env` en laat `process.env` ongemoeid. Variabelen die al in de omgeving
+staan winnen, zodat CI met secrets kan werken zonder dat een lokaal `.env` daar
+doorheen fietst.
+
+Ontbreekt er iets, dan slaat de suite zichzelf over met een melding die **noemt welke
+variabele mist en welk env-bestand is gelezen** — zodat meteen duidelijk is of het aan
+de waarde ligt of aan het inlezen. `INTAKE_ENV_DEBUG=1` laat dat ook zien bij een
+geslaagde run (alleen namen en lengtes, nooit waarden).
+
 De suite maakt twee kantoren, twee gebruikers en twee intakes aan, controleert 44
-assertions en ruimt alles weer op. Draai hem nooit tegen productie.
+assertions en ruimt alles weer op.
+
+> **Deze suite valt bewust buiten `pnpm test`.** Hij praat met een echte database en
+> maakt daar data aan; dat hoort een expliciete keuze te zijn en geen bijwerking van
+> een routineuze testrun. Gebruik een **apart testproject**, nooit een project met
+> echte cliëntgegevens.
 
 Wat er wordt bewezen:
 

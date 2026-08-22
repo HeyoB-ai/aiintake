@@ -6,6 +6,7 @@ import {
   createFixture,
   destroyFixture,
   expireSessionToken,
+  explainMissingTestEnv,
   issueSession,
   readTestEnv,
   serviceClient,
@@ -28,7 +29,8 @@ const describeDb = env ? describe : describe.skip;
 if (!env) {
   // eslint-disable-next-line no-console
   console.warn(
-    '\n[tenant-isolatie] OVERGESLAGEN — geen SUPABASE_TEST_* env gevonden.\n' +
+    '\n[tenant-isolatie] OVERGESLAGEN — de SUPABASE_TEST_* configuratie is niet compleet.\n' +
+      `${explainMissingTestEnv()}\n\n` +
       'Deze suite is de Definition of Done van Fase 0 en bewijst zonder database niets.\n' +
       'Zie README §"Tests tegen een echte database".\n',
   );
