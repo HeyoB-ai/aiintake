@@ -14,6 +14,8 @@
  */
 import { existsSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   AudioSource,
   LocalAudioTrack,
@@ -23,7 +25,10 @@ import {
   TrackSource,
 } from '@livekit/rtc-node';
 
-if (existsSync('../../../.env')) process.loadEnvFile('../../../.env');
+// Relatief aan dit bestand, niet aan de werkmap: het script wordt vanuit apps/agent
+// gedraaid maar ligt in apps/agent/scripts.
+const ENV = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '.env');
+if (existsSync(ENV)) process.loadEnvFile(ENV);
 
 const url = process.env.LIVEKIT_URL;
 const key = process.env.LIVEKIT_API_KEY;

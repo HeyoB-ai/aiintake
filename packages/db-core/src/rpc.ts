@@ -177,6 +177,16 @@ export interface AgentRpc {
     spokenMs?: number | null;
     plannedQuestionKeys?: string[];
     llmCallId?: string | null;
+    /**
+     * De STT kapte de uitspraak van de cliënt te vroeg af.
+     *
+     * Meesturen is geen boekhouding: zonder dit veld blijft afkapfrequentie een indruk,
+     * en het is precies het getal dat je wilt hebben vóórdat er echte gesprekken op
+     * staan. Zie docs/RISICOS.md risico 2.
+     */
+    clientUtteranceWasCut?: boolean;
+    /** Gat tussen de afgekapte beurt en het vervolg; basis voor het afstellen van de drempel. */
+    continuationGapMs?: number | null;
   }): Promise<string>;
   upsertFact(args: {
     key: string;
@@ -259,6 +269,8 @@ export function createAgentRpc(
         p_spoken_ms: args.spokenMs ?? null,
         p_planned_question_keys: args.plannedQuestionKeys ?? [],
         p_llm_call_id: args.llmCallId ?? null,
+        p_client_utterance_was_cut: args.clientUtteranceWasCut ?? false,
+        p_continuation_gap_ms: args.continuationGapMs ?? null,
       }),
 
     upsertFact: (args) =>
