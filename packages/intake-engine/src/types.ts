@@ -119,6 +119,14 @@ export interface ObservationResult {
    * niet in het transcript staan, moet dat een zichtbaar getal zijn en geen stilte.
    */
   readonly rejectedFacts?: readonly RejectedFact[];
+  /**
+   * De extractie leverde niets bruikbaars op, met de reden.
+   *
+   * Bestaat omdat het alternatief een lege lijst is, en die is niet te onderscheiden van
+   * "er viel niets te vinden". Live betekende dat vier beurten lang dat de assistent
+   * vroeg naar wat de cliënt net had verteld, zonder dat er ergens iets rood werd.
+   */
+  readonly extractionError?: string;
 }
 
 export interface RejectedFact {

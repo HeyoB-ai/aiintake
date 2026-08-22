@@ -267,6 +267,9 @@
                   )
                   .join('')
               : 'geen signalen';
+            if (m.extractionError) {
+              regel('systeem', `feitextractie mislukt — ${m.extractionError}`, '', 'waarschuwing');
+            }
             $('geweigerd').textContent = m.rejected.length
               ? m.rejected.map((r) => `${r.key}: ${r.reason}`).join(' · ')
               : 'geen';

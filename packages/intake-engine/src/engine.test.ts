@@ -5,6 +5,7 @@ import {
   type CaseFact,
   type OrgConfig,
 } from '@intake/domain';
+import { PROMPTS } from '@intake/prompts';
 import { createIntakeEngine, type ColdPathModel, type HotPathModel } from './engine';
 import type { EngineInput } from './types';
 
@@ -145,17 +146,22 @@ describe('IntakeConversationEngine — hot path', () => {
 });
 
 describe('IntakeConversationEngine — cold path', () => {
+  /**
+   * De vorm die het model moet leveren is bewust kleiner dan wat we opslaan.
+   *
+   * `valueType`, `source` en `sourceRef` vult de engine zelf: die staan in de catalogus of
+   * zijn per definitie bekend. Ze tóch aan het model vragen kostte live vier beurten —
+   * het model leverde de feiten correct maar noemde ze `field` en `quote`, het strikte
+   * schema wees alles af, en de engine gooide dat stil weg.
+   */
   it('accepteert een feit met een citaat dat in het transcript staat', async () => {
     const antwoord = JSON.stringify({
       facts: [
         {
           key: 'employer_name',
           value: 'Acme BV',
-          valueType: 'string',
           status: 'confirmed',
           confidence: 0.9,
-          source: 'client_statement',
-          sourceRef: 'turn-1',
           evidenceQuote: 'Ik werk bij Acme BV',
         },
       ],
@@ -175,11 +181,8 @@ describe('IntakeConversationEngine — cold path', () => {
         {
           key: 'gross_monthly_salary',
           value: 4200,
-          valueType: 'number',
           status: 'confirmed',
           confidence: 0.95,
-          source: 'client_statement',
-          sourceRef: 'turn-1',
           evidenceQuote: 'ik verdien 4200 euro bruto per maand',
         },
       ],
@@ -198,11 +201,8 @@ describe('IntakeConversationEngine — cold path', () => {
         {
           key: 'employer_name',
           value: 'Acme BV',
-          valueType: 'string',
           status: 'confirmed',
           confidence: 0.9,
-          source: 'client_statement',
-          sourceRef: 'turn-1',
           evidenceQuote: 'Ik werk bij Acme BV',
         },
       ],
@@ -243,5 +243,36 @@ describe('IntakeConversationEngine — cold path', () => {
     );
     expect(r.riskFlags.map((f) => f.ruleKey)).toContain('vso_deadline_imminent');
     expect(r.riskFlags[0]?.level).toBe('CRITICAL');
+  });
+});
+
+describe('extractieprompt', () => {
+  it('beschrijft de veldnamen die het schema eist', () => {
+    // Dit is de test die de live-bug had gevangen. De prompt zei "antwoord volgens het
+    // opgegeven schema" terwijl dat schema er nergens in stond; het model gokte `field`
+    // en `quote`. Een prompt die naar een schema verwijst zonder het te tonen, is geen
+    // instructie maar een aanname over wat het model toevallig kiest.
+    const body = PROMPTS.extraction.render(
+      {
+        transcript: 'Cliënt: Ik werk bij Acme.',
+        wantedFacts: [{ key: 'employer_name', label: 'Werkgever', valueType: 'string' }],
+        knownFacts: [],
+        todayIso: '2026-08-22',
+      },
+      'nl',
+    );
+
+    for (const veld of ['key', 'value', 'status', 'confidence', 'evidenceQuote']) {
+      expect(body).toContain(veld);
+    }
+    // En de mechanische velden juist níét: die vraagt hij niet aan het model.
+    expect(body).not.toContain('valueType"');
+    expect(body).not.toContain('sourceRef');
+  });
+
+  it('staat op een hogere versie dan de kapotte v1', () => {
+    // De versie gaat mee in llm_calls. Zonder ophogen is achteraf niet te zien welke
+    // beurten met de prompt zonder schema zijn gedraaid.
+    expect(PROMPTS.extraction.version).toBeGreaterThanOrEqual(2);
   });
 });

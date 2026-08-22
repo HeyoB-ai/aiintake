@@ -1,6 +1,8 @@
 import {
   EMPLOYMENT_CATALOG,
-  FactExtractionResultSchema,
+  FactExtractionModelResultSchema,
+  type ExtractedFact,
+  type FactExtractionModelResult,
   rejectUngroundedFacts,
   type CaseFactMap,
   type FactCatalog,
@@ -151,23 +153,13 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
     },
 
     async observe(input: EngineInput): Promise<ObservationResult> {
-      const completeness = scoreCompleteness(input.facts, input.template, catalog);
-      const riskFlags = evaluateRules(input.rules, input.facts, input.now, input.language).map(
-        (r) => ({ ruleKey: r.ruleKey, level: r.level, label: r.label }),
-      );
-
       // Zonder nieuwe spraak valt er niets te extraheren, en dan is een modelaanroep
       // alleen kosten. De score en de regels rekenen we wél opnieuw: die hangen ook van
       // de klok af, en een deadline die vannacht dichterbij kwam moet vanochtend zichtbaar
       // zijn zonder dat de cliënt eerst iets hoeft te zeggen.
       const transcript = nieuweBeurten(input);
       if (!transcript.trim()) {
-        return {
-          factUpdates: [],
-          riskFlags,
-          completeness: completeness.score,
-          missingRequiredKeys: completeness.missingRequiredKeys,
-        };
+        return beoordeel(input, [], catalog);
       }
 
       const gezocht = gezochteFeiten(catalog, input.facts);
@@ -190,7 +182,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
       );
       deps.onPrompt?.(prompt);
 
-      const { updates, rejected } = await extraheer(
+      const { updates, rejected, error } = await extraheer(
         deps.cold,
         prompt.body,
         transcript,
@@ -199,13 +191,57 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
       );
 
       return {
+        ...beoordeel(input, updates, catalog),
         factUpdates: updates,
-        riskFlags,
-        completeness: completeness.score,
-        missingRequiredKeys: completeness.missingRequiredKeys,
         rejectedFacts: rejected,
+        ...(error ? { extractionError: error } : {}),
       };
     },
+  };
+}
+
+/**
+ * Score en urgentie, gerekend ná de extractie van déze beurt.
+ *
+ * Eerst stond dit vóór de extractie, en dat betekende dat de feiten uit de zojuist
+ * verwerkte beurt pas een ronde later meetelden. Voor de volledigheidsscore is dat
+ * hinderlijk; voor de urgentieregels is het fout. Een cliënt die in zijn laatste zin een
+ * tekendeadline noemt, zou dan nooit een CRITICAL opleveren — de intake eindigt en de
+ * regel is nooit gedraaid.
+ *
+ * De planner mag wél een beurt achterlopen; dat is een bewuste keuze en staat los hiervan.
+ * Wat je terugmeldt over urgentie hoort te gaan over alles wat je weet.
+ */
+function beoordeel(
+  input: EngineInput,
+  updates: readonly FactUpdate[],
+  catalog: FactCatalog,
+): ObservationResult {
+  const samen: Record<string, CaseFactMap[string]> = { ...input.facts };
+  for (const u of updates) {
+    samen[u.key] = {
+      key: u.key,
+      value: u.value,
+      valueType: u.valueType,
+      status: u.status,
+      confidence: u.confidence,
+      source: u.source,
+      sourceRef: u.sourceRef || null,
+      llmCallId: null,
+      updatedAt: input.now.toISOString(),
+    };
+  }
+
+  const completeness = scoreCompleteness(samen, input.template, catalog);
+  return {
+    factUpdates: updates,
+    riskFlags: evaluateRules(input.rules, samen, input.now, input.language).map((r) => ({
+      ruleKey: r.ruleKey,
+      level: r.level,
+      label: r.label,
+    })),
+    completeness: completeness.score,
+    missingRequiredKeys: completeness.missingRequiredKeys,
   };
 }
 
@@ -226,18 +262,24 @@ async function extraheer(
   transcript: string,
   catalog: FactCatalog,
   gezocht: readonly FactDefinition[],
-): Promise<{ updates: readonly FactUpdate[]; rejected: readonly RejectedFact[] }> {
+): Promise<{
+  updates: readonly FactUpdate[];
+  rejected: readonly RejectedFact[];
+  error?: string;
+}> {
   const user = 'Geef de feiten die je in het transcript vindt.';
   let ruw = await cold.complete({ system, user });
 
   for (let poging = 0; poging < 2; poging += 1) {
     const geparsed = parseJson(ruw);
     if (geparsed.ok) {
-      const gevalideerd = FactExtractionResultSchema.safeParse(geparsed.value);
+      const gevalideerd = FactExtractionModelResultSchema.safeParse(geparsed.value);
       if (gevalideerd.success) {
         return naarFactUpdates(gevalideerd.data, transcript, catalog, gezocht);
       }
-      if (poging === 1) return LEEG;
+      if (poging === 1) {
+        return { ...LEEG, error: `schema niet gehaald: ${kortIssue(gevalideerd.error)}` };
+      }
       ruw = await cold.complete({
         system,
         user,
@@ -245,7 +287,7 @@ async function extraheer(
       });
       continue;
     }
-    if (poging === 1) return LEEG;
+    if (poging === 1) return { ...LEEG, error: `geen geldige JSON: ${geparsed.error}` };
     ruw = await cold.complete({
       system,
       user,
@@ -256,6 +298,14 @@ async function extraheer(
 }
 
 const LEEG = { updates: [] as readonly FactUpdate[], rejected: [] as readonly RejectedFact[] };
+
+/** De eerste paar veldfouten; de volledige Zod-melding is te lang voor een HUD-regel. */
+function kortIssue(error: { issues: { path: (string | number)[]; message: string }[] }): string {
+  return error.issues
+    .slice(0, 3)
+    .map((i) => `${i.path.join('.')}: ${i.message}`)
+    .join(' | ');
+}
 
 function parseJson(tekst: string): { ok: true; value: unknown } | { ok: false; error: string } {
   // Modellen zetten er soms een codeblok omheen, ook als je erom vraagt het te laten.
@@ -279,16 +329,35 @@ function parseJson(tekst: string): { ok: true; value: unknown } | { ok: false; e
  * in de samenvatting belanden met de verkeerde betekenis.
  */
 function naarFactUpdates(
-  resultaat: { facts: readonly unknown[] },
+  resultaat: FactExtractionModelResult,
   transcript: string,
   catalog: FactCatalog,
   gezocht: readonly FactDefinition[],
 ): { updates: readonly FactUpdate[]; rejected: readonly RejectedFact[] } {
-  const { accepted: verankerd, rejected } = rejectUngroundedFacts(
-    resultaat.facts as Parameters<typeof rejectUngroundedFacts>[0],
-    transcript,
-  );
   const toegestaan = new Map(gezocht.map((f) => [f.key, f]));
+
+  // De mechanische velden vullen wij, niet het model: `valueType` staat in de catalogus,
+  // `source` is bij transcriptextractie per definitie een cliëntuitspraak, en `sourceRef`
+  // weten wij. Zie ExtractedFactDraftSchema voor waarom dat er niet bij het model hoort.
+  const volledig: ExtractedFact[] = [];
+  for (const draft of resultaat.facts) {
+    const definitie = toegestaan.get(draft.key) ?? catalog.facts.find((f) => f.key === draft.key);
+    // Een sleutel die niet in de catalogus staat kan nooit worden opgeslagen; die valt
+    // hier af in plaats van verderop stilletjes.
+    if (!definitie) continue;
+    volledig.push({
+      key: draft.key,
+      value: draft.value,
+      valueType: definitie.valueType,
+      status: draft.status,
+      confidence: draft.confidence,
+      source: 'client_statement',
+      sourceRef: 'transcript',
+      evidenceQuote: draft.evidenceQuote,
+    });
+  }
+
+  const { accepted: verankerd, rejected } = rejectUngroundedFacts(volledig, transcript);
   const uit: FactUpdate[] = [];
 
   for (const fact of verankerd) {

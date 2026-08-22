@@ -28,6 +28,37 @@ export const ExtractedFactSchema = z
   .strict();
 export type ExtractedFact = z.infer<typeof ExtractedFactSchema>;
 
+/**
+ * Wat het MODEL levert — bewust minder dan wat wij opslaan.
+ *
+ * `ExtractedFactSchema` hierboven eist acht velden, waarvan er drie mechanisch zijn:
+ * `valueType` staat in de feitcatalogus, `source` is bij transcriptextractie per definitie
+ * `client_statement`, en `sourceRef` weet de engine zelf. Die alsnog aan het model vragen
+ * vergroot alleen het aantal manieren waarop het schema kan mislukken — en dat is precies
+ * wat er live gebeurde: het model vond de feiten correct, noemde ze `field` en `quote`, en
+ * alles werd geweigerd.
+ *
+ * Vraag een model alleen wat het weet en jij niet.
+ */
+export const ExtractedFactDraftSchema = z
+  .object({
+    key: z.string().min(1).max(120),
+    value: z.unknown(),
+    status: FactStatusSchema,
+    confidence: z.number().min(0).max(1),
+    /** Letterlijk citaat uit de bron. Basis voor de hallucinatiecheck. */
+    evidenceQuote: z.string().min(1).max(1000),
+  })
+  .strict();
+export type ExtractedFactDraft = z.infer<typeof ExtractedFactDraftSchema>;
+
+export const FactExtractionModelResultSchema = z
+  .object({
+    facts: z.array(ExtractedFactDraftSchema).max(50),
+  })
+  .strict();
+export type FactExtractionModelResult = z.infer<typeof FactExtractionModelResultSchema>;
+
 export const FactExtractionResultSchema = z
   .object({
     facts: z.array(ExtractedFactSchema).max(50),

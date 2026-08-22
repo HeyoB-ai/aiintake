@@ -192,6 +192,7 @@ wss.on('connection', async (ws) => {
               })),
               risks: r.riskFlags,
               rejected: r.rejectedFacts ?? [],
+              ...(r.extractionError ? { extractionError: r.extractionError } : {}),
             });
           })
           .catch((error: unknown) => {
