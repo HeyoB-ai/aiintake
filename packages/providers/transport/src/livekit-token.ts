@@ -60,8 +60,24 @@ function grantFor(role: ParticipantRole, room: string): VideoGrant {
         canPublishData: true,
       };
     case 'agent':
-      // De worker luistert. De avatarvendor publiceert het gezicht, wij niet.
-      return { room, roomJoin: true, canPublish: false, canSubscribe: true, canPublishData: true };
+      // De worker publiceert de stem van de assistent en abonneert op de cliëntaudio.
+      //
+      // Dat hij publiceert is geen ontwerpkeuze maar een gevolg van hoe audio-to-video
+      // werkt: de avatarvendor rendert een gezicht op een audiotrack in de room. Zonder
+      // die track heeft hij niets om lippen op te synchroniseren. De eerdere aanname —
+      // "de vendor publiceert, wij niet" — klopte alleen voor een modus waarin de vendor
+      // ook de TTS doet, en juist die modus willen we niet (ADR-0001: de stem blijft in
+      // eigen hand).
+      //
+      // Alleen `microphone`: de worker heeft geen reden om video te publiceren.
+      return {
+        room,
+        roomJoin: true,
+        canPublish: true,
+        canPublishSources: ['microphone'],
+        canSubscribe: true,
+        canPublishData: true,
+      };
     case 'avatar':
       return { room, roomJoin: true, canPublish: true, canSubscribe: true, canPublishData: false };
   }

@@ -68,9 +68,12 @@ describeLive('LiveKit', () => {
       expect(video.canPublishSources).toEqual(['microphone']);
     });
 
-    it('de agent luistert en publiceert niets', () => {
+    it('de agent publiceert alleen audio, geen video', () => {
+      // Publiceren moet: de avatarvendor rendert een gezicht op onze audiotrack. Video
+      // publiceren hoeft niet en hoort dus ook niet te mogen.
       const video = claims('agent');
-      expect(video.canPublish).toBe(false);
+      expect(video.canPublish).toBe(true);
+      expect(video.canPublishSources).toEqual(['microphone']);
       expect(video.canSubscribe).toBe(true);
     });
 

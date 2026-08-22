@@ -10,7 +10,8 @@
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:pipeline": "vitest run --config vitest.integration.config.ts --reporter verbose"
+    "test:pipeline": "vitest run --config vitest.integration.config.ts --reporter verbose",
+    "test:bakeoff": "vitest run --config vitest.bakeoff.config.ts --reporter verbose"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",
@@ -21,6 +22,7 @@
     "@intake/provider-stt": "workspace:*",
     "@intake/provider-transport": "workspace:*",
     "@intake/provider-tts": "workspace:*",
+    "@livekit/rtc-node": "^0.13.34",
     "zod": "^3.24.1"
   },
   "devDependencies": {

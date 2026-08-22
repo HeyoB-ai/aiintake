@@ -11,6 +11,9 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/test-support/load-env.ts'],
     include: [INTEGRATION_SUITE],
+    // De bakeoff heeft een eigen script: hij kost avatarminuten en is nu geblokkeerd
+    // op vendorgedrag. Zou hij hier meedraaien, dan is test:pipeline permanent rood.
+    exclude: ['src/avatar/bakeoff.integration.test.ts'],
     // Eén tegelijk: parallelle streams vertekenen de latencymeting.
     fileParallelism: false,
     testTimeout: 60_000,

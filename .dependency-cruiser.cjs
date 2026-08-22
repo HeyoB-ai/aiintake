@@ -143,6 +143,11 @@ module.exports = {
           '(^|/)\\.[^/]+\\.(js|cjs|mjs|ts)$',
           '(^|/)tsconfig\\.json$',
           '(^|/)(babel|webpack|next|postcss|tailwind|vitest)\\.config\\.(js|cjs|mjs|ts)$',
+          // Varianten als vitest.integration.config.ts en vitest.bakeoff.config.ts:
+          // entrypoints voor de testrunner, niet iets wat geïmporteerd wordt.
+          // Als losse regel geschreven omdat een geneste quantifier in het patroon
+          // hierboven door de ReDoS-controle van dependency-cruiser wordt geweigerd.
+          '(^|/)vitest\\.[\\w-]+\\.config\\.ts$',
           // App Router-bestanden zijn per definitie losse entrypoints: Next.js roept
           // page/layout/route/middleware aan, niemand importeert ze.
           'apps/[^/]+/src/app/.*',

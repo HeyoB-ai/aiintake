@@ -32,9 +32,11 @@ dashboard-URL, geen identifier. Anam's persona-id's zijn UUID's van 36 tekens; e
 er twee op het account (_Samira - Study Coach_ en _Hana - Sales Representative_). De key
 zelf werkt wel.
 
-**LiveKit blokkeert de bakeoff, niet alleen de transportstap.** De realtime-avatar van
-Beyond Presence publiceert zijn videotrack in een LiveKit-room. Zonder LiveKit is er dus
-ook met een geldige `BEY_API_KEY` geen sessie te starten, en dus geen meting.
+**Beyond Presence geeft 401 bij rate limiting, niet 429.** Bij snel achter elkaar
+aanroepen komt `{"detail":"Invalid API key."}` terug op élk endpoint, ook op endpoints
+die seconden eerder nog werkten. Dat leest als een sleutelprobleem terwijl er niets mis
+is; even wachten en het werkt weer. De moeite van het onthouden waard voordat iemand
+een uur gaat zoeken naar een key die prima in orde is.
 
 ---
 
