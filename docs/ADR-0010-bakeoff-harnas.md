@@ -247,10 +247,32 @@ produceert; hoe fijn we hem daarna hakken, verandert niets.
 heeft om 730 ms audio te maken. Bij een generatietempo van ~4× realtime is dat ~180 ms
 erbij, dus reken op ~1 seconde voor de avatarstap alleen.
 
-**Eén inconsistentie die nog open staat.** Het tekstgestuurde pad mat eerder 385 ms — dus
-sneller dan passthrough, terwijl passthrough hun TTS overslaat. Dat kan niet allebei waar
-zijn. Die 385 ms is gemeten met dezelfde onbetrouwbare detector als de ingetrokken 36 ms
-en moet opnieuw, met bursts, voordat er een vergelijking op gebouwd wordt.
+### De inconsistentie is beslecht: er was er geen
+
+`talk()` opnieuw gemeten met de burstdetector, in dezelfde sessie, in blokken afgewisseld
+met passthrough zodat sessiedrift geen van beide bevoordeelt. Brontape 2879 ms.
+
+| pad         | mediaan    | spreiding    |
+| ----------- | ---------- | ------------ |
+| passthrough | **731 ms** | 655 – 824 ms |
+| `talk()`    | **838 ms** | 405 – 1148   |
+
+`talk()` is niet sneller. Als er al verschil is, is het de andere kant op, en het
+tekstpad is bovendien veel grilliger — logisch, want daar zit hun TTS in de keten.
+
+**Passthrough is bij Anam dus geen tweederangspad.** ~800 ms is simpelweg wat hun pipeline
+kost, welk pad je ook neemt. De keuze uit ADR-0001 om de TTS in eigen hand te houden kost
+ons niets in latency; hij levert alleen geen winst op.
+
+**En de 385 ms is verklaard.** In deze reeks staat één rij die het laat zien:
+
+```
+talk B        405      0     0    —    410/61   830/850   1991/925
+```
+
+Onset 405 ms, maar de eerste burst duurt **61 ms**. Dat is het artefact; de echte spraak
+begint op 830 ms. Een detector zonder duurinformatie leest dat als "405 ms latency". Zo is
+de 385 ms ontstaan, en zo is de 36 ms ontstaan. Het is dezelfde fout, twee keer.
 
 ### Gevolg voor het harnas
 

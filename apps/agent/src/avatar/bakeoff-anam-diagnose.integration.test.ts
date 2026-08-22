@@ -50,101 +50,28 @@ interface DiagnoseBeurt {
 }
 
 /**
- * Twee assen, en ze beantwoorden verschillende vragen.
+ * Passthrough tegenover hun eigen tekstpad, in ÉÉN sessie.
  *
- * **Tempo.** Zakt de wandkloktijd evenredig als we sneller leveren, dan is het een
- * vulgrens en werkt passthrough. Blijft hij op ~1360 ms staan, dan wacht de avatar vast
- * en zit Anam zeven keer over het budget van 180 ms.
+ * De vraag is enkelvoudig: is passthrough bij Anam werkelijk trager dan `talk()`, of was
+ * de eerder gemeten 385 ms hetzelfde artefact als de ingetrokken 36 ms. De vorige
+ * talk()-meting kwam uit een andere sessie én uit de oude rAF-detector, en kon dus niet
+ * samen met de 807 ms voor passthrough waar zijn.
  *
- * **Prefix.** Alleen de eerste zoveel audio insturen en de stroom bewust NIET afsluiten.
- * Begint de avatar toch, dan was die hoeveelheid genoeg. Dat meet de vulgrens
- * rechtstreeks in plaats van hem uit het tempo af te leiden — en dat getal bepaalt of
- * kleinere Cartesia-chunks iets opleveren.
- *
- * `sluitStroom: false` is bij de prefixproeven wezenlijk: endSequence() zou een flush
- * forceren en dan speelt hij af ongeacht de grens.
+ * In blokken afgewisseld, zodat sessiedrift geen van beide bevoordeelt. Passthrough op
+ * volle snelheid, want dat is inmiddels hoe het harnas levert.
  */
+const BASIS = {
+  hergebruikStream: false,
+  pauzeMs: 600,
+  prefixMs: null,
+  sluitStroom: true,
+  wachtMs: 15_000,
+} as const;
 const CONDITIES = [
-  {
-    naam: 'tempo 1x',
-    beurten: 3,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 1,
-    prefixMs: null,
-    sluitStroom: true,
-    wachtMs: 15_000,
-  },
-  {
-    naam: 'tempo 2x',
-    beurten: 3,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 2,
-    prefixMs: null,
-    sluitStroom: true,
-    wachtMs: 15_000,
-  },
-  {
-    naam: 'tempo 4x',
-    beurten: 3,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 4,
-    prefixMs: null,
-    sluitStroom: true,
-    wachtMs: 15_000,
-  },
-  {
-    naam: 'tempo max',
-    beurten: 3,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 0,
-    prefixMs: null,
-    sluitStroom: true,
-    wachtMs: 15_000,
-  },
-  {
-    naam: 'prefix 200',
-    beurten: 1,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 0,
-    prefixMs: 200,
-    sluitStroom: false,
-    wachtMs: 5_000,
-  },
-  {
-    naam: 'prefix 400',
-    beurten: 1,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 0,
-    prefixMs: 400,
-    sluitStroom: false,
-    wachtMs: 5_000,
-  },
-  {
-    naam: 'prefix 800',
-    beurten: 1,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 0,
-    prefixMs: 800,
-    sluitStroom: false,
-    wachtMs: 5_000,
-  },
-  {
-    naam: 'prefix 1600',
-    beurten: 1,
-    hergebruikStream: false,
-    pauzeMs: 600,
-    snelheid: 0,
-    prefixMs: 1600,
-    sluitStroom: false,
-    wachtMs: 5_000,
-  },
+  { naam: 'passthrough A', beurten: 3, snelheid: 0, modus: 'passthrough' as const, ...BASIS },
+  { naam: 'talk A', beurten: 3, snelheid: 0, modus: 'talk' as const, ...BASIS },
+  { naam: 'passthrough B', beurten: 3, snelheid: 0, modus: 'passthrough' as const, ...BASIS },
+  { naam: 'talk B', beurten: 3, snelheid: 0, modus: 'talk' as const, ...BASIS },
 ];
 
 async function bundleClient(): Promise<string> {
@@ -256,14 +183,15 @@ describe('diagnose Anam-harnas', () => {
       await page.waitForFunction(() => typeof window.bakeoff?.anamDiagnose === 'function');
 
       const rijen = (await page.evaluate(
-        async ([token, audio, rate, condities]) =>
+        async ([token, audio, rate, condities, tekst]) =>
           window.bakeoff.anamDiagnose(
             token as string,
             audio as string,
             Number(rate),
             JSON.parse(condities as string),
+            tekst as string,
           ),
-        [sessionToken, base64, String(SAMPLE_RATE), JSON.stringify(CONDITIES)],
+        [sessionToken, base64, String(SAMPLE_RATE), JSON.stringify(CONDITIES), ZIN],
       )) as DiagnoseBeurt[];
 
       const regels = [

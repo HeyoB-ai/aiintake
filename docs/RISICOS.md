@@ -237,7 +237,18 @@ niet starten (zie FASE-1-KEYS.md), en dat is de enige vergelijking die zou zegge
 ~800 ms normaal is voor audio-to-video of specifiek voor Anam. Zonder dat tweede getal is
 dit een alarmerende meting zonder referentiepunt, en geen grond om Anam af te schrijven.
 
+**Bijgewerkt, 22 augustus 2026.** Het tekstgestuurde pad is opnieuw gemeten met de
+burstdetector, in dezelfde sessie en afgewisseld met passthrough: mediaan 838 ms tegen
+731 ms voor passthrough. `talk()` is dus niet sneller, en de eerder gemeten 385 ms was
+hetzelfde artefact als de ingetrokken 36 ms. Daarmee is er geen inconsistentie meer en
+staat vast dat ~800 ms is wat de Anam-pipeline kost, ongeacht het pad. Passthrough is bij
+hen geen tweederangspad.
+
 **Volgende stappen.** (1) De bey-melding beantwoord krijgen zodat er een tweede getal komt.
-(2) Het tekstgestuurde pad opnieuw meten: dat gaf eerder 385 ms, wat niet samen kan gaan
-met 807 ms voor passthrough. (3) Bij Anam navragen of er een instelling is die de
-vulgrens verlaagt.
+(2) Bij Anam navragen of de vulgrens instelbaar is — die vraag staat in
+[anam-supportmelding.md](anam-supportmelding.md).
+
+**Tot er een tweede getal is, wordt er niet verder gemeten.** Zonder referentiepunt blijft
+"800 ms is veel" een gevoel: het kan net zo goed zijn wat audio-to-video nu eenmaal kost.
+Dat onderscheid bepaalt of dit een providerprobleem is of een productprobleem, en dat is
+een te groot verschil om op intuïtie af te doen.

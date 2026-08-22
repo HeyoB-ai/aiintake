@@ -29,6 +29,7 @@ declare global {
         pcmBase64: string,
         sampleRate: number,
         condities: DiagnoseConditie[],
+        zin: string,
       ): Promise<DiagnoseBeurt[]>;
       livekit(config: { url: string; token: string }): Promise<Meting>;
     };
@@ -90,6 +91,14 @@ export interface DiagnoseConditie {
   /** `endSequence()` aanroepen. Uit bij de prefixproeven, anders forceert dat een flush. */
   readonly sluitStroom: boolean;
   readonly wachtMs: number;
+  /**
+   * `passthrough` = onze PCM erin. `talk` = hun tekstgestuurde pad, met hun eigen TTS.
+   *
+   * Beide in één sessie meten is de enige manier om ze te vergelijken: de vorige
+   * talk()-meting van 385 ms kwam uit een andere sessie én uit de oude detector, en kon
+   * dus niet samen met de 807 ms voor passthrough waar zijn.
+   */
+  readonly modus: 'passthrough' | 'talk';
 }
 
 export interface DiagnoseBeurt {
@@ -544,7 +553,7 @@ window.bakeoff = {
    * een gesproken zin van twee seconden leveren hetzelfde onsetgetal op; alleen de duur
    * vertelt welke van de twee het was.
    */
-  async anamDiagnose(sessionToken, pcmBase64, sampleRate, condities) {
+  async anamDiagnose(sessionToken, pcmBase64, sampleRate, condities, zin) {
     const video = videoElement();
     const bytes = decodeer(pcmBase64);
     const bytesPerFrame = (sampleRate / 1000) * 20 * 2;
@@ -574,6 +583,36 @@ window.bakeoff = {
           }
 
           for (let beurt = 0; beurt < conditie.beurten; beurt += 1) {
+            // Het tekstpad: geen audiostroom, hun eigen TTS. De klok start vlak vóór de
+            // opdracht, precies zoals bij passthrough vlak vóór de eerste chunk.
+            if (conditie.modus === 'talk') {
+              detector.wapen();
+              const startedAtTalk = performance.now();
+              let onsetTalk: number | null = null;
+              let foutTalk: string | null = null;
+              try {
+                await client.talk(zin);
+                onsetTalk = Math.round(
+                  (await detector.wachtOpGeluid(conditie.wachtMs)) - startedAtTalk,
+                );
+              } catch (e) {
+                foutTalk = (e as Error).message;
+              }
+              await new Promise((r) => setTimeout(r, 2500));
+              resultaten.push({
+                conditie: conditie.naam,
+                beurt,
+                onsetMs: onsetTalk,
+                verzondenMs: 0,
+                geleverdMs: 0,
+                geleverdBijOnsetMs: null,
+                bursts: detector.burstsSinds(startedAtTalk).slice(0, 6),
+                ...(foutTalk ? { fout: foutTalk } : {}),
+              });
+              await detector.wachtOpStilte(conditie.pauzeMs);
+              continue;
+            }
+
             const input =
               gedeeld ??
               client.createAgentAudioInputStream({
