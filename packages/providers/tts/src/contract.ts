@@ -37,6 +37,16 @@ export interface TtsStream {
   /** Eén zin. De aanroeper flusht zinsgewijs; zie SentenceFlusher. */
   say(text: string): void;
   /**
+   * Er komt geen tekst meer bij voor deze beurt. Daarna volgt `done` zodra alles is
+   * gesynthetiseerd.
+   *
+   * Dit hoort in het contract omdat de beurt anders niet af te ronden is: een echte
+   * leverancier levert audio ná de laatste `say()`, over het netwerk. Wie de beurt
+   * afsluit zodra de tekststream eindigt, mist die audio — en daarmee ook de meting van
+   * eerste audio en eerste frame.
+   */
+  flush(): void;
+  /**
    * Onmiddellijk stoppen en de wachtrij weggooien. Moet binnen 50 ms stilte opleveren.
    * Geeft terug hoeveel milliseconden er daadwerkelijk is uitgesproken — dat getal
    * draagt de transcript-truncatie.

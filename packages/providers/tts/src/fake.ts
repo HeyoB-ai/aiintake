@@ -64,8 +64,16 @@ export class FakeTtsStream implements TtsStream {
       emitted += durationMs;
       this.spokenMs += durationMs;
     }
+  }
 
-    if (!this.cancelled) this.emit('done');
+  /**
+   * Sluit de beurt af. `done` hoort hier en niet aan het eind van elke zin: een beurt
+   * van drie zinnen is pas klaar als de derde is gesynthetiseerd, en de aanroeper mag
+   * niet op de eerste al doorlopen.
+   */
+  flush(): void {
+    if (this.cancelled) return;
+    this.emit('done');
   }
 
   async cancel(): Promise<{ spokenMs: number }> {

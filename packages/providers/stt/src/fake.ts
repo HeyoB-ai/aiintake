@@ -38,10 +38,15 @@ export class FakeSttStream implements SttStream {
     this.emit('partial', text);
   }
 
-  /** De cliënt is uitgesproken; hierna start de responscyclus. */
-  endOfTurn(text: string): void {
+  /**
+   * De cliënt is uitgesproken; hierna start de responscyclus.
+   *
+   * `speechEndedAt` is instelbaar zodat een test endpointing-latency kan naspelen: geef
+   * een tijdstip in het verleden mee en de lus meet precies dat verschil.
+   */
+  endOfTurn(text: string, speechEndedAt = performance.now()): void {
     this.emit('final', text);
-    this.emit('end_of_turn', text);
+    this.emit('end_of_turn', text, { speechEndedAt });
   }
 
   fail(message: string): void {

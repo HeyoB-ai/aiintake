@@ -115,7 +115,7 @@ describe('beurtcyclus zonder onderbreking', () => {
         },
     );
 
-    h.stt.endOfTurn('Ik kreeg gisteren een vaststellingsovereenkomst.');
+    h.stt.endOfTurn('Ik kreeg gisteren een vaststellingsovereenkomst.', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     expect(h.turns).toHaveLength(1);
@@ -136,7 +136,7 @@ describe('beurtcyclus zonder onderbreking', () => {
         },
     );
 
-    h.stt.endOfTurn('vertel');
+    h.stt.endOfTurn('vertel', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     expect(h.tts.spoken).toEqual([ZIN_1, ZIN_2, ZIN_3]);
@@ -164,7 +164,7 @@ describe('barge-in', () => {
         },
     );
 
-    h.stt.endOfTurn('Ik kreeg een VSO.');
+    h.stt.endOfTurn('Ik kreeg een VSO.', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     const turn = h.turns[0]!;
@@ -199,7 +199,7 @@ describe('barge-in', () => {
         },
     );
 
-    h.stt.endOfTurn('test');
+    h.stt.endOfTurn('test', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     // Uitgesproken tijd gedeeld door de totale duur van de zin, maal het aantal tekens.
@@ -223,7 +223,7 @@ describe('barge-in', () => {
       { cancelCostMs: 12 },
     );
 
-    h.stt.endOfTurn('test');
+    h.stt.endOfTurn('test', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     const stil = h.turns[0]!.metrics.interruptToSilenceMs!;
@@ -248,9 +248,9 @@ describe('barge-in', () => {
         },
     );
 
-    h.stt.endOfTurn('eerste');
+    h.stt.endOfTurn('eerste', h.clock.now());
     await new Promise((r) => setImmediate(r));
-    h.stt.endOfTurn('tweede');
+    h.stt.endOfTurn('tweede', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     expect(gezien[0]).toBeUndefined();
@@ -272,7 +272,7 @@ describe('vals-positief-bescherming', () => {
         },
     );
 
-    h.stt.endOfTurn('test');
+    h.stt.endOfTurn('test', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     expect(h.backchannels).toEqual(['ja']);
@@ -292,7 +292,7 @@ describe('vals-positief-bescherming', () => {
         },
     );
 
-    h.stt.endOfTurn('test');
+    h.stt.endOfTurn('test', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     expect(h.turns[0]!.metrics.wasInterrupted).toBe(false);
@@ -310,7 +310,7 @@ describe('vals-positief-bescherming', () => {
         },
     );
 
-    h.stt.endOfTurn('test');
+    h.stt.endOfTurn('test', h.clock.now());
     await new Promise((r) => setImmediate(r));
 
     expect(h.turns[0]!.metrics.wasInterrupted).toBe(true);

@@ -24,9 +24,17 @@ export class TurnMetricsRecorder {
 
   constructor(private readonly now: () => number) {}
 
-  /** De cliënt is uitgesproken. Hier begint de klok die de cliënt ervaart. */
-  speechEnd(): void {
-    this.t0 = this.now();
+  /**
+   * De cliënt is uitgesproken. Hier begint de klok die de cliënt ervaart.
+   *
+   * `at` is het moment waarop het laatste woord eindigde, aangeleverd door de STT.
+   * Zonder dat argument zou t0 het moment zijn waarop wíj het event kregen, en dan meet
+   * `speechEndToSttFinalMs` de afstand tussen twee opeenvolgende regels code in plaats
+   * van de endpointing-latency. Dat leverde metingen van 0,04 ms op — een getal dat er
+   * goed uitziet en niets betekent.
+   */
+  speechEnd(at: number = this.now()): void {
+    this.t0 = at;
     this.sttFinalAt = null;
     this.firstTokenAt = null;
     this.firstAudioAt = null;

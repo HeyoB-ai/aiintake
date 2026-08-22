@@ -68,18 +68,24 @@ export class TurnLoop {
   private currentUtterance = '';
   /** De gehoorde prefix van de vorige beurt; voedt het herstelgedrag. */
   private lastInterruptedPrefix: string | undefined;
+  /** Wordt opgelost als de TTS klaar is met deze beurt. */
+  private synthesisDone: (() => void) | null = null;
 
   constructor(private readonly o: TurnLoopOptions) {
     this.metrics = new TurnMetricsRecorder(o.now);
 
-    o.stt.on('end_of_turn', (text) => {
-      void this.handleTurn(text);
+    o.stt.on('end_of_turn', (text, meta) => {
+      void this.handleTurn(text, meta?.speechEndedAt);
     });
 
     o.tts.on('audio', (chunk) => {
       this.metrics.ttsFirstAudio();
       this.emittedMs += chunk.durationMs;
       void o.avatar.pushAudio(chunk.pcm, chunk.seq);
+    });
+
+    o.tts.on('done', () => {
+      this.synthesisDone?.();
     });
 
     o.avatar.on('first_frame', () => {
@@ -118,8 +124,10 @@ export class TurnLoop {
     if (this.state === 'responding') this.o.onDuck?.(true);
   }
 
-  private async handleTurn(utterance: string): Promise<void> {
-    this.metrics.speechEnd();
+  private async handleTurn(utterance: string, speechEndedAt?: number): Promise<void> {
+    // t0 is het einde van de spraak, niet het binnenkomen van het event. Het verschil
+    // tussen die twee ís de endpointing-latency.
+    this.metrics.speechEnd(speechEndedAt);
     this.metrics.sttFinal();
 
     this.state = 'responding';
@@ -161,8 +169,45 @@ export class TurnLoop {
       return;
     }
 
+    // Wachten tot de synthese klaar is, en niet zodra de tekststream eindigt.
+    //
+    // Bij een fake komt de audio synchroon terug en valt het verschil weg, maar een
+    // echte leverancier levert hem ná de laatste say(), over het netwerk. Wie hier
+    // doorloopt, sluit de beurt af vóórdat er audio is — en meet dan geen eerste audio
+    // en geen eerste frame. De HUD stond dan vol streepjes terwijl de lus werkte.
+    await this.awaitSynthesis(abort.signal);
+
+    if (abort.signal.aborted) return;
+
     const { spokenMs } = await this.o.avatar.interrupt();
     await this.completeTurn({ content: this.sentToTts, interruptedAtChar: null, spokenMs });
+  }
+
+  /**
+   * Wacht op het `done`-event van de TTS.
+   *
+   * Met een timeout, want een leverancier die niets meer terugstuurt mag de sessie niet
+   * laten hangen: dan is er hoogstens audio gemist, en dat is te overzien vergeleken met
+   * een gesprek dat stilvalt.
+   */
+  private awaitSynthesis(signal: AbortSignal, timeoutMs = 15_000): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        this.synthesisDone = null;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', finish);
+        resolve();
+      };
+
+      const timer = setTimeout(finish, timeoutMs);
+      this.synthesisDone = finish;
+      signal.addEventListener('abort', finish, { once: true });
+
+      this.o.tts.flush();
+    });
   }
 
   /**

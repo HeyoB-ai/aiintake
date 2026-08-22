@@ -21,6 +21,11 @@ export interface SttOptions {
   readonly sampleRate?: number;
 }
 
+export interface TurnEndMeta {
+  /** Tijdstip op dezelfde klok als de rest van de lus (`performance.now()`-basis). */
+  readonly speechEndedAt: number;
+}
+
 export interface SttEvents {
   /** Tussentijds resultaat; mag wijzigen. Alleen voor de UI, nooit voor de engine. */
   partial: (text: string) => void;
@@ -28,8 +33,14 @@ export interface SttEvents {
   final: (text: string) => void;
   /** De cliënt begint te praten. Autoritatieve barge-in-trigger. */
   start_of_turn: () => void;
-  /** De cliënt is uitgesproken. Start van de responscyclus, en dus van de klok. */
-  end_of_turn: (text: string) => void;
+  /**
+   * De cliënt is uitgesproken. Start van de responscyclus.
+   *
+   * `speechEndedAt` is het moment waarop het laatste woord eindigde, niet het moment
+   * waarop wij dat te horen kregen. Dat verschil ís de endpointing-latency, en zonder
+   * dit veld is die niet te meten: de lus weet alleen wanneer het event binnenkwam.
+   */
+  end_of_turn: (text: string, meta: TurnEndMeta) => void;
   error: (error: Error) => void;
 }
 

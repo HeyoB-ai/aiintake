@@ -36,6 +36,10 @@ export class DeepgramSttStream implements SttStream {
   private speaking = false;
   /** Wat er sinds de laatste beurt aan finals is binnengekomen. */
   private pending = '';
+  /** Wandkloktijd waarop de stream openging; ankerpunt voor de streamtijdstempels. */
+  private streamStartedAt = 0;
+  /** Einde van het laatste woord, in seconden vanaf streamstart. */
+  private lastWordEndSec = 0;
 
   constructor(
     private readonly config: Required<DeepgramOptions>,
@@ -77,6 +81,7 @@ export class DeepgramSttStream implements SttStream {
       socket.addEventListener('error', onError, { once: true });
     });
 
+    this.streamStartedAt = performance.now();
     socket.addEventListener('message', (event) => this.onMessage(String(event.data)));
     socket.addEventListener('error', () => this.emit('error', new Error('Deepgram: socketfout')));
   }
@@ -109,6 +114,11 @@ export class DeepgramSttStream implements SttStream {
       if (!text) return;
 
       if (message.is_final) {
+        // start + duration is het einde van dit segment in streamtijd. Daarmee weten we
+        // wanneer de cliënt ophield met praten, en niet alleen wanneer wij dat hoorden.
+        const end = Number(message.start ?? 0) + Number(message.duration ?? 0);
+        if (Number.isFinite(end) && end > this.lastWordEndSec) this.lastWordEndSec = end;
+
         this.pending = this.pending ? `${this.pending} ${text}` : text;
         this.emit('final', text);
         if (message.speech_final) this.endTurn();
@@ -120,9 +130,13 @@ export class DeepgramSttStream implements SttStream {
 
   private endTurn(): void {
     const text = this.pending.trim();
+    const speechEndedAt = this.streamStartedAt + this.lastWordEndSec * 1000;
+
     this.pending = '';
+    this.lastWordEndSec = 0;
     this.speaking = false;
-    if (text) this.emit('end_of_turn', text);
+
+    if (text) this.emit('end_of_turn', text, { speechEndedAt });
   }
 
   push(pcm: Int16Array): void {
