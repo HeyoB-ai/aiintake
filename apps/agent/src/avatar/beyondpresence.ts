@@ -1,4 +1,4 @@
-import { voice } from '@livekit/agents';
+import { initializeLogger, voice } from '@livekit/agents';
 import { AudioFrame, Room, RoomEvent, TrackKind, VideoStream } from '@livekit/rtc-node';
 import type {
   AvatarCapabilities,
@@ -61,6 +61,31 @@ const AVATAR_IDENTITY = 'bey-avatar-agent';
 const AGENT_IDENTITY = 'intake-agent';
 const PUBLISH_ON_BEHALF = 'lk.publish_on_behalf';
 
+/** Waar @livekit/agents zijn logger parkeert: op globalThis, achter een Symbol.for. */
+const LOGGER_KEY = Symbol.for('@livekit/agents:logger');
+
+/**
+ * Zorgt dat de logger van @livekit/agents bestaat.
+ *
+ * `voice.DataStreamAudioOutput` roept in zijn constructor `log()` aan, en die gooit als
+ * er niets is geïnitialiseerd. Normaal doet de worker-bootstrap van hun framework dat —
+ * en dat is precies het stuk dat wij overslaan door `voice.AgentSession` niet over te
+ * nemen (ADR-0011). Dit is dus geen bug maar de rekening van die keuze.
+ *
+ * Idempotent, en bewust via dezelfde globale sleutel als zijzelf gebruiken: draait er
+ * later alsnog een echte agent-worker in dit proces, dan overschrijven wij diens
+ * logconfiguratie niet.
+ */
+function zorgVoorLogger(): void {
+  if ((globalThis as Record<symbol, unknown>)[LOGGER_KEY]) return;
+  initializeLogger({
+    pretty: false,
+    // Niet 'silent': een waarschuwing dat de avatardeelnemer wegblijft of dat een
+    // terugmelding niet aankomt, wil je zien. Debugruis wil je niet.
+    level: process.env['LIVEKIT_AGENTS_LOG_LEVEL'] ?? 'warn',
+  });
+}
+
 export interface BeyondPresenceOptions {
   readonly apiKey: string;
   readonly avatarId: string;
@@ -84,6 +109,7 @@ class BeyondPresenceSession implements AvatarSession {
   ) {}
 
   async start(): Promise<void> {
+    zorgVoorLogger();
     const { livekit } = this.options;
 
     const rooms = new LiveKitRooms(livekit);

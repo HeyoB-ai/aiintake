@@ -39,6 +39,34 @@ De prijs van die knip is dat wij zelf de room, het token en de levenscyclus rege
 is ongeveer tachtig regels, en ze staan in `apps/agent/src/avatar/beyondpresence.ts`,
 achter `AvatarProvider`.
 
+## De prijs is breder dan die tachtig regels
+
+De eerste bakeoff-run faalde hierop:
+
+```
+TypeError: logger not initialized. did you forget to run initializeLogger()?
+  bij new voice.DataStreamAudioOutput
+```
+
+`voice.DataStreamAudioOutput` roept in zijn constructor `log()` aan, en die gooit als er
+niets is geïnitialiseerd. Hun worker-bootstrap doet dat normaal — en dat is precies het
+stuk dat wij overslaan. Opgelost met een idempotente `zorgVoorLogger()` in de adapter,
+die dezelfde globale sleutel gebruikt als zijzelf, zodat een echte agent-worker in
+hetzelfde proces onze logconfiguratie niet tegenkomt als verrassing.
+
+**Dit is geen bug in de library en ook geen incident.** Het is de vorm die deze keuze
+aanneemt: wij gebruiken één klasse uit een framework dat ervan uitgaat dat zijn eigen
+opstartpad is doorlopen. Elk stuk impliciete initialisatie dat `AgentSession` voor je doet
+— logging nu, morgen misschien een tracer, een metrics-registry of een
+achtergrondtaakplanner — komt bij een upgrade als een harde fout in onze adapter naar
+boven, niet als een gedragsverandering.
+
+Dat is een aanvaardbare prijs, en het is de goede kant om op te falen: een ontbrekende
+initialisatie gooit meteen en zichtbaar, terwijl het alternatief — de intake-intelligentie
+in hun gespreksmodel hangen — pas maanden later zichtbaar zou worden als een chat-fallback
+die anders antwoordt dan de videomodus. Maar het betekent wel dat een upgrade van
+`@livekit/agents` een bakeoff-run verdient en niet alleen een groene typecheck.
+
 ## Twee dingen die dit onderweg opleverde
 
 **`spokenMs` komt nu van de kant die het weet.** `clearBuffer()` stuurt een RPC naar de
