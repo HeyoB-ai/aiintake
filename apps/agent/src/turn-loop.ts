@@ -42,6 +42,15 @@ export interface CompletedTurn {
    * uitzien terwijl er een zinsdeel ontbreekt. Zie RISICOS.md risico 2.
    */
   readonly clientUtteranceWasCut: boolean;
+  /**
+   * Hoe de STT deze beurt afsloot.
+   *
+   * Staat hier omdat het de endpointing-meting verklaart: een beurt via het vangnet
+   * (`utterance_end`) kost minstens `utterance_end_ms` aan stilte voordat hij sluit.
+   * Zo'n uitschieter is dus geen aarzelende cliënt maar een ander codepad, en zonder dit
+   * veld zijn die twee in de cijfers niet uit elkaar te houden.
+   */
+  readonly endedBy: 'speech_final' | 'utterance_end';
   readonly metrics: TurnMetrics;
 }
 
@@ -57,8 +66,20 @@ export interface TurnLoopOptions {
   readonly onDuck?: (ducked: boolean) => void;
   /** Backchannels zijn geen onderbreking maar een bevestiging. */
   readonly onBackchannel?: (text: string) => void;
-  /** De STT kapte de cliënt af; de volledige uitspraak komt hier alsnog binnen. */
-  readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
+  /**
+   * De STT kapte de cliënt af; de volledige uitspraak komt hier alsnog binnen.
+   *
+   * `detectedBy` hoort erbij en is geen detail. Er zijn twee onafhankelijke detectoren en
+   * ze falen op verschillende manieren: een woordgat meet de stilte tussen segmenten, een
+   * UtteranceEnd meet waar Deepgram zélf het laatste woord zag. Weet je alleen dát er
+   * afgekapt is, dan kun je bij een verkeerde melding niet zien wélke van de twee je moet
+   * bijstellen — en dat is precies wat er live gebeurde.
+   */
+  readonly onPrematureCut?: (
+    fullUtterance: string,
+    gapMs: number,
+    detectedBy: 'word_gap' | 'utterance_end',
+  ) => void;
   /**
    * Er kwam een beurt binnen zonder bruikbare inhoud van de cliënt.
    *
@@ -96,6 +117,8 @@ export class TurnLoop {
   private synthesisDone: (() => void) | null = null;
   /** Is de uitspraak van de cliënt te vroeg afgekapt? */
   private utteranceWasCut = false;
+  /** Hoe de STT de lopende beurt afsloot. */
+  private endedBy: 'speech_final' | 'utterance_end' = 'speech_final';
 
   constructor(private readonly o: TurnLoopOptions) {
     this.metrics = new TurnMetricsRecorder(o.now);
@@ -112,6 +135,7 @@ export class TurnLoop {
         o.onSkippedTurn?.('geen bruikbare tekst van de STT');
         return;
       }
+      this.endedBy = meta?.endedBy ?? 'speech_final';
       this.handleTurn(text, meta?.speechEndedAt).catch((error: unknown) => {
         this.state = 'idle';
         o.onTurnError?.(error);
@@ -122,7 +146,7 @@ export class TurnLoop {
       // De cliënt was nog aan het woord; onze beurt was gebaseerd op een halve zin.
       this.currentUtterance = meta.fullUtterance;
       this.utteranceWasCut = true;
-      this.o.onPrematureCut?.(meta.fullUtterance, meta.gapMs);
+      this.o.onPrematureCut?.(meta.fullUtterance, meta.gapMs, meta.detectedBy);
 
       // Antwoorden we al? Dan beantwoorden we een half gehoorde vraag. Afbreken is hier
       // hetzelfde herstel als bij een barge-in — en dat is precies wat het feitelijk is.
@@ -339,6 +363,7 @@ export class TurnLoop {
       interruptedAtChar: result.interruptedAtChar,
       spokenMs: result.spokenMs,
       clientUtteranceWasCut: this.utteranceWasCut,
+      endedBy: this.endedBy,
       metrics: this.metrics.snapshot(),
     };
 

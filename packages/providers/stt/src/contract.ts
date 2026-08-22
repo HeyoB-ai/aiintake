@@ -24,6 +24,18 @@ export interface SttOptions {
 export interface TurnEndMeta {
   /** Tijdstip op dezelfde klok als de rest van de lus (`performance.now()`-basis). */
   readonly speechEndedAt: number;
+  /**
+   * Hoe de beurt werd afgesloten.
+   *
+   * `speech_final` is het normale pad: het model zegt dat de zin af is. `utterance_end`
+   * is het vangnet — Deepgram zag `utterance_end_ms` aan stilte en sluit af omdat het
+   * laatste woord niet als final doorkwam.
+   *
+   * Dat onderscheid hoort in de meting. Een beurt via het vangnet kost per definitie
+   * minstens `utterance_end_ms` aan endpointing, dus zo'n uitschieter is geen aarzelende
+   * cliënt maar een ander codepad. Zonder dit veld lijken die twee identiek.
+   */
+  readonly endedBy: 'speech_final' | 'utterance_end';
 }
 
 export interface ContinuationMeta {

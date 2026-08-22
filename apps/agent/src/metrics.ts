@@ -147,6 +147,14 @@ export interface HudExtras {
   readonly rejectedFacts?: number;
   /** De STT kapte de cliënt af; zie RISICOS.md risico 2. */
   readonly clientUtteranceWasCut?: boolean;
+  /**
+   * Hoe de beurt is afgesloten.
+   *
+   * Alleen vermeld als het het vangnet was. Dan is de endpointing-tijd per definitie
+   * minstens `utterance_end_ms`, en zonder dat label lijkt zo'n beurt een uitschieter
+   * die er geen is.
+   */
+  readonly endedBy?: 'speech_final' | 'utterance_end';
 }
 
 /**
@@ -170,6 +178,7 @@ export function formatHudLine(metrics: TurnMetrics, extras: HudExtras = {}): str
   ];
   if (metrics.wasInterrupted)
     parts.push(`onderbroken, stil na ${ms(metrics.interruptToSilenceMs)}`);
+  if (extras.endedBy === 'utterance_end') parts.push('eot via vangnet (UtteranceEnd)');
   if (extras.clientUtteranceWasCut) parts.push('UITSPRAAK AFGEKAPT');
   if (extras.rejectedFacts) parts.push(`${extras.rejectedFacts} feit(en) GEWEIGERD`);
   return parts.join(' · ');

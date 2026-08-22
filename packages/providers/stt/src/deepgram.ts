@@ -153,7 +153,7 @@ export class DeepgramSttStream implements SttStream {
 
       // Vangnet: het laatste woord is niet als speech_final doorgekomen, maar het gat
       // tussen woordtijdstempels is groot genoeg om de beurt af te sluiten.
-      this.endTurn();
+      this.endTurn('utterance_end');
       return;
     }
 
@@ -180,14 +180,14 @@ export class DeepgramSttStream implements SttStream {
 
         this.pending = this.pending ? `${this.pending} ${text}` : text;
         this.emit('final', text);
-        if (message.speech_final) this.endTurn();
+        if (message.speech_final) this.endTurn('speech_final');
       } else {
         this.emit('partial', text);
       }
     }
   }
 
-  private endTurn(): void {
+  private endTurn(endedBy: 'speech_final' | 'utterance_end'): void {
     const text = this.pending.trim();
     const speechEndedAt = this.streamStartedAt + this.lastWordEndSec * 1000;
 
@@ -204,7 +204,7 @@ export class DeepgramSttStream implements SttStream {
     this.closedTurnText = text;
     this.lastWordEndSec = 0;
 
-    this.emit('end_of_turn', text, { speechEndedAt });
+    this.emit('end_of_turn', text, { speechEndedAt, endedBy });
   }
 
   /**
@@ -218,6 +218,26 @@ export class DeepgramSttStream implements SttStream {
     gapMs: number,
     detectedBy: 'word_gap' | 'utterance_end',
   ): void {
+    // Harde bovengrens, en geen gewogen afweging.
+    //
+    // Een gat groter dan `utterance_end_ms` kán per definitie geen afkapping zijn: bij
+    // precies dat gat besluit Deepgram zélf dat de uitspraak voorbij is. Wat daarna komt
+    // is een nieuwe uitspraak, hoe kort de pauze ook voelde.
+    //
+    // Deze controle staat hier en niet bij de twee detectoren, omdat hij voor elke
+    // detector geldt — ook voor een toekomstige. De word_gap-detector had zijn eigen
+    // grens van 600 ms; de utterance_end-detector had er geen enkele en meldde live een
+    // "afkapping" met een gat van 7300 ms. Twee uitspraken die zeven seconden uit elkaar
+    // lagen werden aan elkaar geplakt, en dat is geen dataverlies repareren maar
+    // dataverlies veroorzaken: de eerste uitspraak kreeg er tekst bij die er niet bij
+    // hoorde.
+    const bovengrensMs = this.config.utteranceEndMs;
+    if (gapMs > bovengrensMs) {
+      this.closedTurnEndSec = 0;
+      this.closedTurnText = '';
+      return;
+    }
+
     const closed = this.closedTurnText;
     this.closedTurnEndSec = 0;
     this.closedTurnText = '';

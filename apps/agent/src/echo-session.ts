@@ -64,7 +64,11 @@ export interface EchoSessionOptions {
   readonly onSkippedTurn?: (reason: string) => void;
   readonly onTurn?: (turn: CompletedTurn) => void;
   /** De STT kapte de cliënt af. Dataverlies-signaal; zie RISICOS.md risico 2. */
-  readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
+  readonly onPrematureCut?: (
+    fullUtterance: string,
+    gapMs: number,
+    detectedBy: 'word_gap' | 'utterance_end',
+  ) => void;
   readonly now?: () => number;
 }
 
@@ -133,10 +137,15 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
       log.error('beurt mislukt', { fout: String(error).slice(0, 200) });
       options.onTurnError?.(error);
     },
-    onPrematureCut: (fullUtterance, gapMs) => {
-      // Geen transcriptfragment in het log (§14) — alleen dát het gebeurde en hoe krap.
-      log.warn('uitspraak te vroeg afgekapt', { gapMs, tekens: fullUtterance.length });
-      options.onPrematureCut?.(fullUtterance, gapMs);
+    onPrematureCut: (fullUtterance, gapMs, detectedBy) => {
+      // Geen transcriptfragment in het log (§14) — alleen dát het gebeurde, hoe krap, en
+      // welke detector hem ving.
+      log.warn('uitspraak te vroeg afgekapt', {
+        gapMs,
+        detectedBy,
+        tekens: fullUtterance.length,
+      });
+      options.onPrematureCut?.(fullUtterance, gapMs, detectedBy);
     },
   });
 

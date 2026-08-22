@@ -46,7 +46,7 @@ export class FakeSttStream implements SttStream {
    */
   endOfTurn(text: string, speechEndedAt = performance.now()): void {
     this.emit('final', text);
-    this.emit('end_of_turn', text, { speechEndedAt });
+    this.emit('end_of_turn', text, { speechEndedAt, endedBy: 'speech_final' });
   }
 
   /**

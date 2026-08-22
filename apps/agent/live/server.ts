@@ -159,7 +159,7 @@ wss.on('connection', async (ws) => {
       language: 'nl',
       respond: intake.responseSource(),
       avatarProvider: browserAvatar(new NullAvatarProvider(() => performance.now()), ws),
-      onPrematureCut: (_volledig, gapMs) => stuur({ type: 'cut', gapMs }),
+      onPrematureCut: (_volledig, gapMs, detectedBy) => stuur({ type: 'cut', gapMs, detectedBy }),
       onSkippedTurn: (reden) => stuur({ type: 'skipped', reden }),
       onTurnError: (error) => stuur({ type: 'error', waar: 'beurt', wat: String(error) }),
       onTurn: (turn) => {
@@ -172,6 +172,7 @@ wss.on('connection', async (ws) => {
           interrupted: turn.interruptedAtChar !== null,
           hud: formatHudLine(turn.metrics, {
             clientUtteranceWasCut: turn.clientUtteranceWasCut,
+            endedBy: turn.endedBy,
             rejectedFacts: 0,
           }),
         });

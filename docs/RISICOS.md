@@ -25,6 +25,22 @@ EU-regio.
 **Signaal dat het misgaat.** `session_metrics` p50 boven 1,5 s na tuning, of een enkele
 stap die structureel boven zijn p95-budget zit.
 
+### Een endpointing-uitschieter die er geen was
+
+Live viel één beurt op met **eot 1283 ms** tegen een normale 250–310. Dat leek het
+aarzelgedrag waarop we wilden meten, maar het is een ander codepad: sluit de beurt via het
+vangnet in plaats van via `speech_final`, dan wacht Deepgram eerst `utterance_end_ms`
+(1000 ms) aan stilte af. Zo'n beurt _kan_ niet onder de duizend milliseconde uitkomen.
+
+`end_of_turn` draagt daarom nu `endedBy`, en de HUD schrijft er "eot via vangnet
+(UtteranceEnd)" bij. Zonder dat label is een trage beurt niet te onderscheiden van een
+beurt die nooit sneller had kunnen zijn — en zou tuning op endpointing zich richten op een
+getal dat niets over endpointing zegt.
+
+Wat dit betekent voor de p50: beurten via het vangnet horen apart geteld te worden. Zitten
+er veel in, dan is de vraag niet "waarom is endpointing traag" maar "waarom komt het
+laatste woord niet als `speech_final` door".
+
 ### Eerste echte meting van het hot path — 22 augustus 2026
 
 Tot nu toe stond hier 0,3 ms voor de LLM-stap. Dat was geen prestatie maar een leeg
@@ -180,6 +196,29 @@ dezelfde uitspraak. Deepgram's `UtteranceEnd` levert daarnaast een eigen `last_w
 ligt die ná het punt waarop wij afkapten, dan is dat een tweede, onafhankelijk signaal.
 De lus behandelt zo'n geval als wat het is — de cliënt was nog aan het woord — en breekt
 het antwoord af in plaats van een halve vraag te beantwoorden.
+
+**Wat de eerste live-sessie opleverde, 22 augustus 2026.** De detectie meldde een
+afkapping met een gat van **7300 ms**: twee uitspraken die zeven seconden uit elkaar lagen
+werden aan elkaar geplakt. Dat was geen te ruime drempel maar een berekening zonder
+bovengrens — de woordgat-detector begrensde netjes op 600 ms, de UtteranceEnd-detector had
+géén grens en vuurde bij elk verschil.
+
+Dat is erger dan niets doen. De detectie bestaat om stil dataverlies te repareren, en in
+deze vorm veroorzaakte hij het: de eerste uitspraak kreeg tekst toegevoegd die er niet bij
+hoorde, en de tweede verdween.
+
+Gerepareerd met een **harde bovengrens van `utterance_end_ms`**, en niet met een gewogen
+afweging. Een gat groter dan die waarde kán per definitie geen afkapping zijn: bij precies
+dat gat besluit Deepgram zélf dat de uitspraak voorbij is. De controle staat op één plek
+— in `reportContinuation` — zodat hij voor beide detectoren geldt en voor elke toekomstige.
+
+De melding zegt nu ook wélke detector hem ving (`word_gap` of `utterance_end`). Er zijn
+twee onafhankelijke detectoren die op verschillende manieren falen; weet je alleen dát er
+is afgekapt, dan kun je bij een verkeerde melding niet zien welke van de twee je moet
+bijstellen.
+
+Zes regressietests in `packages/providers/stt/src/deepgram.test.ts`, inclusief het geval
+precies op de grens.
 
 **Mitigatie, nog te doen.**
 

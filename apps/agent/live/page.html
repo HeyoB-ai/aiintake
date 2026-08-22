@@ -251,7 +251,13 @@
             regel('systeem', `beurt overgeslagen — ${m.reden}; hij blijft wachten`, '', 'waarschuwing');
           }
           if (m.type === 'cut') {
-            regel('systeem', `uitspraak te vroeg afgekapt (gat ${m.gapMs} ms)`, '', 'waarschuwing');
+            const via = m.detectedBy === 'word_gap' ? 'woordgat' : 'UtteranceEnd.last_word_end';
+            regel(
+              'systeem',
+              `uitspraak te vroeg afgekapt — gat ${m.gapMs} ms, gevangen door ${via}`,
+              '',
+              'waarschuwing',
+            );
           }
           if (m.type === 'facts') {
             $('score').textContent = Math.round((m.completeness ?? 0) * 100) + '%';
