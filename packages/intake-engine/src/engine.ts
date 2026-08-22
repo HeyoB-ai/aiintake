@@ -3,6 +3,7 @@ import {
   FactExtractionModelResultSchema,
   describeClaim,
   findArithmeticClaim,
+  isContentlessAffirmation,
   type ExtractedFact,
   type FactExtractionModelResult,
   rejectUngroundedFacts,
@@ -19,6 +20,7 @@ import { PROMPTS, practiceAreaLabel, render, type RenderedPrompt } from '@intake
  */
 export type { RenderedPrompt };
 import { scoreCompleteness } from './completeness';
+import { evaluate } from './conditions';
 import { planQuestions } from './planner';
 import { evaluateRules } from './rules';
 import type {
@@ -169,7 +171,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
       // alleen kosten. De score en de regels rekenen we wél opnieuw: die hangen ook van
       // de klok af, en een deadline die vannacht dichterbij kwam moet vanochtend zichtbaar
       // zijn zonder dat de cliënt eerst iets hoeft te zeggen.
-      const transcript = nieuweBeurten(input);
+      const { transcript, clientOnly } = nieuweBeurten(input);
       if (!transcript.trim()) {
         return beoordeel(input, [], catalog);
       }
@@ -198,6 +200,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         deps.cold,
         prompt.body,
         transcript,
+        clientOnly,
         catalog,
         gezocht,
       );
@@ -272,6 +275,7 @@ async function extraheer(
   cold: ColdPathModel,
   system: string,
   transcript: string,
+  clientOnly: string,
   catalog: FactCatalog,
   gezocht: readonly FactDefinition[],
 ): Promise<{
@@ -287,7 +291,7 @@ async function extraheer(
     if (geparsed.ok) {
       const gevalideerd = FactExtractionModelResultSchema.safeParse(geparsed.value);
       if (gevalideerd.success) {
-        return naarFactUpdates(gevalideerd.data, transcript, catalog, gezocht);
+        return naarFactUpdates(gevalideerd.data, transcript, clientOnly, catalog, gezocht);
       }
       if (poging === 1) {
         return { ...LEEG, error: `schema niet gehaald: ${kortIssue(gevalideerd.error)}` };
@@ -343,6 +347,7 @@ function parseJson(tekst: string): { ok: true; value: unknown } | { ok: false; e
 function naarFactUpdates(
   resultaat: FactExtractionModelResult,
   transcript: string,
+  clientOnly: string,
   catalog: FactCatalog,
   gezocht: readonly FactDefinition[],
 ): { updates: readonly FactUpdate[]; rejected: readonly RejectedFact[] } {
@@ -369,10 +374,35 @@ function naarFactUpdates(
     });
   }
 
-  const { accepted: verankerd, rejected } = rejectUngroundedFacts(volledig, transcript);
+  // Verankeren tegen wat de CLIËNT zei, niet tegen het hele gesprek.
+  const { accepted: verankerd, rejected } = rejectUngroundedFacts(volledig, clientOnly);
+
+  // Voor de melding: stond het citaat wél in het gesprek maar niet bij de cliënt, dan is
+  // het uit een assistent-beurt overgenomen. Dat is een andere fout dan een verzonnen
+  // citaat, en hij hoort ook anders te heten — anders zoek je bij een verkeerde melding
+  // naar hallucinatie terwijl het model netjes citeerde, alleen zichzelf.
+  const { accepted: welInGesprek } = rejectUngroundedFacts(
+    rejected.map((r) => r.fact),
+    transcript,
+  );
+  const uitAssistent = new Set(welInGesprek.map((f) => f.key));
   const uit: FactUpdate[] = [];
 
+  const inhoudsloos: RejectedFact[] = [];
+
   for (const fact of verankerd) {
+    // Een instemming draagt geen waarde. "Ja." komt van de cliënt en is dus verankerd,
+    // maar bevestigt hooguit iets wat een ander heeft gezegd — en dat was hier juist het
+    // model. Zonder deze regel is de verankering op de cliënt te omzeilen door het
+    // antwoord te citeren in plaats van de vraag.
+    if (fact.status !== 'unknown' && isContentlessAffirmation(fact.evidenceQuote)) {
+      inhoudsloos.push({
+        key: fact.key,
+        reason: 'citaat is een instemming zonder inhoud; die draagt geen waarde',
+      });
+      continue;
+    }
+
     const definitie = toegestaan.get(fact.key) ?? catalog.facts.find((f) => f.key === fact.key);
     if (!definitie) continue;
 
@@ -419,21 +449,70 @@ function naarFactUpdates(
   }
   return {
     updates: uit,
-    rejected: rejected.map((r) => ({ key: r.fact.key, reason: r.reason })),
+    rejected: [
+      ...rejected.map((r) => ({
+        key: r.fact.key,
+        reason: uitAssistent.has(r.fact.key)
+          ? 'citaat komt uit een assistent-beurt, niet van de cliënt'
+          : r.reason,
+      })),
+      ...inhoudsloos,
+    ],
   };
 }
 
 /** Alleen de beurten sinds de laatste extractie; de rest is al verwerkt. */
-function nieuweBeurten(input: EngineInput): string {
+/**
+ * De recente beurten, twee keer: als gesprek en als alleen-de-cliënt.
+ *
+ * Het volledige gesprek gaat naar het model, want zonder de vraag is een antwoord als
+ * "ja" onbegrijpelijk. De **verankering** gaat alleen over wat de cliënt zei.
+ *
+ * Dat onderscheid repareert een concreet geval. De assistent vroeg "was dat 17 januari?"
+ * — een datum die de cliënt nooit had genoemd — en de cliënt zei "ja". De extractie legde
+ * 17 januari vast als `confirmed`, met als citaat de eigen vraag van de assistent. De
+ * verankering keek naar het hele transcript en vond die zin daar netjes terug: het model
+ * kon zichzelf als bron gebruiken.
+ *
+ * Een citaat uit een assistent-beurt bewijst alleen dat de assistent iets heeft gezegd.
+ */
+function nieuweBeurten(input: EngineInput): { transcript: string; clientOnly: string } {
   const recent = input.history.slice(-4);
   const regels = recent.map((t) => `${t.role === 'client' ? 'Cliënt' : 'Assistent'}: ${t.content}`);
-  if (input.lastClientUtterance) regels.push(`Cliënt: ${input.lastClientUtterance}`);
-  return regels.join('\n');
+  const clientRegels = recent.filter((t) => t.role === 'client').map((t) => t.content);
+
+  if (input.lastClientUtterance) {
+    regels.push(`Cliënt: ${input.lastClientUtterance}`);
+    clientRegels.push(input.lastClientUtterance);
+  }
+  return { transcript: regels.join('\n'), clientOnly: clientRegels.join('\n') };
 }
 
-/** Feiten die nog open staan en waarvan de voorwaarde is vervuld. */
+/**
+ * Feiten die nog open staan én waarvan de voorwaarde is vervuld.
+ *
+ * De categoriefilter stond hier eerst niet, en dat had twee gevolgen. Het model kreeg bij
+ * een loonconflict ook alle VSO-velden voorgeschoteld — een uitnodiging om iets te vinden
+ * dat er niet is — en de lijst van ongeveer zevenveertig sleutels maakte de koude ronde
+ * onnodig lang. Die duurde gemeten 8,5 seconde, terwijl een cliënt binnen twee seconden
+ * antwoordt; dan werkt de planner met feiten van twee beurten terug en vraagt hij dingen
+ * opnieuw.
+ *
+ * Alleen op **categorie** gefilterd en niet ook op de voorwaarde per feit — die gaat te
+ * ver. `sick_since` hangt af van `currently_ill`, en een cliënt die zegt "ik ben ziek
+ * gemeld sinds maart" noemt beide in één adem. Met de fijne filter erbij verdween de
+ * datum uit de lijst en kwam hij pas een beurt later binnen. Bij een probleem dat juist
+ * over vertraging gaat, is een extra beurt vertraging de verkeerde ruil.
+ *
+ * De categorie is de grove, stabiele filter: die hangt af van wat het gesprek ís, en niet
+ * van wat er zojuist is gezegd.
+ */
 function gezochteFeiten(catalog: FactCatalog, facts: CaseFactMap): readonly FactDefinition[] {
+  const relevanteCategorieen = new Set(
+    catalog.categories.filter((c) => evaluate(c.relevantWhen, facts)).map((c) => c.key),
+  );
   return catalog.facts.filter((f) => {
+    if (!relevanteCategorieen.has(f.category)) return false;
     const bestaand = facts[f.key];
     return !bestaand || bestaand.status === 'contradicted';
   });

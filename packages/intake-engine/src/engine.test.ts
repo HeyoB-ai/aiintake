@@ -354,3 +354,87 @@ describe('rekenkundige beweringen van de cliënt', () => {
     expect(model.laatsteSysteem).not.toContain('rekenfout');
   });
 });
+
+describe('de assistent mag geen bron van zichzelf zijn', () => {
+  /**
+   * Live vroeg de assistent "was dat 17 januari?" — een datum die de cliënt nooit had
+   * genoemd — en de cliënt zei "ja". De extractie legde 17 januari vast als `confirmed`,
+   * met als citaat de eigen vraag van de assistent. De verankering keek naar het hele
+   * transcript en vond die zin daar netjes terug.
+   *
+   * Dezelfde familie als de 140.000 uit risico 9: iets wordt als vaststaand gepresenteerd
+   * dat het systeem niet weet. Alleen verzon hier niet de cliënt het maar het model zelf,
+   * en dat is erger — de cliënt kan zijn eigen fout nog corrigeren.
+   *
+   * Deze tests draaien met een vast modelantwoord en niet tegen het echte model: of het
+   * model het déze keer probeert is variatie, of het systeem het accepteert is de regel.
+   */
+  const geschiedenis = [
+    {
+      id: 't1',
+      role: 'client' as const,
+      content: 'Ik ben op staande voet ontslagen.',
+      plannedQuestionKeys: [],
+      createdAt: '2026-08-22T09:00:00Z',
+    },
+    {
+      id: 't2',
+      role: 'assistant' as const,
+      content: 'Wat vervelend. Wanneer was dat — was dat 17 januari?',
+      plannedQuestionKeys: [],
+      createdAt: '2026-08-22T09:00:01Z',
+    },
+  ];
+
+  function datumFeit(citaat: string) {
+    return JSON.stringify({
+      facts: [
+        {
+          key: 'summary_dismissal_date',
+          value: '2026-01-17',
+          status: 'confirmed',
+          confidence: 0.8,
+          evidenceQuote: citaat,
+        },
+      ],
+    });
+  }
+
+  it('weigert een citaat uit de eigen vraag van de assistent', async () => {
+    const engine = createIntakeEngine({
+      hot: hot([]),
+      cold: cold([datumFeit('was dat 17 januari?')]),
+    });
+    const r = await engine.observe(invoer({ history: geschiedenis, lastClientUtterance: 'Ja.' }));
+
+    expect(r.factUpdates.find((f) => f.key === 'summary_dismissal_date')).toBeUndefined();
+    // De reden moet uitleggen wát er mis was. "Komt niet voor in de bron" zou hier
+    // misleiden: het model citeerde netjes, alleen zichzelf.
+    expect(r.rejectedFacts?.[0]?.reason).toContain('assistent-beurt');
+  });
+
+  it('weigert een instemming zonder inhoud als bron voor een concrete waarde', async () => {
+    // "Ja." komt wél letterlijk van de cliënt. Maar een instemming draagt geen datum;
+    // hij bevestigt hooguit iets wat een ander heeft gezegd. Zonder deze regel is de
+    // reparatie hierboven te omzeilen door simpelweg het antwoord te citeren.
+    const engine = createIntakeEngine({
+      hot: hot([]),
+      cold: cold([datumFeit('Ja.')]),
+    });
+    const r = await engine.observe(invoer({ history: geschiedenis, lastClientUtterance: 'Ja.' }));
+
+    expect(r.factUpdates.find((f) => f.key === 'summary_dismissal_date')).toBeUndefined();
+    expect(r.rejectedFacts?.[0]?.reason).toBeDefined();
+  });
+
+  it('laat een datum die de cliënt zelf noemde gewoon door', async () => {
+    const engine = createIntakeEngine({
+      hot: hot([]),
+      cold: cold([datumFeit('op 17 januari ben ik ontslagen')]),
+    });
+    const r = await engine.observe(
+      invoer({ lastClientUtterance: 'op 17 januari ben ik ontslagen' }),
+    );
+    expect(r.factUpdates.find((f) => f.key === 'summary_dismissal_date')?.value).toBe('2026-01-17');
+  });
+});

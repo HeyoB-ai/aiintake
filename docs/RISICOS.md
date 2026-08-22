@@ -498,3 +498,45 @@ is dat een som **verifieerbaar** is en de rest niet.
 De onderliggende regel is breder dan deze implementatie: **het systeem bevestigt geen
 bewering die het niet kan controleren, en presenteert geen afleiding als waarneming.** Bij
 elke nieuwe categorie die wél te controleren valt, hoort die controle er te komen.
+
+---
+
+## 10. Het model gebruikt zichzelf als bron
+
+**Status: gerepareerd, 22 augustus 2026. Blijft staan als categorie.**
+
+De assistent vroeg *"was dat 17 januari?"* — een datum die de cliënt nooit had genoemd.
+De cliënt zei "ja". De extractie legde 17 januari vast als `summary_dismissal_date` met
+status `confirmed`, en als onderbouwing stond er een citaat: **de eigen vraag van de
+assistent**.
+
+**Waarom de bestaande controle dit niet ving.** `rejectUngroundedFacts` controleerde het
+citaat tegen het hele transcript, en daar staan de assistent-beurten ook in. Het model kon
+dus zichzelf citeren. Een citaat uit een assistent-beurt bewijst alleen dat de assistent
+iets heeft gezegd.
+
+Dit is dezelfde familie als [risico 9](#9-het-systeem-bevestigt-een-onjuiste-bewering-van-de-cliënt),
+maar een graad erger: bij de rekenfout verzon de cliënt het en kan hij zichzelf nog
+corrigeren. Hier verzint het systeem het en biedt het aan ter bevestiging. Een twijfelende
+cliënt zegt "ja" tegen een gezaghebbend klinkende vraag.
+
+**Wat er is gebouwd.** Drie lagen, en de tweede kwam er alleen omdat de eerste te omzeilen
+bleek.
+
+1. Verankering gebeurt nu tegen **alleen wat de cliënt zei**. Het volledige gesprek gaat
+   nog steeds naar het model — zonder de vraag is "ja" onbegrijpelijk — maar het bewijs
+   moet uit een cliëntbeurt komen.
+2. Een **instemming zonder inhoud** telt niet als bron. "Ja." komt wél van de cliënt, dus
+   laag 1 alleen was te omzeilen door het antwoord te citeren in plaats van de vraag. Wie
+   iets bevestigt, noemt het niet.
+3. De gespreksprompt (v3) verbiedt het noemen van elke concrete waarde die de cliënt niet
+   zelf heeft gezegd — geen datum, bedrag, naam of aantal, ook niet als voorbeeld of gok.
+   De extractieprompt (v4) zegt hetzelfde vanaf de andere kant.
+
+**Wat dit niet afdekt.** Een assistent die een verkeerde *samenvatting* geeft van iets dat
+de cliënt wél zei ("u zei dus dat u ontslagen bent" terwijl er "opgezegd" stond) wordt
+hiermee niet gevangen. De regel is nu: een concrete waarde moet uit de mond van de cliënt
+komen. Parafrase valt daarbuiten en is een open randgeval.
+
+De onderliggende regel, breder dan de implementatie: **het systeem is nooit zijn eigen
+bron.** Wat het zelf heeft geproduceerd, kan geen bewijs zijn voor wat het vastlegt.
