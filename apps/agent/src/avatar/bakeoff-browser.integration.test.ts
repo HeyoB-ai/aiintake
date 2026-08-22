@@ -6,7 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { build } from 'esbuild';
 import { chromium, type Browser } from 'playwright';
 import { CartesiaTtsProvider, type CartesiaTtsStream } from '@intake/provider-tts';
+import { createAccessToken, type LiveKitCredentials } from '@intake/provider-transport';
 import { AnamAvatarProvider } from './anam';
+import { BeyondPresenceAvatarProvider } from './beyondpresence';
 
 /**
  * De bakeoff, in een browser.
@@ -16,8 +18,9 @@ import { AnamAvatarProvider } from './anam';
  * signalling die door hun browser-SDK wordt opgezet. Wie alleen meet wat vanuit Node
  * kan, meet integratiegemak in plaats van kwaliteit. Zie ADR-0010.
  *
- * De meting is voor beide identiek: van "verbinding starten" tot het eerste frame dat de
- * browser daadwerkelijk tekent, via `requestVideoFrameCallback`.
+ * De meting is voor beide identiek: ónze PCM erin, eerste hoorbare geluid eruit, in een
+ * sessie die al warm is. Dat is het getal dat tegen het budget van 180 ms p50 mag, want
+ * op dat pad zit de TTS van de leverancier niet in de keten (ADR-0001).
  *
  * Dit start echte sessies en kost avatarminuten. Vandaar `pnpm test:bakeoff`, nooit
  * `pnpm test`, en nooit in CI — de meting hoort bovendien vanaf een machine in Nederland
@@ -27,13 +30,30 @@ import { AnamAvatarProvider } from './anam';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BAKEOFF_DIR = join(HERE, '..', '..', 'bakeoff');
 
-const heeftAnam = Boolean(process.env['ANAM_API_KEY'] && process.env['ANAM_AVATAR_ID']);
-const describeLive = heeftAnam ? describe : describe.skip;
+/** Genoeg beurten voor een p50 die iets betekent; zie de kanttekening bij p95 hieronder. */
+const BEURTEN = 12;
+const SAMPLE_RATE = 16_000;
+const ZIN = 'Goedemiddag, ik ben de digitale intake-assistent.';
 
-if (!heeftAnam) {
-  // eslint-disable-next-line no-console
-  console.warn('\n[bakeoff-browser] OVERGESLAGEN — ANAM_API_KEY of ANAM_AVATAR_ID ontbreekt.\n');
+const heeftCartesia = Boolean(process.env['CARTESIA_API_KEY'] && process.env['CARTESIA_VOICE_ID']);
+const heeftAnam = Boolean(process.env['ANAM_API_KEY'] && process.env['ANAM_AVATAR_ID']);
+const heeftLivekit = Boolean(
+  process.env['LIVEKIT_URL'] && process.env['LIVEKIT_API_KEY'] && process.env['LIVEKIT_API_SECRET'],
+);
+const heeftBey =
+  Boolean(process.env['BEY_API_KEY'] && process.env['BEY_AVATAR_ID']) && heeftLivekit;
+
+function meldOverslaan(): void {
+  const ontbreekt: string[] = [];
+  if (!heeftCartesia) ontbreekt.push('CARTESIA_API_KEY/CARTESIA_VOICE_ID');
+  if (!heeftAnam) ontbreekt.push('ANAM_API_KEY/ANAM_AVATAR_ID');
+  if (!heeftBey) ontbreekt.push('BEY_API_KEY/BEY_AVATAR_ID + LIVEKIT_*');
+  if (ontbreekt.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`\n[bakeoff] overgeslagen onderdelen — ontbreekt: ${ontbreekt.join(', ')}\n`);
+  }
 }
+meldOverslaan();
 
 /** Bundelt de meetpagina; de SDK's moeten als één bestand de browser in. */
 async function bundleClient(): Promise<string> {
@@ -88,14 +108,51 @@ interface Meting {
   height: number;
 }
 
-interface BeurtMeting {
+interface PassthroughMeting {
   coldStartMs: number;
-  responseMs: number;
+  responseMs: number[];
+  harnasOverheadMs?: number;
 }
 
-const SAMPLE_RATE = 16_000;
+/**
+ * Percentiel via lineaire interpolatie, één implementatie voor beide providers.
+ *
+ * Dat het gedeeld is, is het punt: twee providers vergelijken met twee rekenmethodes is
+ * geen vergelijking.
+ */
+function percentiel(waarden: readonly number[], p: number): number {
+  if (waarden.length === 0) return Number.NaN;
+  const gesorteerd = [...waarden].sort((a, b) => a - b);
+  const positie = (gesorteerd.length - 1) * p;
+  const onder = Math.floor(positie);
+  const boven = Math.ceil(positie);
+  const laag = gesorteerd[onder] ?? 0;
+  if (onder === boven) return laag;
+  const hoog = gesorteerd[boven] ?? laag;
+  return laag + (hoog - laag) * (positie - onder);
+}
 
-/** Onze eigen TTS, zodat de passthrough-meting dezelfde audio gebruikt als productie. */
+function rapporteer(naam: string, meting: PassthroughMeting): void {
+  const r = meting.responseMs;
+  const regels = [
+    ``,
+    `  ${naam} — passthrough (ons productiepad, ${r.length} beurten)`,
+    `    koude start                  ${meting.coldStartMs} ms  (prewarm dekt dit af)`,
+    `    per beurt p50                ${percentiel(r, 0.5).toFixed(0)} ms  (budget 180)`,
+    `    per beurt p95                ${percentiel(r, 0.95).toFixed(0)} ms  (budget 350)`,
+    `    min / max                    ${Math.min(...r)} / ${Math.max(...r)} ms`,
+    `    ruwe waarden                 ${r.join(', ')}`,
+  ];
+  if (meting.harnasOverheadMs !== undefined) {
+    regels.push(
+      `    harnasoverhead (in bovenstaande getallen begrepen)  ~${meting.harnasOverheadMs} ms`,
+    );
+  }
+  // eslint-disable-next-line no-console
+  console.log(regels.join('\n') + '\n');
+}
+
+/** Onze eigen TTS, zodat beide metingen dezelfde audio gebruiken als productie. */
 async function synthetiseer(zin: string): Promise<Int16Array> {
   const tts = new CartesiaTtsProvider({ apiKey: process.env['CARTESIA_API_KEY']! });
   const stream = (await tts.open({
@@ -130,10 +187,11 @@ async function synthetiseer(zin: string): Promise<Int16Array> {
   return pcm;
 }
 
-describeLive('bakeoff in de browser', () => {
+describe('bakeoff in de browser', () => {
   let browser: Browser;
   let server: Server;
   let url: string;
+  let pcm: Int16Array | null = null;
 
   beforeAll(async () => {
     const clientJs = await bundleClient();
@@ -146,6 +204,7 @@ describeLive('bakeoff in de browser', () => {
         '--use-fake-ui-for-media-stream',
       ],
     });
+    if (heeftCartesia) pcm = await synthetiseer(ZIN);
   }, 120_000);
 
   afterAll(async () => {
@@ -153,132 +212,173 @@ describeLive('bakeoff in de browser', () => {
     server?.close();
   });
 
-  it('meet Anam: verbinding tot eerste geverfde frame', async () => {
-    const provider = new AnamAvatarProvider({
-      apiKey: process.env['ANAM_API_KEY']!,
-      personaId: process.env['ANAM_AVATAR_ID']!,
-    });
-    const sessionToken = await provider.issueSessionToken();
+  it.runIf(heeftAnam)(
+    'meet Anam: verbinding tot eerste geverfde frame',
+    async () => {
+      const provider = new AnamAvatarProvider({
+        apiKey: process.env['ANAM_API_KEY']!,
+        personaId: process.env['ANAM_AVATAR_ID']!,
+      });
+      const sessionToken = await provider.issueSessionToken();
 
-    const page = await browser.newPage();
-    const fouten: string[] = [];
-    page.on('pageerror', (error) => fouten.push(error.message));
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') fouten.push(msg.text());
-    });
+      const page = await browser.newPage();
+      const fouten: string[] = [];
+      page.on('pageerror', (error) => fouten.push(error.message));
 
-    await page.goto(url);
-    await page.waitForFunction(() => typeof window.bakeoff?.anam === 'function');
+      await page.goto(url);
+      await page.waitForFunction(() => typeof window.bakeoff?.anam === 'function');
 
-    const meting = (await page.evaluate(
-      async (token) => window.bakeoff.anam(token),
-      sessionToken,
-    )) as Meting;
+      const meting = (await page.evaluate(
+        async (token) => window.bakeoff.anam(token),
+        sessionToken,
+      )) as Meting;
 
-    // Let op wat dit getal wél en niet is.
-    //
-    // Dit is de KOUDE START: sessie opzetten, WebRTC onderhandelen, eerste frame. Dat is
-    // niet de stap uit de latencybegroting — die meet audio erin tot mond beweegt,
-    // binnen een sessie die al loopt. Het naast het p50-budget van 180 ms leggen zou
-    // alarmerend ogen en niets betekenen.
-    //
-    // De koude start wordt in productie afgedekt door prewarm: de sessie start zodra de
-    // cliënt het toestemmingsscherm opent, en tegen "START INTAKE" leeft het gezicht al.
-    // Dit getal zegt dus hoeveel prewarm-tijd je nodig hebt, niet hoe snel een beurt is.
-    // eslint-disable-next-line no-console
-    console.log(
-      `\n  Anam — koude start\n` +
-        `    sessie -> eerste geverfde frame  ${meting.firstFrameMs} ms\n` +
-        `    resolutie                        ${meting.width}x${meting.height}\n` +
-        `    (prewarm moet hier overheen; niet vergelijken met het p50-budget van 180 ms)\n` +
-        (fouten.length > 0 ? `    paginafouten: ${fouten.slice(0, 3).join(' | ')}\n` : ''),
-    );
-
-    await page.close();
-
-    expect(meting.firstFrameMs).toBeGreaterThan(0);
-    // Er is echt beeld, geen zwart element: een frame zonder afmetingen betekent dat de
-    // videotrack er niet is en dat we een leeg <video> hebben zitten meten.
-    expect(meting.width).toBeGreaterThan(0);
-    expect(meting.height).toBeGreaterThan(0);
-  }, 180_000);
-
-  it('meet Anam per beurt: opdracht tot hoorbaar geluid', async () => {
-    const provider = new AnamAvatarProvider({
-      apiKey: process.env['ANAM_API_KEY']!,
-      personaId: process.env['ANAM_AVATAR_ID']!,
-    });
-    const sessionToken = await provider.issueSessionToken();
-
-    const page = await browser.newPage();
-    await page.goto(url);
-    await page.waitForFunction(() => typeof window.bakeoff?.anamPerBeurt === 'function');
-
-    const meting = (await page.evaluate(
-      async ([token, zin]) => window.bakeoff.anamPerBeurt(token!, zin!),
-      [sessionToken, 'Goedemiddag, ik ben de digitale intake-assistent.'],
-    )) as BeurtMeting;
-
-    // eslint-disable-next-line no-console
-    console.log(
-      `
-  Anam — per beurt
-` +
-        `    opdracht -> hoorbaar geluid  ${meting.responseMs} ms  (budget p50 180 / p95 350)
-` +
-        `    koude start ter referentie   ${meting.coldStartMs} ms
-` +
-        `    (tekstgestuurd pad; audio passthrough loopt via een andere SDK-aanroep)
-`,
-    );
-
-    await page.close();
-    expect(meting.responseMs).toBeGreaterThan(0);
-    // Boven een seconde is het geen avatarlatency meer maar een probleem.
-    expect(meting.responseMs).toBeLessThan(5000);
-  }, 180_000);
-
-  it('meet Anam passthrough: onze eigen audio erin, hoe snel eruit', async () => {
-    // Passthrough is het pad dat we in productie gebruiken: wij doen de TTS, zij
-    // renderen alleen. Hun TTS zit dus niet in de keten, en dít getal mag daarom tegen
-    // het budget van 180 ms p50.
-    const heeftCartesia = process.env['CARTESIA_API_KEY'] && process.env['CARTESIA_VOICE_ID'];
-    if (!heeftCartesia) {
+      // Let op wat dit getal wél en niet is.
+      //
+      // Dit is de KOUDE START: sessie opzetten, WebRTC onderhandelen, eerste frame. Dat is
+      // niet de stap uit de latencybegroting — die meet audio erin tot mond beweegt,
+      // binnen een sessie die al loopt. De koude start wordt in productie afgedekt door
+      // prewarm: de sessie start zodra de cliënt het toestemmingsscherm opent.
       // eslint-disable-next-line no-console
-      console.warn('\n  passthrough overgeslagen — Cartesia-keys ontbreken\n');
-      return;
-    }
+      console.log(
+        `\n  Anam — koude start\n` +
+          `    sessie -> eerste geverfde frame  ${meting.firstFrameMs} ms\n` +
+          `    resolutie                        ${meting.width}x${meting.height}\n` +
+          (fouten.length > 0 ? `    paginafouten: ${fouten.slice(0, 3).join(' | ')}\n` : ''),
+      );
 
-    const pcm = await synthetiseer('Goedemiddag, ik ben de digitale intake-assistent.');
-    const base64 = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).toString('base64');
+      await page.close();
 
-    const provider = new AnamAvatarProvider({
-      apiKey: process.env['ANAM_API_KEY']!,
-      personaId: process.env['ANAM_AVATAR_ID']!,
-    });
-    const sessionToken = await provider.issueSessionToken();
+      expect(meting.firstFrameMs).toBeGreaterThan(0);
+      // Er is echt beeld, geen zwart element: een frame zonder afmetingen betekent dat de
+      // videotrack er niet is en dat we een leeg <video> hebben zitten meten.
+      expect(meting.width).toBeGreaterThan(0);
+      expect(meting.height).toBeGreaterThan(0);
+    },
+    180_000,
+  );
 
-    const page = await browser.newPage();
-    const fouten: string[] = [];
-    page.on('pageerror', (e) => fouten.push(e.message));
-    await page.goto(url);
-    await page.waitForFunction(() => typeof window.bakeoff?.anamPassthrough === 'function');
+  it.runIf(heeftAnam && heeftCartesia)(
+    'meet Anam passthrough: onze audio erin, hoe snel eruit',
+    async () => {
+      const base64 = Buffer.from(pcm!.buffer, pcm!.byteOffset, pcm!.byteLength).toString('base64');
 
-    const meting = (await page.evaluate(
-      async ([token, audio, rate]) =>
-        window.bakeoff.anamPassthrough(token as string, audio as string, Number(rate)),
-      [sessionToken, base64, String(SAMPLE_RATE)],
-    )) as BeurtMeting;
+      const provider = new AnamAvatarProvider({
+        apiKey: process.env['ANAM_API_KEY']!,
+        personaId: process.env['ANAM_AVATAR_ID']!,
+      });
+      const sessionToken = await provider.issueSessionToken();
 
-    // eslint-disable-next-line no-console
-    console.log(
-      `\n  Anam — passthrough (ons productiepad)\n` +
-        `    onze audio erin -> hoorbaar eruit  ${meting.responseMs} ms  (budget p50 180 / p95 350)\n` +
-        (fouten.length > 0 ? `    paginafouten: ${fouten.slice(0, 2).join(' | ')}\n` : ''),
-    );
+      const page = await browser.newPage();
+      const fouten: string[] = [];
+      page.on('pageerror', (e) => fouten.push(e.message));
+      await page.goto(url);
+      await page.waitForFunction(() => typeof window.bakeoff?.anamPassthrough === 'function');
 
-    await page.close();
-    expect(meting.responseMs).toBeGreaterThan(0);
-    expect(meting.responseMs).toBeLessThan(5000);
-  }, 180_000);
+      const meting = (await page.evaluate(
+        async ([token, audio, rate, beurten]) =>
+          window.bakeoff.anamPassthrough(
+            token as string,
+            audio as string,
+            Number(rate),
+            Number(beurten),
+          ),
+        [sessionToken, base64, String(SAMPLE_RATE), String(BEURTEN)],
+      )) as PassthroughMeting;
+
+      rapporteer('Anam', meting);
+      if (fouten.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`    paginafouten: ${fouten.slice(0, 2).join(' | ')}\n`);
+      }
+
+      await page.close();
+      expect(meting.responseMs).toHaveLength(BEURTEN);
+      expect(Math.min(...meting.responseMs)).toBeGreaterThan(0);
+    },
+    600_000,
+  );
+
+  it.runIf(heeftBey && heeftCartesia)(
+    'meet bey passthrough: onze audio erin, hoe snel eruit',
+    async () => {
+      const livekit: LiveKitCredentials = {
+        url: process.env['LIVEKIT_URL']!,
+        apiKey: process.env['LIVEKIT_API_KEY']!,
+        apiSecret: process.env['LIVEKIT_API_SECRET']!,
+      };
+
+      const roomName = `bakeoff-bey-${Date.now()}`;
+      const provider = new BeyondPresenceAvatarProvider({
+        apiKey: process.env['BEY_API_KEY']!,
+        avatarId: process.env['BEY_AVATAR_ID']!,
+        livekit,
+        sampleRate: SAMPLE_RATE,
+      });
+
+      const session = await provider.createSession({
+        avatarId: process.env['BEY_AVATAR_ID']!,
+        language: 'nl',
+        roomName,
+      });
+
+      // De browser kijkt mee als gewone deelnemer. Precies het token dat een cliënt
+      // krijgt, zodat we meten wat een cliënt zou zien en horen.
+      const viewer = createAccessToken(livekit, {
+        room: roomName,
+        identity: 'bakeoff-viewer',
+        role: 'client',
+      });
+
+      const page = await browser.newPage();
+      const fouten: string[] = [];
+      page.on('pageerror', (e) => fouten.push(e.message));
+
+      // De brug. De browser houdt de klok; Node stuurt de audio op verzoek, op ware
+      // snelheid, precies zoals de turn-loop dat in productie doet.
+      const frameSamples = (SAMPLE_RATE / 1000) * 20; // 20 ms
+      await page.exposeFunction('harnasNoop', async () => undefined);
+      await page.exposeFunction('beyPush', async () => {
+        const startedAt = performance.now();
+        let seq = 0;
+        for (let offset = 0; offset < pcm!.length; offset += frameSamples) {
+          const wacht = seq * 20 - (performance.now() - startedAt);
+          if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
+          // slice en niet subarray: de DataStream-schrijver is asynchroon en een
+          // gedeelde buffer zou onder handen kunnen veranderen.
+          await session.pushAudio(pcm!.slice(offset, offset + frameSamples), seq);
+          seq += 1;
+        }
+        session.endTurn?.();
+      });
+
+      try {
+        await page.goto(url);
+        await page.waitForFunction(() => typeof window.bakeoff?.beyPassthrough === 'function');
+
+        const meting = (await page.evaluate(
+          async ([lkUrl, token, beurten]) =>
+            window.bakeoff.beyPassthrough(
+              { url: lkUrl as string, token: token as string },
+              Number(beurten),
+            ),
+          [livekit.url, viewer.token, String(BEURTEN)],
+        )) as PassthroughMeting;
+
+        rapporteer('Beyond Presence', meting);
+        if (fouten.length > 0) {
+          // eslint-disable-next-line no-console
+          console.log(`    paginafouten: ${fouten.slice(0, 2).join(' | ')}\n`);
+        }
+
+        expect(meting.responseMs).toHaveLength(BEURTEN);
+        expect(Math.min(...meting.responseMs)).toBeGreaterThan(0);
+      } finally {
+        await page.close();
+        // Altijd afsluiten: een sessie die blijft staan kost avatarminuten door.
+        await session.disconnect().catch(() => undefined);
+      }
+    },
+    600_000,
+  );
 });
