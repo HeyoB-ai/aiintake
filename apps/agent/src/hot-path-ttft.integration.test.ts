@@ -65,7 +65,20 @@ const BEURTENTEKST = [
 ];
 
 describe.runIf(Boolean(key))('hot path — TTFT met het echte model', () => {
-  it('haalt het budget van 300 ms p50 / 600 ms p95', async () => {
+  /**
+   * De naam zegt "meet en rapporteert", niet "haalt het budget".
+   *
+   * Hij heette eerst wél zo, en was groen bij 594/800 tegen een budget van 300/600. Dat
+   * is precies de stille geruststelling waar dit project elders bezwaar tegen maakt: een
+   * check die slaagt terwijl het gemeten ding faalt, is erger dan geen check, want hij
+   * koopt vertrouwen dat hij niet dekt.
+   *
+   * Waarom het tóch geen poort is: een rode build bij een netwerkhobbel krijgt zo'n
+   * meting binnen een week uitgezet, en dan meet je niets meer. De budgettoets hoort in
+   * `session_metrics` over echte gesprekken, niet in één run van acht beurten. Wat hier
+   * wél hard is: er komt tekst, het duurt geen seconden, en het is geen JSON.
+   */
+  it('meet TTFT en rapporteert p50/p95 tegen het budget — meting, geen poort', async () => {
     const llm = new AnthropicLlmProvider({ apiKey: key! });
     const sessie = new IntakeSession({
       llm,

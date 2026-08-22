@@ -50,6 +50,9 @@ importers:
       '@intake/engine':
         specifier: workspace:*
         version: link:../../packages/intake-engine
+      '@intake/prompts':
+        specifier: workspace:^
+        version: link:../../packages/prompts
       '@intake/provider-avatar':
         specifier: workspace:*
         version: link:../../packages/providers/avatar

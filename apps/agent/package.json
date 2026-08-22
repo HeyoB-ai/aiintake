@@ -6,18 +6,20 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron ge\u00efmporteerd en zijn voor Node niet direct uitvoerbaar.",
+    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron geïmporteerd en zijn voor Node niet direct uitvoerbaar.",
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:pipeline": "vitest run --config vitest.integration.config.ts --reporter verbose",
     "test:bakeoff": "vitest run --config vitest.bakeoff.config.ts --reporter verbose",
-    "diag:bey": "tsx --env-file=../../.env bakeoff/bey-diagnose.ts"
+    "diag:bey": "tsx --env-file=../../.env bakeoff/bey-diagnose.ts",
+    "diag:ttft": "tsx --env-file=../../.env bakeoff/ttft-diagnose.ts"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",
     "@intake/domain": "workspace:*",
     "@intake/engine": "workspace:*",
+    "@intake/prompts": "workspace:^",
     "@intake/provider-avatar": "workspace:*",
     "@intake/provider-llm": "workspace:*",
     "@intake/provider-stt": "workspace:*",

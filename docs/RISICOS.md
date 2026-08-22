@@ -48,9 +48,61 @@ promptlengte maar een incident.
 Dat een strakke verdeling zo hoog ligt, is het echte signaal: dit is geen variabiliteit die
 je wegtuned, dit is waar deze opstelling structureel uitkomt.
 
-**Wat er nog niet in zit, en dus nog kan helpen.** Prompt caching staat nog open in de
-roadmap. Het systeemprompt wordt elke beurt volledig opnieuw gestuurd, inclusief de lijst
-met bekende feiten. Dat is de eerste hefboom en die is niet klein.
+### Waar die 594 ms vandaan komt — en het is grotendeels niet het model
+
+`pnpm diag:ttft` knipt de beurt in fasen. De uitkomst verlegt de conclusie hierboven.
+
+```
+netwerk + API zonder inferentie (GET /v1/models)   mediaan  205 ms
+minimaal systeemprompt (19 tokens)                 mediaan  515 ms
+ons systeemprompt (519 tokens)                     mediaan  619 ms
+```
+
+Opgeteld:
+
+| post                                   | tijd    |
+| -------------------------------------- | ------- |
+| netwerk + API-overhead, Nederland → VS | ~205 ms |
+| starten van de inferentie              | ~310 ms |
+| onze promptlengte (500 tokens extra)   | ~104 ms |
+
+**Een derde van de tijd is een round trip die niets met het model te maken heeft.** Wat
+wij aan de prompt kunnen doen is de kleinste post van de drie.
+
+Drie dingen die hiermee zijn uitgesloten als oorzaak:
+
+- **Connectiehergebruik werkt.** De eerste aanroep is telkens de traagste (758 ms), daarna
+  vlakt het af rond 560–620 ms. Zou er per beurt een nieuwe TLS-handshake zijn, dan bleef
+  elke aanroep op dat eerste niveau staan.
+- **Onze SSE-verwerking kost niets.** `headers`, `eerste byte` en `eerste tekst` liggen
+  binnen twee milliseconde van elkaar. We registreren het eerste token dus op het moment
+  dat het binnenkomt, niet na een volledige chunk.
+- **De promptlengte is niet de boosdoener.** 500 tokens extra kosten ~104 ms.
+
+### Prompt caching helpt hier niet, en dat is gemeten
+
+De cache sloeg nooit aan: `cache_read` en `cache_creation` bleven op nul. Anthropic
+hanteert een minimumlengte voor een cachebaar blok en ons systeemprompt van ~519 tokens
+haalt die niet.
+
+Om te controleren of het mechanisme überhaupt werkt is het prompt kunstmatig opgeblazen
+tot 6504 tokens. Toen sloeg het wél aan — eerst `0 / 6504` geschreven, daarna `6504 / 0`
+gelezen — maar de TTFT ging er niet van omlaag: mediaan 783 ms tegen 619 ms zonder cache.
+
+**Caching bespaart het herverwerken van tokens, en die post was hier al de kleinste.** Het
+in de provider bouwen zou dode configuratie zijn: hij kan bij onze promptlengte niet
+aanslaan, en zou bij een langer prompt de latency niet redden. Niet gebouwd, en dat is de
+uitkomst van de meting en niet een overslagen taak.
+
+### Wat wél de hefboom is
+
+Het EU-regio-endpoint. De architectuur eist dat al om een andere reden — de
+subverwerkerketen moet in de EU liggen, zie §10 van het architectuurdocument, dat Bedrock
+`eu-central-1` of Vertex `europe-west4` noemt in plaats van een globale endpoint. Die ene
+wijziging bedient nu twee doelen: hij is nodig voor de AVG-lijn en hij raakt de grootste
+post die wij kunnen beïnvloeden.
+
+Hoeveel het scheelt is nog niet gemeten. Dat is de volgende meting, geen schatting.
 
 **Waarom dit samen met risico 8 gelezen moet worden.** Anam kost in passthrough ~807 ms
 voordat er geluid komt. Die twee stappen tellen niet volledig bij elkaar op — de TTS
