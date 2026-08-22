@@ -12,6 +12,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:isolation": "pnpm --filter @intake/db test:isolation",
+    "test:pipeline": "pnpm --filter @intake/agent test:pipeline",
     "db:check": "node scripts/check-migrations.mjs",
     "db:seed": "node scripts/seed.mjs",
     "keys:check": "node scripts/check-keys.mjs",

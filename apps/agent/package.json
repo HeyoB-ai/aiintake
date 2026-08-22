@@ -9,7 +9,8 @@
     "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron ge\u00efmporteerd en zijn voor Node niet direct uitvoerbaar.",
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:pipeline": "vitest run --config vitest.integration.config.ts --reporter verbose"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

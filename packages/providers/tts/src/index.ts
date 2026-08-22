@@ -7,5 +7,6 @@
  * binnenkomt.
  */
 export * from './contract';
+export * from './cartesia';
 export * from './fake';
 export * from './sentence-flush';

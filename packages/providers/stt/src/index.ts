@@ -7,5 +7,6 @@
  * binnenkomt.
  */
 export * from './contract';
+export * from './deepgram';
 export * from './fake';
 export * from './keyterms';
