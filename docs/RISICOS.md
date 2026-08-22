@@ -400,3 +400,43 @@ hen geen tweederangspad.
 "800 ms is veel" een gevoel: het kan net zo goed zijn wat audio-to-video nu eenmaal kost.
 Dat onderscheid bepaalt of dit een providerprobleem is of een productprobleem, en dat is
 een te groot verschil om op intuïtie af te doen.
+
+---
+
+## 9. Het systeem bevestigt een onjuiste bewering van de cliënt
+
+**Status: gerepareerd, 22 augustus 2026. Blijft staan als categorie.**
+
+Een cliënt zei: *"12 x 12000 is 140000."* De assistent antwoordde *"Ja, dat klopt"*, en de
+extractie legde 140.000 vast als `vso_severance_offered` met status `confirmed` en
+confidence 0,85 — inclusief een letterlijk citaat als onderbouwing. De citaatverankering
+vond die zin immers netjes terug in het transcript.
+
+**Waarom dit een eigen risico is en niet een bug.** Dit is de gevaarlijkste foutsoort in
+dit product, om dezelfde reden als risico 2: hij ziet er identiek uit als een goede. De
+advocaat leest een bedrag met bronvermelding en heeft geen enkele aanleiding om te
+twijfelen. De bestaande controles vangen het niet — `rejectUngroundedFacts` controleert of
+een feit in het transcript staat, niet of het waar is, en een verkeerd bedrag dat de cliënt
+zelf heeft uitgesproken is perfect verankerd.
+
+**Wat er is gebouwd.** Drie lagen, want een prompt is een verzoek en dit hoort een regel te
+zijn.
+
+1. `packages/domain/src/arithmetic.ts` trekt rekenkundige beweringen deterministisch na.
+   Twaalf maal twaalfduizend is honderdvierenveertigduizend, ongeacht wat een model ervan
+   vindt — dus dat oordeel wordt niet aan het model gevraagd.
+2. Het hot path krijgt de uitkomst vóór de beurt mee en vraagt terug in plaats van te
+   bevestigen. De gespreksprompt verbiedt bovendien elke bevestiging van een som, ook een
+   kloppende.
+3. De extractie degradeert een uitkomst die de cliënt zelf berekende: klopt de som niet,
+   dan status `unknown` met het citaat behouden; klopt hij wel, dan hooguit `inferred` —
+   het blijft een afleiding en geen waarneming.
+
+**Wat dit niet afdekt.** Alleen rekenkundige beweringen in één herkenbaar patroon. Een
+cliënt die zich vergist in een datum, een functienaam of een aantal dienstjaren wordt niet
+gecorrigeerd, en dat hoort ook niet: het systeem verzamelt wat er gezegd is. Het verschil
+is dat een som **verifieerbaar** is en de rest niet.
+
+De onderliggende regel is breder dan deze implementatie: **het systeem bevestigt geen
+bewering die het niet kan controleren, en presenteert geen afleiding als waarneming.** Bij
+elke nieuwe categorie die wél te controleren valt, hoort die controle er te komen.

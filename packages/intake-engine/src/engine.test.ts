@@ -276,3 +276,81 @@ describe('extractieprompt', () => {
     expect(PROMPTS.extraction.version).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('rekenkundige beweringen van de cliënt', () => {
+  /**
+   * Het vangnet achter de prompt.
+   *
+   * De prompt vraagt het model om een zelf uitgerekende uitkomst niet als feit vast te
+   * leggen. Deze tests controleren wat er gebeurt als het dat tóch doet — want een
+   * instructie is een verzoek en dit is een regel. Live landde 140.000 als
+   * `vso_severance_offered` met status `confirmed` en confidence 0,85, met een keurig
+   * citaat eronder.
+   */
+  const utterance = 'Ze bieden twaalf maandsalarissen. 12 x 12000 is 140000.';
+
+  /** Het citaat moet letterlijk in het transcript staan, anders weigert de verankering. */
+  function antwoord(value: number, citaat: string) {
+    return JSON.stringify({
+      facts: [
+        {
+          key: 'vso_severance_offered',
+          value,
+          status: 'confirmed',
+          confidence: 0.85,
+          evidenceQuote: citaat,
+        },
+      ],
+    });
+  }
+
+  it('degradeert een foute uitkomst naar unknown, met het citaat', async () => {
+    const engine = createIntakeEngine({
+      hot: hot([]),
+      cold: cold([antwoord(140000, '12 x 12000 is 140000')]),
+    });
+    const r = await engine.observe(invoer({ lastClientUtterance: utterance }));
+
+    const feit = r.factUpdates.find((f) => f.key === 'vso_severance_offered');
+    expect(feit).toBeDefined();
+    expect(feit!.status).toBe('unknown');
+    expect(feit!.value).toBeNull();
+    expect(feit!.confidence).toBe(0);
+    // Het citaat blijft staan: de advocaat moet kunnen zien wat er gezegd is.
+    expect(feit!.evidenceQuote).toContain('140000');
+  });
+
+  it('laat een kloppende som staan, maar niet als confirmed', async () => {
+    // 144.000 klopt wél. Het blijft een afleiding van de cliënt en geen waarneming, dus
+    // hooguit `inferred` — anders staat er een bedrag in het dossier dat niemand zo heeft
+    // genoemd, alleen zo heeft uitgerekend.
+    const goed = 'Twaalf maandsalarissen. 12 x 12000 is 144000.';
+    const engine = createIntakeEngine({
+      hot: hot([]),
+      cold: cold([antwoord(144000, '12 x 12000 is 144000')]),
+    });
+    const r = await engine.observe(invoer({ lastClientUtterance: goed }));
+
+    const feit = r.factUpdates.find((f) => f.key === 'vso_severance_offered');
+    expect(feit!.status).toBe('inferred');
+    expect(feit!.value).toBe(144000);
+    expect(feit!.confidence).toBeLessThanOrEqual(0.6);
+  });
+
+  it('waarschuwt het hot path zodat het terugvraagt in plaats van bevestigt', async () => {
+    const model = hot(['x']);
+    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
+    await engine.respond(invoer({ lastClientUtterance: utterance }));
+
+    expect(model.laatsteSysteem).toContain('rekenfout');
+    expect(model.laatsteSysteem).toContain('144.000');
+    expect(model.laatsteSysteem).toContain('bevestig');
+  });
+
+  it('waarschuwt niet als de som klopt', async () => {
+    const model = hot(['x']);
+    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
+    await engine.respond(invoer({ lastClientUtterance: '12 x 12000 is 144000.' }));
+    expect(model.laatsteSysteem).not.toContain('rekenfout');
+  });
+});

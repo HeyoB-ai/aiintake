@@ -1,6 +1,8 @@
 import {
   EMPLOYMENT_CATALOG,
   FactExtractionModelResultSchema,
+  describeClaim,
+  findArithmeticClaim,
   type ExtractedFact,
   type FactExtractionModelResult,
   rejectUngroundedFacts,
@@ -95,6 +97,13 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         pendingLawyerRequests: input.pendingLawyerRequests,
       });
 
+      // Deterministisch, vóór het model. Twaalf maal twaalfduizend is
+      // honderdvierenveertigduizend, ongeacht wat een model ervan vindt — dus dat oordeel
+      // hoort niet aan het model gevraagd te worden maar eraan meegegeven.
+      const somFout = input.lastClientUtterance
+        ? findArithmeticClaim(input.lastClientUtterance)
+        : null;
+
       const isOpening = turnCount === 0 && !input.lastClientUtterance;
       const isClosing = plan.shouldClose && !isOpening;
 
@@ -123,6 +132,9 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
             : {}),
           isOpening,
           isClosing,
+          ...(somFout && !somFout.correct
+            ? { arithmeticWarning: describeClaim(somFout, input.language) }
+            : {}),
         },
         input.language,
       );
@@ -370,12 +382,36 @@ function naarFactUpdates(
       if (!geldig.success) continue;
     }
 
+    // Het vangnet. Rekende de cliënt de waarde zelf uit, dan mag die nooit als
+    // vastgesteld feit het dossier in — en al helemaal niet als de som niet klopt.
+    //
+    // Dit is geen extra voorzichtigheid maar het herstel van een concreet geval: live
+    // landde 140.000 als `vso_severance_offered` met status `confirmed` en confidence
+    // 0,85, met een keurig citaat eronder. De citaatverankering vond die zin immers
+    // netjes terug. Een fout die er identiek uitziet als een goede, is de gevaarlijkste
+    // soort in dit product.
+    const som = findArithmeticClaim(fact.evidenceQuote);
+    let status = fact.status;
+    let confidence = fact.confidence;
+    if (som && typeof fact.value === 'number' && Math.abs(fact.value - som.stated) < 0.01) {
+      if (!som.correct) {
+        // De uitkomst klopt niet. Vastleggen als "niet vastgesteld", mét het citaat, zodat
+        // de advocaat ziet wat er gezegd is en dat er iets niet klopte.
+        status = 'unknown';
+        confidence = 0;
+      } else if (status === 'confirmed') {
+        // De som klopt, maar het blijft een afleiding van de cliënt en geen waarneming.
+        status = 'inferred';
+        confidence = Math.min(confidence, 0.6);
+      }
+    }
+
     uit.push({
       key: fact.key,
-      value: fact.status === 'unknown' ? null : fact.value,
+      value: status === 'unknown' ? null : fact.value,
       valueType: definitie.valueType,
-      status: fact.status,
-      confidence: fact.confidence,
+      status,
+      confidence,
       source: 'client_statement',
       sourceRef: fact.sourceRef ?? '',
       evidenceQuote: fact.evidenceQuote,

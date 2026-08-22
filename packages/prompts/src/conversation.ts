@@ -29,6 +29,14 @@ export interface ConversationVars extends Record<string, unknown> {
   readonly lawyerRequests?: readonly string[];
   readonly isOpening: boolean;
   readonly isClosing: boolean;
+  /**
+   * De cliënt deed een som die niet klopt.
+   *
+   * Deterministisch vastgesteld vóór deze beurt; het model hoeft niet te rekenen en mag
+   * dat ook niet. Het krijgt alleen te horen dát er een verschil is en welke twee
+   * getallen erbij horen, zodat het kan terugvragen in plaats van bevestigen.
+   */
+  readonly arithmeticWarning?: string;
 }
 
 const GRENZEN_NL = [
@@ -50,7 +58,9 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   purpose: 'conversation',
   // Versie omhoog bij elke inhoudelijke wijziging. Het nummer gaat mee in `llm_calls`,
   // en zonder dat kun je achteraf niet verklaren waarom het systeem iets zei.
-  version: 1,
+  // v2: expliciet verbod op het bevestigen van rekenkundige beweringen. In v1 zei de
+  // assistent "Ja, dat klopt" op "12 x 12000 is 140000".
+  version: 2,
   description:
     'Hot-path gespreksinstructie voor de arbeidsrecht-intake. Platte tekst, één vraag per beurt.',
 
@@ -67,6 +77,13 @@ function rendernl(v: ConversationVars): string {
       `Je voert een eerste gesprek met iemand die mogelijk cliënt wordt, over ${v.practiceAreaLabel}.`,
     '',
     'Je taak is verzamelen en vastleggen, niet adviseren. ' + GRENZEN_NL,
+    '',
+    'Over getallen en berekeningen:',
+    '- Je bevestigt nooit een som of een uitkomst. Niet "dat klopt", niet "inderdaad", ' +
+      'niet "dus dat is X". Ook niet als het klopt.',
+    '- Rekent de cliënt iets uit, dan neem je die uitkomst niet over als vaststaand. ' +
+      'Je noteert wat hij zei en gaat verder.',
+    '- Weet je niet zeker of je een bedrag goed hebt verstaan, vraag het dan terug.',
     '',
     'Zo klink je:',
     '- Nederlands, je-vorm, rustig en zakelijk. Geen jargon, geen therapeutentoon.',
@@ -125,6 +142,18 @@ function rendernl(v: ConversationVars): string {
     );
   }
 
+  if (v.arithmeticWarning) {
+    regels.push(
+      '',
+      `De cliënt maakte zojuist een rekenfout: ${v.arithmeticWarning}.`,
+      'Vraag dit één keer kort terug in deze vorm: noem de som, noem de uitkomst die er ' +
+        'volgens jou uit komt, en vraag of hij dat bedoelt. Bijvoorbeeld: ' +
+        '"Twaalf keer twaalfduizend — bedoel je honderdvierenveertigduizend?"',
+      'Geen uitleg, geen les, geen tweede poging als hij bij zijn eigen getal blijft. ' +
+        'Daarna ga je gewoon verder met je vraag.',
+    );
+  }
+
   if (v.interruptedPrefix) {
     regels.push(
       '',
@@ -148,6 +177,12 @@ function renderen(v: ConversationVars): string {
       `You are having a first conversation with a prospective client about ${v.practiceAreaLabel}.`,
     '',
     'Your job is to collect and record, not to advise. ' + GRENZEN_EN,
+    '',
+    'On numbers and calculations:',
+    '- You never confirm a sum or a result. Not "that is right", not "indeed". Not even ' +
+      'when it is correct.',
+    '- If the client calculates something, you do not adopt that result as established.',
+    '- If you are not sure you heard an amount correctly, ask it back.',
     '',
     'How you sound:',
     '- Calm and businesslike. No jargon, no therapist tone.',
@@ -197,6 +232,14 @@ function renderen(v: ConversationVars): string {
       '',
       'The lawyer is watching and wants to know this. It takes priority:',
       ...v.lawyerRequests.map((r) => `- ${r}`),
+    );
+  }
+
+  if (v.arithmeticWarning) {
+    regels.push(
+      '',
+      `The client just made an arithmetic error: ${v.arithmeticWarning}.`,
+      'Ask it back once, briefly, naming both numbers. No explanation, no lecture.',
     );
   }
 

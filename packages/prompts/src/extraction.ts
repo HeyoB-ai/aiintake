@@ -41,7 +41,8 @@ export const extractionPrompt: PromptTemplate<ExtractionVars> = {
   // v2: het schema staat nu letterlijk in de prompt. In v1 stond er "antwoord volgens
   // het opgegeven schema" terwijl dat schema nergens werd gegeven; het model leverde
   // `field` en `quote` in plaats van `key` en `evidenceQuote`, en élk feit werd geweigerd.
-  version: 2,
+  // v3: expliciete regel over uitkomsten die de cliënt zelf uitrekent.
+  version: 3,
   description:
     'Cold-path feitextractie uit het intaketranscript. Gesloten schema, citaat verplicht.',
 
@@ -69,6 +70,9 @@ export const extractionPrompt: PromptTemplate<ExtractionVars> = {
             '- Vertaal relatieve tijd ("vorige maand", "aanstaande vrijdag") naar een datum, gerekend vanaf de datum hieronder.',
             '- Bedragen als getal, zonder valutateken en zonder punten als duizendtal.',
             '- Twijfel je, geef dan een lagere confidence. Niet gokken en hoge confidence geven.',
+            '- Rekent de cliënt zelf iets uit ("12 x 12.000 is 140.000"), leg dan de uitkomst',
+            '  NIET vast als feit. Leg de losse getallen vast die hij noemde, en de uitkomst',
+            '  hooguit met status "unknown" en het letterlijke citaat. Reken zelf niets na.',
           ]
         : [
             '- Record only what the client actually said. Infer nothing, add nothing.',
@@ -78,6 +82,9 @@ export const extractionPrompt: PromptTemplate<ExtractionVars> = {
             '- Convert relative time ("last month", "this coming Friday") to a date, counted from the date below.',
             '- Amounts as a number, without currency symbol and without thousands separators.',
             '- When in doubt, give a lower confidence. Do not guess and claim high confidence.',
+            '- If the client calculates something themselves, do NOT record the result as a',
+            '  fact. Record the individual numbers they stated; the result at most with',
+            '  status "unknown" and the verbatim quote. Do not do the arithmetic yourself.',
           ]),
     );
 
