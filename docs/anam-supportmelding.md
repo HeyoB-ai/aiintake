@@ -1,10 +1,14 @@
 # Vragen aan Anam — klaar om te versturen
 
-**Aan:** support@anam.ai, met sales in cc — deel B loopt via hen
-**Onderwerp:** Audio passthrough: ~800 ms to first audible output, and a ~730 ms input buffer threshold — plus DPA questions
+**Kanaal:** twee losse berichten, niet één mail.
 
-Twee delen. A is de latencyvraag met de gemeten getallen. B zijn de DPA-vragen, die bij
-Anam net zo goed nog niet gesteld waren als bij Beyond Presence.
+- **Deel A** gaat via het chatvenster naar support. Technische vraag.
+- **Deel B** gaat apart naar sales. DPA-vragen horen daar thuis en niet bij een
+  supportmedewerker die er niets over kan toezeggen.
+
+Beide zijn zelfstandig leesbaar, met een eigen korte introductie — ze worden immers
+los verstuurd. De tabellen staan in platte tekst en niet in markdown, omdat een
+chatvenster die zelden rendert.
 
 Vervang `[naam]` en `[bedrijf]` voor verzenden.
 

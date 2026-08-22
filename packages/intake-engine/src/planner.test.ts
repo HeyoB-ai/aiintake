@@ -6,6 +6,7 @@ import {
   type CaseFact,
   type CaseFactMap,
 } from '@intake/domain';
+import { conversationPrompt } from '@intake/prompts';
 import { evaluate } from './conditions';
 import { planQuestions } from './planner';
 import { evaluateRules, urgencyLevel } from './rules';
@@ -66,6 +67,39 @@ function plan(
 }
 
 describe('QuestionPlanner', () => {
+  /**
+   * Deze test bewaakt de aanname waar de test hieronder op steunt.
+   *
+   * De planner mag op een leeg dossier termination_route boven primary_issue zetten,
+   * maar dat is alleen verdedigbaar zolang de openingsbeurt de kandidatenlijst negeert
+   * en gewoon open vraagt waar het om gaat. Wordt het promptsjabloon ooit zo aangepast
+   * dat de opening wél kandidaten voorschotelt, dan begint het gesprek met een gesloten
+   * vraag over de ontslagroute — en dan moet de plannervolgorde opnieuw tegen het licht.
+   *
+   * Vandaar dat de aanname hier expliciet staat en niet impliciet in een commentaarregel:
+   * een aanname die nergens faalt, is een aanname die stilletjes verdwijnt.
+   */
+  it('de opening negeert de kandidatenlijst — aanname onder de volgordetest hieronder', () => {
+    const body = conversationPrompt.render(
+      {
+        organisationName: 'Kantoor De Vries',
+        practiceAreaLabel: 'arbeidsrecht',
+        candidates: [
+          { factKey: 'termination_route', label: 'Ontslagroute', hint: 'Hoe is het gegaan?' },
+        ],
+        knownFacts: [],
+        maxSentences: 3,
+        allowFiller: false,
+        isOpening: true,
+        isClosing: false,
+      },
+      'nl',
+    );
+    expect(body).toContain('Dit is de opening');
+    expect(body).not.toContain('Ontslagroute');
+    expect(body).not.toContain('Kies één van deze onderwerpen');
+  });
+
   it('zet bij een leeg dossier de trigger-categorie vooraan', () => {
     // Niet per se primary_issue: termination_route wint omdat er urgentieregels aan
     // hangen die zonder dat feit niet te beslissen zijn. Dat is verdedigbaar, want de

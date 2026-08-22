@@ -218,6 +218,13 @@ export interface AgentRpc {
     repairAttempts?: number;
     promptTemplateKey?: string | null;
     promptVersion?: number | null;
+    /**
+     * Feiten die de citaatverankering heeft geweigerd, met de reden.
+     *
+     * Alleen sleutel en reden, nooit de waarde: die hoort bij het transcript en valt
+     * onder diens retentie. Het aantal is een metriek en mag blijven staan.
+     */
+    rejectedFacts?: readonly { key: string; reason: string }[];
   }): Promise<string>;
   updateProgress(args: {
     completeness?: number | null;
@@ -321,6 +328,9 @@ export function createAgentRpc(
         p_repair_attempts: args.repairAttempts ?? 0,
         p_prompt_template_key: args.promptTemplateKey ?? null,
         p_prompt_version: args.promptVersion ?? null,
+        // Standaard een lege array en niet null: de RPC telt de lengte, en null zou
+        // "niets geweigerd" en "niet gemeten" op hetzelfde getal laten uitkomen.
+        p_rejected_facts: args.rejectedFacts ?? [],
       }),
 
     updateProgress: (args) =>

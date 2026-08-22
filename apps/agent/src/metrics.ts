@@ -141,8 +141,23 @@ export function hudRows(
   }));
 }
 
-/** Eenregelige samenvatting voor de worker-logs. Bevat geen persoonsgegevens. */
-export function formatHudLine(metrics: TurnMetrics): string {
+/** Wat er per beurt naast de tijden vermeld moet worden. */
+export interface HudExtras {
+  /** Feiten die de citaatverankering weigerde omdat het citaat niet in de bron stond. */
+  readonly rejectedFacts?: number;
+  /** De STT kapte de cliënt af; zie RISICOS.md risico 2. */
+  readonly clientUtteranceWasCut?: boolean;
+}
+
+/**
+ * Eenregelige samenvatting voor de worker-logs. Bevat geen persoonsgegevens.
+ *
+ * De twee `extras` zijn geen sierlijkheden. Het zijn de enige twee plekken waar het
+ * systeem stil data kan verliezen: de STT die een halve zin wegknipt, en het model dat
+ * een feit verzint waarvan het citaat nergens staat. Een tijdenregel zonder die twee
+ * ziet er groen uit terwijl er informatie ontbreekt.
+ */
+export function formatHudLine(metrics: TurnMetrics, extras: HudExtras = {}): string {
   const ms = (value: number | null) => (value === null ? '—' : `${value}ms`);
   const parts = [
     `eot ${ms(metrics.speechEndToSttFinalMs)}`,
@@ -153,6 +168,8 @@ export function formatHudLine(metrics: TurnMetrics): string {
   ];
   if (metrics.wasInterrupted)
     parts.push(`onderbroken, stil na ${ms(metrics.interruptToSilenceMs)}`);
+  if (extras.clientUtteranceWasCut) parts.push('UITSPRAAK AFGEKAPT');
+  if (extras.rejectedFacts) parts.push(`${extras.rejectedFacts} feit(en) GEWEIGERD`);
   return parts.join(' · ');
 }
 

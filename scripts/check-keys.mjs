@@ -82,6 +82,37 @@ async function checkDeepgram() {
   }
 }
 
+/**
+ * Anthropic.
+ *
+ * Een `max_tokens: 1`-aanroep en niet een lijst-endpoint: die bestaat niet, en een key
+ * die formeel geldig is maar geen credit heeft, faalt pas op de eerste echte aanroep.
+ * Liever hier dan halverwege een latencymeting.
+ */
+async function checkAnthropic() {
+  const vars = ['ANTHROPIC_API_KEY'];
+  if (missing('Anthropic', vars)) return;
+  try {
+    const res = await request('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env['ANTHROPIC_API_KEY'],
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: process.env['LLM_HOT_MODEL'] ?? 'claude-haiku-4-5-20251001',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }],
+      }),
+    });
+    const { status, detail } = classify(res);
+    record('Anthropic', status, detail, vars);
+  } catch (error) {
+    record('Anthropic', 'faalt', netError(error), vars);
+  }
+}
+
 async function checkCartesia() {
   const vars = ['CARTESIA_API_KEY'];
   if (missing('Cartesia', vars)) return;
@@ -205,6 +236,7 @@ function netError(error) {
 
 await Promise.all([
   checkLiveKit(),
+  checkAnthropic(),
   checkDeepgram(),
   checkCartesia(),
   checkBeyondPresence(),

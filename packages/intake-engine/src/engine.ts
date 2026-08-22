@@ -7,6 +7,13 @@ import {
   type FactDefinition,
 } from '@intake/domain';
 import { PROMPTS, practiceAreaLabel, render, type RenderedPrompt } from '@intake/prompts';
+
+/**
+ * Doorgegeven, zodat een aanroeper de sleutel en versie voor `llm_calls` kan vastleggen
+ * zonder zelf aan `@intake/prompts` te hoeven hangen. De worker hoort niet te weten dat
+ * promptsjablonen bestaan; hij hoort alleen te weten wat hij moet loggen.
+ */
+export type { RenderedPrompt };
 import { scoreCompleteness } from './completeness';
 import { planQuestions } from './planner';
 import { evaluateRules } from './rules';
