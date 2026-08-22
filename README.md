@@ -17,9 +17,12 @@ Fase 0 (fundament) is gebouwd. De realtime-lus — Fase 1, de risicospike — no
 vereist accounts bij een avatarleverancier. Zie [docs/ROADMAP.md](docs/ROADMAP.md) voor
 de precieze stand per taak.
 
-Eén ding om te weten voordat u verder bouwt: **de tenant-isolatietests zijn geschreven
-maar nog nooit gedraaid**, want er is nog geen Supabase-project. Dat is de Definition of
-Done van Fase 0. Zie ["Tests tegen een echte database"](#tests-tegen-een-echte-database).
+Het schema staat op een Supabase-project en de isolatiesuite heeft voor het eerst
+gedraaid: **alle cross-tenant-assertions slagen**. De laatste correctie was het
+API-oppervlak — de RPC's stonden in een schema dat PostgREST niet exposeert
+([ADR-0008](docs/ADR-0008-rpc-in-public-schema.md)). Zie
+["Tests tegen een echte database"](#tests-tegen-een-echte-database) voor de volledige
+run.
 
 ---
 
@@ -126,7 +129,14 @@ de rollen `anon`/`authenticated`/`service_role`, het `extensions`-schema, en min
 `auth.users` en `storage`-tabellen. Alles wat onze eigen migraties horen te maken, staat
 daar bewust niet in — anders zou de check een ontbrekende definitie kunnen maskeren.
 
-De check controleert daarnaast dat er geen tabel zonder row level security ontstaat.
+De check controleert daarnaast twee dingen die je anders pas in productie ontdekt:
+
+- **Geen tabel zonder row level security.**
+- **Het API-oppervlak.** Elke functie in `public` die `anon` mag aanroepen, wordt
+  vergeleken met een allowlist in het script. Dat is nodig omdat Supabase nieuwe
+  functies in `public` automatisch EXECUTE geeft aan `anon` — vergeet je de `revoke`,
+  dan staat je functie op internet. `bootstrap.sql` reproduceert die default expres, en
+  de check is geverifieerd door een functie zonder `revoke` toe te voegen: hij faalde.
 
 > Het script dropt schema's. Het weigert daarom te draaien tegen een `DATABASE_URL`
 > waarvan de databasenaam geen `test` bevat, tenzij je `--force` meegeeft.
@@ -223,4 +233,5 @@ Deze staan hier omdat ze in code zijn afgedwongen en niet alleen in een document
 | [RISICOS.md](docs/RISICOS.md)                                                   | vijf technische risico's met mitigatie                                  |
 | [DPIA-input.md](docs/DPIA-input.md)                                             | verwerkingen, categorieën, subverwerkers                                |
 | [ADR-0007](docs/ADR-0007-agent-sessietoken.md)                                  | waarom het agent-credential geen JWT is                                 |
+| [ADR-0008](docs/ADR-0008-rpc-in-public-schema.md)                               | RPC's in `public`, `app` intern; wat dat doet met de EXECUTE-grants     |
 | `ADR-*.md`                                                                      | architectuurbeslissingen, met de overwogen alternatieven                |

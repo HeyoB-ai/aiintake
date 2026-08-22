@@ -37,7 +37,7 @@ export async function issueAgentSession(
 ): Promise<IssuedSession> {
   const { token, tokenHash } = await createSessionToken();
 
-  const { data, error } = await serviceClient.schema('app').rpc('issue_agent_session', {
+  const { data, error } = await serviceClient.rpc('issue_agent_session', {
     p_intake_id: input.intakeId,
     p_channel: input.channel,
     p_token_hash: tokenHash,
@@ -67,7 +67,7 @@ export async function revokeAgentSession(
   serviceClient: SupabaseClient,
   sessionId: string,
 ): Promise<number> {
-  const { data, error } = await serviceClient.schema('app').rpc('revoke_agent_session', {
+  const { data, error } = await serviceClient.rpc('revoke_agent_session', {
     p_session_id: sessionId,
   });
   if (error) throw new Error(`kon sessie niet intrekken: ${error.message}`);

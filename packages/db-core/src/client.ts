@@ -18,14 +18,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  * niet aan hangt.
  */
 
-/** RPC's leven in het `app`-schema; die schemakeuze zit in de client, niet in elke call. */
-const APP_SCHEMA = 'app' as const;
-
-export type AppClient = SupabaseClient<any, 'app', any>;
+/**
+ * De RPC's staan in `public`, het schema dat PostgREST standaard exposeert. Het
+ * `app`-schema bevat alleen interne helpers en is bewust níét bereikbaar over HTTP;
+ * zie docs/ADR-0008-rpc-in-public-schema.md.
+ */
+export type AppClient = SupabaseClient<any, 'public', any>;
 
 export function createAnonClient(url: string, publishableKey: string): AppClient {
   return createClient(url, publishableKey, {
-    db: { schema: APP_SCHEMA },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -40,7 +41,6 @@ export function createAnonClient(url: string, publishableKey: string): AppClient
  */
 export function createAgentClient(url: string, publishableKey: string): AppClient {
   return createClient(url, publishableKey, {
-    db: { schema: APP_SCHEMA },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

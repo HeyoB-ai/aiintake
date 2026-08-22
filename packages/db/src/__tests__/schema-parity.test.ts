@@ -116,7 +116,9 @@ describe('RLS staat aan op elke tabel', () => {
 });
 
 describe('de agent-RPC bewaakt zijn eigen reikwijdte', () => {
-  const agentFns = [...SQL.matchAll(/create or replace function app\.(agent_\w+)\s*\(/g)].map(
+  // De agent-functies staan in `public` (het geexposeerde schema); de guard waar ze
+  // mee beginnen staat in `app` (intern). Zie docs/ADR-0008-rpc-in-public-schema.md.
+  const agentFns = [...SQL.matchAll(/create or replace function public\.(agent_\w+)\s*\(/g)].map(
     (m) => m[1] as string,
   );
 
@@ -125,7 +127,7 @@ describe('de agent-RPC bewaakt zijn eigen reikwijdte', () => {
   });
 
   it.each(agentFns.map((f) => [f]))('app.%s roept assert_agent_scope aan', (fn) => {
-    const start = SQL.indexOf(`create or replace function app.${fn}(`);
+    const start = SQL.indexOf(`create or replace function public.${fn}(`);
     const end = SQL.indexOf('$$;', start);
     const body = SQL.slice(start, end);
     expect(body).toMatch(/app\.assert_agent_scope\(/);

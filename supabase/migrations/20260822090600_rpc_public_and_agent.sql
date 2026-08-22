@@ -118,7 +118,7 @@ $$;
 -- Maakt de intake plus het consentrecord in één transactie aan.
 -- Consent en intake horen bij elkaar: een intake zonder vastgelegde toestemming mag
 -- niet kunnen bestaan, ook niet een halve seconde lang.
-create or replace function app.create_public_intake(
+create or replace function public.create_public_intake(
   p_org_slug               text,
   p_language               text,
   p_channel                text,
@@ -204,7 +204,7 @@ $$;
 -- heeft er geen aan. De web-app genereert het ruwe token, stuurt alleen de hash
 -- hierheen, en geeft het ruwe token door aan de worker. Deze database ziet het ruwe
 -- token nooit.
-create or replace function app.issue_agent_session(
+create or replace function public.issue_agent_session(
   p_intake_id     uuid,
   p_channel       text,
   p_token_hash    text,
@@ -285,7 +285,7 @@ $$;
 
 -- Intrekken zonder de sessie te beëindigen: voor het geval een token is gelekt of een
 -- worker vastloopt. Dit is wat een JWT niet kan.
-create or replace function app.revoke_agent_session(p_session_id uuid)
+create or replace function public.revoke_agent_session(p_session_id uuid)
 returns int
 language plpgsql
 security definer
@@ -304,7 +304,7 @@ $$;
 
 -- Opruimen van verlopen tokens. Aanroepen vanuit de retentie-cleanup (Fase 6).
 -- Verlopen tokens zijn al onbruikbaar; dit houdt de tabel alleen klein.
-create or replace function app.purge_expired_session_tokens(p_older_than interval default interval '7 days')
+create or replace function public.purge_expired_session_tokens(p_older_than interval default interval '7 days')
 returns int
 language plpgsql
 security definer
@@ -327,7 +327,7 @@ $$;
 -- af. Er is bewust geen `p_session_id`-parameter meer: het token bepaalt zowel de
 -- intake als de sessie, dus een mismatch tussen die twee kan niet meer bestaan.
 
-create or replace function app.agent_set_session_providers(
+create or replace function public.agent_set_session_providers(
   p_session_token   text,
   p_intake_id       uuid,
   p_avatar_provider text,
@@ -358,7 +358,7 @@ begin
 end;
 $$;
 
-create or replace function app.agent_end_session(
+create or replace function public.agent_end_session(
   p_session_token  text,
   p_intake_id      uuid,
   p_end_reason     text,
@@ -395,7 +395,7 @@ $$;
 
 -- Het transcript. `p_content` is wat de cliënt HEEFT GEHOORD; `p_intended_content`
 -- wat het model wilde zeggen. Bij een barge-in verschillen die twee.
-create or replace function app.agent_append_message(
+create or replace function public.agent_append_message(
   p_session_token         text,
   p_intake_id             uuid,
   p_turn_index            int,
@@ -440,7 +440,7 @@ begin
 end;
 $$;
 
-create or replace function app.agent_upsert_fact(
+create or replace function public.agent_upsert_fact(
   p_session_token  text,
   p_intake_id      uuid,
   p_key            text,
@@ -501,7 +501,7 @@ begin
 end;
 $$;
 
-create or replace function app.agent_set_risk_flag(
+create or replace function public.agent_set_risk_flag(
   p_session_token           text,
   p_intake_id               uuid,
   p_rule_key                text,
@@ -554,7 +554,7 @@ begin
 end;
 $$;
 
-create or replace function app.agent_record_metric(
+create or replace function public.agent_record_metric(
   p_session_token text,
   p_intake_id     uuid,
   p_turn_index    int,
@@ -599,7 +599,7 @@ begin
 end;
 $$;
 
-create or replace function app.agent_log_llm_call(
+create or replace function public.agent_log_llm_call(
   p_session_token       text,
   p_intake_id           uuid,
   p_purpose             text,
@@ -647,7 +647,7 @@ begin
 end;
 $$;
 
-create or replace function app.agent_update_progress(
+create or replace function public.agent_update_progress(
   p_session_token text,
   p_intake_id     uuid,
   p_completeness  numeric default null,
@@ -689,7 +689,7 @@ $$;
 
 -- De agent leest zijn eigen context: organisatieconfiguratie, feiten, transcript en
 -- openstaande advocaatverzoeken. Eén call in plaats van vier, en geen tabeltoegang.
-create or replace function app.agent_context(
+create or replace function public.agent_context(
   p_session_token text,
   p_intake_id     uuid
 )
@@ -762,37 +762,58 @@ $$;
 -- =============================================================================
 -- Rechten
 -- =============================================================================
--- Standaard mag niemand iets; hieronder staat precies wie wat mag aanroepen.
+-- Dit blok is het volledige API-oppervlak. Wat hier niet staat, is niet aanroepbaar.
+--
+-- De REVOKE vóór elke GRANT is geen bijgeloof. Twee defaults werken tegen ons:
+--
+--   1. Postgres geeft nieuwe functies EXECUTE aan PUBLIC.
+--   2. Supabase zet `alter default privileges in schema public grant all on
+--      functions to anon, authenticated, service_role`. Een nieuwe functie in
+--      `public` is daardoor meteen door anon aan te roepen.
+--
+-- Alleen intrekken en dan gericht toekennen geeft een oppervlak dat je kunt lezen.
+-- scripts/check-migrations.mjs vergelijkt de uitkomst met een allowlist en faalt
+-- op elke functie die anon onbedoeld kan aanroepen.
 
+-- Interne helpers. Ze leven in `app`, dat niet door PostgREST wordt geëxposeerd,
+-- dus ze zijn sowieso niet over HTTP bereikbaar. De REVOKE is de tweede laag.
 revoke all on function app.hash_session_token(text) from public;
 revoke all on function app.assert_agent_scope(text, uuid) from public;
 revoke all on function app.check_and_bump_rate_limit(uuid, text, int) from public;
 
 -- Uitgifte en intrekking horen bij de web-app, die op de secret key draait.
 -- De worker mag zijn eigen credential niet kunnen aanmaken of verlengen.
-revoke all on function app.issue_agent_session(uuid, text, text, int, text, timestamptz) from public;
-grant execute on function app.issue_agent_session(uuid, text, text, int, text, timestamptz) to service_role;
+revoke all on function public.issue_agent_session(uuid, text, text, int, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.issue_agent_session(uuid, text, text, int, text, timestamptz) to service_role;
+revoke all on function public.revoke_agent_session(uuid) from public, anon, authenticated;
+grant execute on function public.revoke_agent_session(uuid) to service_role;
+revoke all on function public.purge_expired_session_tokens(interval) from public, anon, authenticated;
+grant execute on function public.purge_expired_session_tokens(interval) to service_role;
 
-revoke all on function app.revoke_agent_session(uuid) from public;
-grant execute on function app.revoke_agent_session(uuid) to service_role;
+-- De publieke intakeroute.
+revoke all on function public.create_public_intake(text, text, text, text, boolean, text, boolean, text, boolean, boolean, text) from public;
+grant execute on function public.create_public_intake(text, text, text, text, boolean, text, boolean, text, boolean, boolean, text) to anon, authenticated;
 
-revoke all on function app.purge_expired_session_tokens(interval) from public;
-grant execute on function app.purge_expired_session_tokens(interval) to service_role;
-
-revoke all on function app.create_public_intake(text, text, text, text, boolean, text, boolean, text, boolean, boolean, text) from public;
-grant execute on function app.create_public_intake(text, text, text, text, boolean, text, boolean, text, boolean, boolean, text) to anon, authenticated;
-
--- De worker draait op de publishable key en is dus `anon`. `authenticated` staat er
--- ook bij, zodat een ingelogde gebruiker die deze functies probeert aan te roepen de
--- duidelijke melding "geen geldig agent-token" krijgt in plaats van een generieke
--- permission denied. Veiliger wordt het er niet van en ook niet minder: het token is
--- de credential, niet de rol.
-grant execute on function app.agent_set_session_providers(text, uuid, text, text, text, text) to anon, authenticated;
-grant execute on function app.agent_end_session(text, uuid, text, int) to anon, authenticated;
-grant execute on function app.agent_append_message(text, uuid, int, text, text, text, int, int, text[], uuid) to anon, authenticated;
-grant execute on function app.agent_upsert_fact(text, uuid, text, jsonb, text, text, numeric, text, text, text, uuid) to anon, authenticated;
-grant execute on function app.agent_set_risk_flag(text, uuid, text, text, text, text, text, boolean) to anon, authenticated;
-grant execute on function app.agent_record_metric(text, uuid, int, jsonb) to anon, authenticated;
-grant execute on function app.agent_log_llm_call(text, uuid, text, text, int, int, int, boolean, int, text, int) to anon, authenticated;
-grant execute on function app.agent_update_progress(text, uuid, numeric, text, text, text, text, text) to anon, authenticated;
-grant execute on function app.agent_context(text, uuid) to anon, authenticated;
+-- Het agent-oppervlak. De worker draait op de publishable key en is dus `anon`.
+-- `authenticated` staat er ook bij, zodat een ingelogde gebruiker die deze functies
+-- probeert aan te roepen de duidelijke melding "geen geldig agent-token" krijgt in
+-- plaats van een generieke permission denied. Veiliger wordt het er niet van en ook
+-- niet minder: het token is de credential, niet de rol.
+revoke all on function public.agent_set_session_providers(text, uuid, text, text, text, text) from public;
+grant execute on function public.agent_set_session_providers(text, uuid, text, text, text, text) to anon, authenticated;
+revoke all on function public.agent_end_session(text, uuid, text, int) from public;
+grant execute on function public.agent_end_session(text, uuid, text, int) to anon, authenticated;
+revoke all on function public.agent_append_message(text, uuid, int, text, text, text, int, int, text[], uuid) from public;
+grant execute on function public.agent_append_message(text, uuid, int, text, text, text, int, int, text[], uuid) to anon, authenticated;
+revoke all on function public.agent_upsert_fact(text, uuid, text, jsonb, text, text, numeric, text, text, text, uuid) from public;
+grant execute on function public.agent_upsert_fact(text, uuid, text, jsonb, text, text, numeric, text, text, text, uuid) to anon, authenticated;
+revoke all on function public.agent_set_risk_flag(text, uuid, text, text, text, text, text, boolean) from public;
+grant execute on function public.agent_set_risk_flag(text, uuid, text, text, text, text, text, boolean) to anon, authenticated;
+revoke all on function public.agent_record_metric(text, uuid, int, jsonb) from public;
+grant execute on function public.agent_record_metric(text, uuid, int, jsonb) to anon, authenticated;
+revoke all on function public.agent_log_llm_call(text, uuid, text, text, int, int, int, boolean, int, text, int) from public;
+grant execute on function public.agent_log_llm_call(text, uuid, text, text, int, int, int, boolean, int, text, int) to anon, authenticated;
+revoke all on function public.agent_update_progress(text, uuid, numeric, text, text, text, text, text) from public;
+grant execute on function public.agent_update_progress(text, uuid, numeric, text, text, text, text, text) to anon, authenticated;
+revoke all on function public.agent_context(text, uuid) from public;
+grant execute on function public.agent_context(text, uuid) to anon, authenticated;

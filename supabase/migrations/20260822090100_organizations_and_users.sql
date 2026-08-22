@@ -288,7 +288,7 @@ create policy organization_users_delete_admin on public.organization_users
 -- Daarom een functie met een expliciet uitgeschreven kolomlijst in plaats van
 -- een select-policy voor `anon` op de hele tabel: dan lekken provider_config,
 -- intake_criteria en retention_policy naar het publiek.
-create or replace function app.public_org_by_slug(p_slug text)
+create or replace function public.public_org_by_slug(p_slug text)
 returns table (
   id uuid,
   slug text,
@@ -311,5 +311,5 @@ as $$
     and o.deleted_at is null;
 $$;
 
-revoke all on function app.public_org_by_slug(text) from public;
-grant execute on function app.public_org_by_slug(text) to anon, authenticated;
+revoke all on function public.public_org_by_slug(text) from public, anon, authenticated;
+grant execute on function public.public_org_by_slug(text) to anon, authenticated;

@@ -42,6 +42,21 @@ grant usage on schema public to anon, authenticated, service_role;
 grant usage on schema extensions to anon, authenticated, service_role;
 
 -- -----------------------------------------------------------------------------
+-- Default privileges
+-- -----------------------------------------------------------------------------
+-- Supabase zet dit op een nieuw project, en het is precies de reden dat elke functie
+-- in `public` een expliciete REVOKE nodig heeft: zonder dit hier zou de allowlist-check
+-- lokaal groen zijn en op een echt project alsnog functies aan anon blootstellen.
+--
+-- De test moet de valkuil reproduceren, niet omzeilen.
+alter default privileges in schema public
+  grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on functions to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on sequences to anon, authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
 -- auth.users
 -- -----------------------------------------------------------------------------
 -- Alleen de kolommen die onze migraties aanraken: de foreign key vanuit

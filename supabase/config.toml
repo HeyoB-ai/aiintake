@@ -11,9 +11,17 @@ project_id = "legal-intake-ai"
 [api]
 enabled = true
 port = 54321
-# `app` is het RPC-oppervlak voor de publieke intakeroute en de agent-worker.
-# Alles daarin is standaard REVOKEd; 0600 grant expliciet per functie.
-schemas = ["public", "app"]
+# Alleen de standaardschema's. `app` staat hier bewust NIET bij: dat schema bevat de
+# interne helpers (autorisatie, tokenverificatie, rate limiting) en is daardoor niet
+# over HTTP bereikbaar, ongeacht welke grants iemand er per ongeluk op zet.
+#
+# Het client-gerichte RPC-oppervlak staat in `public`, afgebakend met expliciete
+# EXECUTE-grants. Zie docs/ADR-0008-rpc-in-public-schema.md.
+#
+# Let op: deze instelling geldt alleen voor lokale ontwikkeling. Op een gehost project
+# is "Exposed schemas" een dashboardinstelling — en juist omdat die niet in versiebeheer
+# zit, leunen we op de standaardwaarde in plaats van er iets aan toe te voegen.
+schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 

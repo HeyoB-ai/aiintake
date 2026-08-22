@@ -145,7 +145,7 @@ describeDb('tenant-isolatie', () => {
     });
 
     it('krijgt via public_org_by_slug alleen publieke velden', async () => {
-      const { data, error } = await anonUser(testEnv, 'app').rpc('public_org_by_slug', {
+      const { data, error } = await anonUser(testEnv).rpc('public_org_by_slug', {
         p_slug: `test-a-${fx.suffix}`,
       });
       expect(error).toBeNull();
@@ -223,7 +223,7 @@ describeDb('tenant-isolatie', () => {
 
     it('een ingetrokken token wordt geweigerd', async () => {
       const revoking = await issueSession(testEnv, { intakeId: fx.intakeA });
-      const svc = serviceClient(testEnv, 'app');
+      const svc = serviceClient(testEnv);
       const { error: revokeErr } = await svc.rpc('revoke_agent_session', {
         p_session_id: revoking.sessionId,
       });
@@ -268,7 +268,7 @@ describeDb('tenant-isolatie', () => {
     it('het token werkt niet als bearer credential in de Authorization-header', async () => {
       // Het is geen JWT en hoort daar niet; deze test legt vast dat een toekomstige
       // "handige" refactor die het alsnog in de header legt, niet stilzwijgend werkt.
-      const client = asUser(testEnv, sessionA.sessionToken, 'app');
+      const client = asUser(testEnv, sessionA.sessionToken);
       const { error } = await client.rpc('agent_context', {
         p_session_token: sessionA.sessionToken,
         p_intake_id: fx.intakeA,
@@ -277,7 +277,7 @@ describeDb('tenant-isolatie', () => {
     });
 
     it('zonder token kan een ingelogde medewerker de agent-RPC niet misbruiken', async () => {
-      const a = asUser(testEnv, fx.tokenA, 'app');
+      const a = asUser(testEnv, fx.tokenA);
       const { error } = await a.rpc('agent_append_message', {
         p_session_token: 'geen-echt-token-maar-lang-genoeg-voor-de-lengtecheck',
         p_intake_id: fx.intakeA,
@@ -293,7 +293,7 @@ describeDb('tenant-isolatie', () => {
       // De worker draait op de publishable key: RLS geeft hem niets. Alles loopt via
       // de RPC's, en die zijn per intake afgebakend.
       const agent = agentClient(testEnv);
-      const publicSchema = anonUser(testEnv, 'public');
+      const publicSchema = anonUser(testEnv);
       for (const table of ['intakes', 'messages', 'case_facts', 'organizations']) {
         const { data } = await publicSchema.from(table).select('*');
         expect(data ?? []).toEqual([]);
@@ -304,7 +304,7 @@ describeDb('tenant-isolatie', () => {
 
   describe('uitgifte van sessietokens', () => {
     it('kan niet door een cliënt of anonieme bezoeker', async () => {
-      const { error } = await anonUser(testEnv, 'app').rpc('issue_agent_session', {
+      const { error } = await anonUser(testEnv).rpc('issue_agent_session', {
         p_intake_id: fx.intakeA,
         p_channel: 'video',
         p_token_hash: 'a'.repeat(64),
@@ -316,7 +316,7 @@ describeDb('tenant-isolatie', () => {
     it('kan niet door een ingelogde ORG_ADMIN', async () => {
       // Ook de beheerder van het eigen kantoor niet: uitgifte hoort bij de serverkant
       // van de web-app, niet bij een browsersessie.
-      const { error } = await asUser(testEnv, fx.tokenA, 'app').rpc('issue_agent_session', {
+      const { error } = await asUser(testEnv, fx.tokenA).rpc('issue_agent_session', {
         p_intake_id: fx.intakeA,
         p_channel: 'video',
         p_token_hash: 'a'.repeat(64),
@@ -326,7 +326,7 @@ describeDb('tenant-isolatie', () => {
     });
 
     it('weigert een TTL van nul of minder', async () => {
-      const { error } = await serviceClient(testEnv, 'app').rpc('issue_agent_session', {
+      const { error } = await serviceClient(testEnv).rpc('issue_agent_session', {
         p_intake_id: fx.intakeA,
         p_channel: 'video',
         p_token_hash: 'b'.repeat(64),

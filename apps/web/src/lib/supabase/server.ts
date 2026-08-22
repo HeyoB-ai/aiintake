@@ -34,19 +34,6 @@ export async function createClient() {
   );
 }
 
-/** Dezelfde client, maar gericht op het `app`-schema voor RPC-aanroepen. */
-export async function createAppSchemaClient() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env['NEXT_PUBLIC_SUPABASE_URL']!,
-    process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY']!,
-    {
-      db: { schema: 'app' } as never,
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: () => undefined,
-      },
-    },
-  );
-}
+// Hier stond createAppSchemaClient(), een tweede client die op het `app`-schema was
+// gericht. Overbodig sinds de client-gerichte RPC's in `public` staan: createClient()
+// hierboven bereikt ze gewoon. Zie docs/ADR-0008-rpc-in-public-schema.md.

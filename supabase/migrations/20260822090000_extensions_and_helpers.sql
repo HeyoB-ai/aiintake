@@ -18,9 +18,20 @@ create extension if not exists "pgcrypto" with schema extensions;
 create extension if not exists "pg_trgm" with schema extensions;
 
 create schema if not exists app;
-comment on schema app is 'Interne helpers en RPC-oppervlak. Niet direct exposed via PostgREST behalve de expliciet gegrante functies.';
+comment on schema app is 'Uitsluitend interne helpers. Niet geëxposeerd via PostgREST; het client-gerichte RPC-oppervlak staat in public. Zie docs/ADR-0008.';
 
 revoke all on schema app from public;
+
+-- USAGE is nodig, en is géén exposure.
+--
+-- Nodig: RLS-policies roepen app.has_org_access() aan, en policy-expressies draaien
+-- met de rechten van de bevragende gebruiker. Zonder USAGE faalt elke query met
+-- permission denied for schema app.
+--
+-- Geen exposure: of PostgREST een schema aanbiedt, wordt bepaald door de lijst met
+-- geëxposeerde schema's — niet door grants. `app` staat niet in die lijst en is dus
+-- niet over HTTP bereikbaar, ongeacht wat hier staat. Dat is precies de scheiding
+-- waarop ADR-0008 leunt.
 grant usage on schema app to authenticated, anon, service_role;
 
 -- -----------------------------------------------------------------------------

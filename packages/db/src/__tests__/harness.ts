@@ -65,27 +65,20 @@ export function explainMissingTestEnv(): string {
   return lines.join('\n');
 }
 
-export function serviceClient(env: TestEnv, schema: 'public' | 'app' = 'public'): SupabaseClient {
+export function serviceClient(env: TestEnv): SupabaseClient {
   return createClient(env.url, env.secretKey, {
-    db: { schema } as never,
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-export function anonUser(env: TestEnv, schema: 'public' | 'app' = 'public'): SupabaseClient {
+export function anonUser(env: TestEnv): SupabaseClient {
   return createClient(env.url, env.publishableKey, {
-    db: { schema } as never,
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-export function asUser(
-  env: TestEnv,
-  token: string,
-  schema: 'public' | 'app' = 'public',
-): SupabaseClient {
+export function asUser(env: TestEnv, token: string): SupabaseClient {
   return createClient(env.url, env.publishableKey, {
-    db: { schema } as never,
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
@@ -211,7 +204,7 @@ export async function issueSession(
   args: { intakeId: string; channel?: 'video' | 'voice' | 'chat'; ttlMinutes?: number },
 ): Promise<AgentSessionFixture> {
   const { token, tokenHash } = await createSessionToken();
-  const svc = serviceClient(env, 'app');
+  const svc = serviceClient(env);
 
   const { data, error } = await svc.rpc('issue_agent_session', {
     p_intake_id: args.intakeId,
@@ -246,7 +239,6 @@ export async function expireSessionToken(env: TestEnv, sessionId: string): Promi
 /** De agentclient: publishable key, geen Authorization-header. Het token gaat per call mee. */
 export function agentClient(env: TestEnv): SupabaseClient {
   return createClient(env.url, env.publishableKey, {
-    db: { schema: 'app' } as never,
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
