@@ -153,6 +153,7 @@ function onsSysteem(): string {
       allowFiller: false,
       isOpening: false,
       isClosing: false,
+      narrativePhase: false,
     },
     'nl',
   ).body;

@@ -92,6 +92,7 @@ describe('QuestionPlanner', () => {
         allowFiller: false,
         isOpening: true,
         isClosing: false,
+        narrativePhase: true,
       },
       'nl',
     );

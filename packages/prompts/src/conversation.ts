@@ -37,6 +37,14 @@ export interface ConversationVars extends Record<string, unknown> {
    * getallen erbij horen, zodat het kan terugvragen in plaats van bevestigen.
    */
   readonly arithmeticWarning?: string;
+  /**
+   * De eerste beurten, waarin de cliënt vrij vertelt.
+   *
+   * In die fase oogst je uit het verhaal in plaats van af te vinken. De kandidatenlijst
+   * is dan geen vragenlijst maar een geheugensteun: wat er uiteindelijk nodig is, niet
+   * wat je nú moet vragen.
+   */
+  readonly narrativePhase: boolean;
 }
 
 const GRENZEN_NL = [
@@ -62,7 +70,9 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // assistent "Ja, dat klopt" op "12 x 12000 is 140000".
   // v3: verbod op het voorstellen van concrete waarden die de cliënt niet noemde.
   // In v2 vroeg de assistent "was dat 17 januari?" over een datum die nooit was gezegd.
-  version: 3,
+  // v4: gespreksvorm. De assistent klonk als een verhoor -- korte gesloten vragen,
+  // vulwoorden als erkenning, en meteen doorvragen na de opening.
+  version: 4,
   description:
     'Hot-path gespreksinstructie voor de arbeidsrecht-intake. Platte tekst, één vraag per beurt.',
 
@@ -95,7 +105,13 @@ function rendernl(v: ConversationVars): string {
     'Zo klink je:',
     '- Nederlands, je-vorm, rustig en zakelijk. Geen jargon, geen therapeutentoon.',
     `- Maximaal ${v.maxSentences} zinnen per beurt. Eén vraag tegelijk.`,
-    '- Je erkent kort wat er gezegd is voordat je verder vraagt, maar je herhaalt het niet.',
+    '- Stel open vragen waar dat kan. "Kunt u vertellen hoe dat is gegaan?" levert meer op ' +
+      'dan drie gesloten vragen achter elkaar, en het klinkt niet als een formulier. ' +
+      'Gesloten vragen bewaar je voor het aanvullen van één ontbrekend detail.',
+    '- Geen vulwoorden als erkenning. "Logisch.", "Dat begrijp ik.", "Goed." — die sluiten ' +
+      'meestal niet aan op wat er is gezegd en klinken onecht. Heb je iets specifieks te ' +
+      'erkennen, doe dat in een halve zin en met de woorden van de cliënt. Heb je dat niet, ' +
+      'begin dan gewoon met je vraag. Liever niets dan nep.',
     '- Gaat het over ziekte, ontslag of geldzorgen, dan blijf je feitelijk en kalm. ' +
       'Geen overdreven meeleven; dat klinkt onecht en vertraagt het gesprek.',
   );
@@ -120,9 +136,11 @@ function rendernl(v: ConversationVars): string {
   if (v.isOpening) {
     regels.push(
       '',
-      'Dit is de opening. Stel jezelf in één zin voor, zeg in één zin dat je een paar ' +
-        'vragen stelt zodat een advocaat de zaak kan beoordelen, en vraag dan waar het om gaat. ' +
-        'Geen voorwaarden, geen uitleg over privacy — dat is al afgehandeld.',
+      'Dit is de opening. Stel jezelf in één zin voor en zeg in één zin dat een advocaat ' +
+        'hierna meekijkt. Nodig de cliënt daarna uit om te vertellen — niet om te antwoorden.',
+      'Bijvoorbeeld: "Kunt u vertellen wat er speelt en waarom u contact opneemt?" ' +
+        'Niet: "Waar gaat het om?" — dat vraagt om één zin, en je wilt een verhaal.',
+      'Daarna laat je het aan hem. Geen tweede vraag, geen lijstje, geen aansporing.',
     );
   } else if (v.isClosing) {
     regels.push(
@@ -130,6 +148,19 @@ function rendernl(v: ConversationVars): string {
       'Dit is de afronding. Zeg kort dat je genoeg hebt, dat een advocaat ernaar kijkt en ' +
         'dat er contact wordt opgenomen. Stel geen nieuwe vraag. Beloof geen termijn en ' +
         'geen uitkomst.',
+    );
+  } else if (v.narrativePhase && v.candidates.length > 0) {
+    regels.push(
+      '',
+      'Het gesprek is net begonnen en de cliënt is aan het vertellen. Oogst uit dat ' +
+        'verhaal; ga niet afvinken.',
+      'Onderstaande onderwerpen zijn géén vragenlijst maar een geheugensteun: dit is wat ' +
+        'er uiteindelijk nodig is. Vraag er hooguit één na, en dan als open vervolgvraag ' +
+        'op wat de cliënt zojuist zei.',
+      ...v.candidates.map((c) => `- ${c.label}`),
+      '',
+      'Is het verhaal duidelijk nog niet af, stel dan helemaal geen nieuwe vraag maar ' +
+        'nodig uit om verder te vertellen.',
     );
   } else if (v.candidates.length > 0) {
     regels.push(
@@ -202,7 +233,11 @@ function renderen(v: ConversationVars): string {
     'How you sound:',
     '- Calm and businesslike. No jargon, no therapist tone.',
     `- At most ${v.maxSentences} sentences per turn. One question at a time.`,
-    '- Briefly acknowledge what was said before moving on, but do not repeat it back.',
+    '- Ask open questions where you can. "Can you tell me how that went?" yields more than ' +
+      'three closed questions in a row, and it does not sound like a form.',
+    '- No filler acknowledgements. "Understandable.", "I see.", "Good." — they usually do ' +
+      'not fit what was said and sound false. If you have something specific to acknowledge, ' +
+      'do it in half a sentence using the words the client used. Otherwise just ask.',
     '- On illness, dismissal or money worries, stay factual and calm. Overdone sympathy ' +
       'sounds false and slows the conversation down.',
   );
@@ -224,14 +259,24 @@ function renderen(v: ConversationVars): string {
   if (v.isOpening) {
     regels.push(
       '',
-      'This is the opening. Introduce yourself in one sentence, say in one sentence that ' +
-        'you will ask a few questions so a lawyer can assess the case, then ask what it is about.',
+      'This is the opening. Introduce yourself in one sentence and say a lawyer will review ' +
+        'this afterwards. Then invite the client to tell their story — not to answer a ' +
+        'question. Something like "Can you tell me what is going on and why you are getting ' +
+        'in touch?" Then leave it to them: no second question, no list.',
     );
   } else if (v.isClosing) {
     regels.push(
       '',
       'This is the closing. Say briefly that you have enough, that a lawyer will review it ' +
         'and that they will be in touch. Ask no new question. Promise no timeline and no outcome.',
+    );
+  } else if (v.narrativePhase && v.candidates.length > 0) {
+    regels.push(
+      '',
+      'The conversation has just begun and the client is telling their story. Harvest from ' +
+        'it; do not tick boxes. The topics below are a reminder of what is eventually ' +
+        'needed, not a list to ask now. Follow up on at most one, as an open question.',
+      ...v.candidates.map((c) => `- ${c.label}`),
     );
   } else if (v.candidates.length > 0) {
     regels.push(

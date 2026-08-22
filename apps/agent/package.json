@@ -16,7 +16,8 @@
     "diag:ttft": "tsx --env-file=../../.env bakeoff/ttft-diagnose.ts",
     "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts",
     "dev:live": "tsx --env-file=../../.env live/server.ts",
-    "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts"
+    "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts",
+    "diag:gespreksvorm": "tsx --env-file=../../.env bakeoff/gespreksvorm-diagnose.ts"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

@@ -27,7 +27,8 @@
     "diag:ttft": "pnpm --filter @intake/agent diag:ttft",
     "diag:netwerk": "pnpm --filter @intake/agent diag:netwerk",
     "dev:live": "pnpm --filter @intake/agent dev:live",
-    "diag:speechfinal": "pnpm --filter @intake/agent diag:speechfinal"
+    "diag:speechfinal": "pnpm --filter @intake/agent diag:speechfinal",
+    "diag:gespreksvorm": "pnpm --filter @intake/agent diag:gespreksvorm"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

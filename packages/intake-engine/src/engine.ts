@@ -77,13 +77,32 @@ export interface EngineDeps {
   readonly catalog?: FactCatalog;
   /** Waar de gerenderde prompt naartoe gaat voor `llm_calls`. Optioneel. */
   readonly onPrompt?: (prompt: RenderedPrompt) => void;
+  /**
+   * Hoeveel beurten de cliënt vrij mag vertellen voordat de planner gaat sturen.
+   *
+   * Instelbaar zodat het effect te méten is in plaats van te beweren. Nul zet de
+   * narratieve fase uit en levert het gedrag van vóór v4: meteen de kandidatenlijst
+   * afwerken.
+   */
+  readonly narrativeTurns?: number;
 }
 
 /** Hoeveel beurten er minimaal tussen twee overbruggingszinnen zitten. */
 const FILLER_INTERVAL = 3;
 
+/**
+ * Beurten waarin de cliënt vrij vertelt en de assistent oogst in plaats van afvinkt.
+ *
+ * Drie beurten is ongeveer een minuut. Kort genoeg dat de must-haves niet in gevaar
+ * komen, lang genoeg dat iemand zijn verhaal kwijt kan — en dat is precies wat een intake
+ * onderscheidt van een formulier. Een cliënt die zijn verhaal niet heeft kunnen doen,
+ * beantwoordt de rest korter en minder volledig.
+ */
+const NARRATIVE_TURNS = 3;
+
 export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
   const catalog = deps.catalog ?? EMPLOYMENT_CATALOG;
+  const narrativeTurns = deps.narrativeTurns ?? NARRATIVE_TURNS;
 
   return {
     async respond(input: EngineInput): Promise<EngineDecision> {
@@ -108,12 +127,15 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
 
       const isOpening = turnCount === 0 && !input.lastClientUtterance;
       const isClosing = plan.shouldClose && !isOpening;
+      const narrativePhase = !isClosing && turnCount <= narrativeTurns * 2;
 
       // Pacing. De overbruggingszin is een middel tegen stilte, geen stijlkenmerk:
       // vaker dan eens per drie beurten en het wordt een tic die opvalt.
       const allowFiller =
         !isOpening && !isClosing && turnCount > 0 && turnCount % FILLER_INTERVAL === 0;
-      const maxSentences = isClosing ? 2 : isOpening ? 3 : 2;
+      // In de narratieve fase iets meer ruimte: een uitnodiging om te vertellen kost
+      // een zin meer dan een gesloten vraag.
+      const maxSentences = isClosing ? 2 : isOpening ? 3 : narrativePhase ? 3 : 2;
 
       const prompt = render(
         PROMPTS.conversation,
@@ -134,6 +156,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
             : {}),
           isOpening,
           isClosing,
+          narrativePhase,
           ...(somFout && !somFout.correct
             ? { arithmeticWarning: describeClaim(somFout, input.language) }
             : {}),

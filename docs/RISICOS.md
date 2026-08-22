@@ -173,9 +173,21 @@ de handshake is Eemshaven bijna twee keer zo dichtbij, en het staat in Nederland
 een Nederlands kantoor een ander antwoord is dan Duitsland. De provider staat in
 `packages/providers/llm/src/vertex.ts`.
 
-**Wat dit waarschijnlijk niet oplost.** Zakt de netwerkpost van ~205 ms naar ~20 ms terwijl
-het starten van de inferentie op ~310 ms blijft, dan landt de TTFT rond 400 ms. Beter dan
-594, en nog steeds boven de 300 ms uit de begroting. Dat die begroting zelf een aanname was
+**De koude ronde hoort in dezelfde afweging.** `observe()` duurt ~5,5 s (was 8,5 s voordat
+de extractie tot relevante categorieën werd beperkt), terwijl een cliënt binnen twee
+seconden antwoordt. De planner werkt daardoor structureel met feiten van twee of drie
+beurten terug, en vraagt dingen die allang verteld zijn. Dat is nu afgedekt met een
+promptinstructie — "sla een onderwerp over dat al beantwoord is" — en dat is een pleister,
+geen fundament: het gedrag hangt af van of het model die instructie opvolgt.
+
+De echte oplossing zit in dezelfde richting als het EU-endpoint, en het is dezelfde vraag:
+hoeveel van die 5,5 s is reistijd, hoeveel is inferentie, en wat blijft er over als het
+dichterbij draait. Zolang dat niet gemeten is, is "de planner loopt achter" een
+architectuurpunt en geen bug.
+
+**Wat het EU-endpoint waarschijnlijk niet oplost.** Zakt de netwerkpost van ~205 ms naar
+~20 ms terwijl het starten van de inferentie op ~310 ms blijft, dan landt de TTFT rond
+400 ms. Beter dan 594, en nog steeds boven de 300 ms uit de begroting. Dat die begroting zelf een aanname was
 en geen meting, staat in [ADR-0012](ADR-0012-latencybudget-is-een-aanname.md) — met vooraf
 vastgelegd wat er bij welke uitkomst met de regel gebeurt.
 
@@ -505,7 +517,7 @@ elke nieuwe categorie die wél te controleren valt, hoort die controle er te kom
 
 **Status: gerepareerd, 22 augustus 2026. Blijft staan als categorie.**
 
-De assistent vroeg *"was dat 17 januari?"* — een datum die de cliënt nooit had genoemd.
+De assistent vroeg _"was dat 17 januari?"_ — een datum die de cliënt nooit had genoemd.
 De cliënt zei "ja". De extractie legde 17 januari vast als `summary_dismissal_date` met
 status `confirmed`, en als onderbouwing stond er een citaat: **de eigen vraag van de
 assistent**.
@@ -533,7 +545,7 @@ bleek.
    zelf heeft gezegd — geen datum, bedrag, naam of aantal, ook niet als voorbeeld of gok.
    De extractieprompt (v4) zegt hetzelfde vanaf de andere kant.
 
-**Wat dit niet afdekt.** Een assistent die een verkeerde *samenvatting* geeft van iets dat
+**Wat dit niet afdekt.** Een assistent die een verkeerde _samenvatting_ geeft van iets dat
 de cliënt wél zei ("u zei dus dat u ontslagen bent" terwijl er "opgezegd" stond) wordt
 hiermee niet gevangen. De regel is nu: een concrete waarde moet uit de mond van de cliënt
 komen. Parafrase valt daarbuiten en is een open randgeval.

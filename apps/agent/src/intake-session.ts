@@ -52,6 +52,8 @@ export interface IntakeSessionOptions {
   readonly onPrompt?: (prompt: RenderedPrompt) => void;
   /** Na elke koude ronde: feiten, regels, score, en wat er geweigerd is. */
   readonly onObservation?: (result: ObservationResult) => void;
+  /** Doorgegeven aan de engine; nul zet de narratieve fase uit. Zie diag:gespreksvorm. */
+  readonly narrativeTurns?: number;
 }
 
 export class IntakeSession {
@@ -128,6 +130,7 @@ export class IntakeSession {
     this.engine = createIntakeEngine({
       hot,
       cold,
+      ...(options.narrativeTurns !== undefined ? { narrativeTurns: options.narrativeTurns } : {}),
       onPrompt: (p) => {
         this.laatstePrompt = p;
         options.onPrompt?.(p);
