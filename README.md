@@ -13,16 +13,15 @@ Rechtsgebied v1: arbeidsrecht. Talen: Nederlands en Engels.
 
 ## Waar u nu staat
 
-Fase 0 (fundament) is gebouwd. De realtime-lus — Fase 1, de risicospike — nog niet; die
-vereist accounts bij een avatarleverancier. Zie [docs/ROADMAP.md](docs/ROADMAP.md) voor
-de precieze stand per taak.
+**Fase 0 is afgerond.** De Definition of Done was dat de tenant-isolatietests groen
+zijn, en dat zijn ze: 44/44 tegen een echt Supabase-project in de EU. Het schema, de
+RLS-policies, het RPC-oppervlak en het agent-sessietoken zijn daarmee niet langer een
+bewering maar een gemeten eigenschap.
 
-Het schema staat op een Supabase-project en de isolatiesuite heeft voor het eerst
-gedraaid: **alle cross-tenant-assertions slagen**. De laatste correctie was het
-API-oppervlak — de RPC's stonden in een schema dat PostgREST niet exposeert
-([ADR-0008](docs/ADR-0008-rpc-in-public-schema.md)). Zie
-["Tests tegen een echte database"](#tests-tegen-een-echte-database) voor de volledige
-run.
+Fase 1 — de realtime-lus, en het grootste technische risico van het project — is
+begonnen op de `null`-avatarprovider. Zie [docs/ROADMAP.md](docs/ROADMAP.md) voor de
+stand per taak en `docs/FASE-1-KEYS.md` voor wat er aan accounts nodig is om hem echt te
+laten draaien.
 
 ---
 

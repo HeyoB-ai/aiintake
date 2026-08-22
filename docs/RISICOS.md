@@ -47,28 +47,35 @@ truncatietest uit §11.
 
 ---
 
-## 3. De tenantgrens is geschreven maar niet bewezen
+## 3. ~~De tenantgrens is geschreven maar niet bewezen~~ — GESLOTEN, 22 augustus 2026
 
-**Stand van zaken.** 44 isolatie-assertions staan klaar en zijn nog nooit tegen een
-database gedraaid, want er is nog geen Supabase-project. RLS-policies zijn Postgres-
-gedrag; tot ze draaien, is de tenantgrens een bewering.
+**Uitkomst.** 44/44 isolatie-assertions groen tegen een echt Supabase-project in de EU.
+De tenantgrens is geen bewering meer.
 
-Het zwaarst wegende deel is de agent: die krijgt bewust geen RLS-omzeilende sleutel en
-werkt via RPC's met `assert_agent_scope`. De statische helft daarvan is groen (de
-broncodescan faalt zodra `apps/agent` de sleutelnamen noemt), maar dat een sessietoken
-van intake A daadwerkelijk 42501 krijgt op intake B — en dat een verlopen of ingetrokken
-token wordt geweigerd — is nog niet aangetoond.
+Wat daarmee is aangetoond en niet langer op vertrouwen berust:
 
-Er is één concreet faalscenario bij gekomen sinds
-[ADR-0007](ADR-0007-agent-sessietoken.md): de tokenhash wordt aan twee kanten berekend,
-in TypeScript en in plpgsql. Wijken die af, dan valideert geen enkele agentsessie. De
-TypeScript-kant is los getest tegen bekende SHA-256-vectoren; of de twee overeenkomen,
-blijkt pas uit de eerste isolatietest.
+- een gebruiker van kantoor A ziet niets van kantoor B — per tabel, gericht op id, via
+  update, via de kindtabellen en via de storage-paden;
+- het sessietoken van de agent krijgt 42501 op een andere intake, is geweigerd zodra het
+  verlopen of ingetrokken is, en wordt bij sessie-einde direct ingetrokken;
+- uitgifte van sessietokens kan niet door anon en niet door een ingelogde ORG_ADMIN;
+- het auditlog is niet te wijzigen, ook niet door een beheerder.
 
-**Mitigatie.** Een Supabase-project in de EU aanmaken, migraties pushen, `pnpm
-test:isolation`. Dat is een taak van hooguit een uur zodra het project bestaat, en het is
-de Definition of Done van Fase 0. Zolang het niet is gebeurd, staat Fase 0 op 🟡 in de
-roadmap en niet op ✅.
+Het concrete faalscenario uit [ADR-0007](ADR-0007-agent-sessietoken.md) — de tokenhash
+wordt in TypeScript én in plpgsql berekend, en bij afwijking valideert geen enkele
+sessie — **heeft zich niet voorgedaan**. De twee implementaties komen overeen.
+
+**Wat er van dit risico overblijft.** Een regressie in RLS of in het rechtenblok merk je
+alleen als de suite blijft draaien. Twee dingen houden dat overeind: `pnpm db:check`
+bewaakt in CI dat er geen tabel zonder RLS bij komt en dat het API-oppervlak niet
+stilletjes groeit, en de isolatiesuite zelf hoort in CI te draaien met secrets. Dat
+laatste is nog niet ingeregeld — zie de openstaande opmerking onderaan.
+
+**Openstaand.** `pnpm test:isolation` eindigt met exit code 0 wanneer alle tests worden
+overgeslagen. In CI zonder secrets is die job dus groen terwijl er niets draait. Dat is
+precies de stille geruststelling die dit document elders afwijst. Op te lossen met een
+strict-modus (`REQUIRE_DB_TESTS=1` laat de suite falen in plaats van skippen), aan te
+zetten in de CI-job.
 
 ---
 

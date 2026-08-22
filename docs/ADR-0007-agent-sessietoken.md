@@ -106,10 +106,15 @@ sessieduur van het kantoor, en dat het ruwe token nergens is opgeslagen.
 SHA-256 in hex produceert. Dat de SQL-kant hetzelfde doet, blijkt uit de eerste
 isolatietest — lopen ze uit elkaar, dan valideert geen enkel token.
 
-## Openstaand
+## Uitkomst
 
-De hash-implementaties aan beide kanten zijn nog niet tegen elkaar gedraaid, omdat er
-nog geen Supabase-project is. Dat is dezelfde blokkade als in
-[RISICOS.md](RISICOS.md) risico 3, en dit ADR voegt er een concreet faalscenario aan
-toe: wijkt `app.hash_session_token()` af van `hashSessionToken()`, dan werkt geen
-enkele agentsessie. Het is de eerste test die groen moet worden.
+Bevestigd op 22 augustus 2026: 44/44 isolatie-assertions groen tegen het echte project.
+
+Het faalscenario dat hier stond — `app.hash_session_token()` en `hashSessionToken()`
+berekenen dezelfde hash op twee plekken, en bij afwijking valideert geen enkele sessie —
+**heeft zich niet voorgedaan**. De twee komen overeen.
+
+Dat blijft wel een koppeling om in de gaten te houden: er is geen mechanisme dat de twee
+implementaties aan elkaar bindt, alleen een test die faalt als ze uiteenlopen. Verandert
+er ooit iets aan de codering (base64url in plaats van hex, een pepper erbij), dan moet
+dat aan beide kanten tegelijk.

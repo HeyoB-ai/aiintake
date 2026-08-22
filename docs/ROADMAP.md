@@ -8,30 +8,34 @@ Legenda: ✅ klaar · 🟡 deels · ⬜ open
 
 ---
 
-## Fase 0 — fundament
+## Fase 0 — fundament ✅ AFGEROND
 
 **Klaar wanneer:** de tenant-isolatietests groen zijn.
 
-|     | Taak                                                                                                            |
-| --- | --------------------------------------------------------------------------------------------------------------- |
-| ✅  | Monorepo: pnpm workspaces + Turborepo, 8 packages, 2 apps                                                       |
-| ✅  | `tsconfig.base.json` met `strict` + `noUncheckedIndexedAccess`                                                  |
-| ✅  | Boundary-lintregel (dependency-cruiser), **geverifieerd door hem opzettelijk te breken**                        |
-| ✅  | Databaseschema: 19 tabellen, 7 migraties                                                                        |
-| ✅  | RLS-policies op elke tabel; `schema-parity` bewaakt dat er geen tabel zonder RLS bij komt                       |
-| ✅  | RPC-oppervlak voor de publieke route en de agent (`app.create_public_intake`, `app.agent_*`)                    |
-| ✅  | Ondoorzichtig, intrekbaar sessietoken (ADR-0007) + pakketsplitsing db / db-core                                 |
-| ✅  | Auth: login, sessie-middleware, uitnodigingscallback, uitloggen                                                 |
-| ✅  | Organisaties, rollen (4), rolrangorde in code én SQL                                                            |
-| ✅  | Dashboardskelet met kaarten en intakelijst                                                                      |
-| ✅  | Feitcatalogus arbeidsrecht: 17 categorieën, 45 feiten, conditioneel                                             |
-| ✅  | Auditlog, append-only, met trigger op statuswijziging                                                           |
-| ✅  | Rate limiting op de publieke intakeroute (kostenmaatregel)                                                      |
-| ✅  | CI: boundaries, typecheck, tests, migratievolgorde, formattering                                                |
-| ✅  | `pnpm db:check`: hele migratiereeks + seed tegen een lege Postgres, zonder Docker                               |
-| ✅  | Seed: demo-kantoor + 5 intakes met feiten en risicovlaggen                                                      |
-| 🟡  | **Tenant-isolatietests: geschreven (44 assertions), nog niet gedraaid — vereist een Supabase-project in de EU** |
-| ⬜  | Supabase-project aanmaken (eu-central-1 / eu-west-1) en migraties pushen                                        |
+**Afgerond op 22 augustus 2026:** 44/44 isolatie-assertions groen tegen een echt
+Supabase-project in de EU.
+
+|     | Taak                                                                                         |
+| --- | -------------------------------------------------------------------------------------------- |
+| ✅  | Monorepo: pnpm workspaces + Turborepo, 8 packages, 2 apps                                    |
+| ✅  | `tsconfig.base.json` met `strict` + `noUncheckedIndexedAccess`                               |
+| ✅  | Boundary-lintregel (dependency-cruiser), **geverifieerd door hem opzettelijk te breken**     |
+| ✅  | Databaseschema: 19 tabellen, 7 migraties                                                     |
+| ✅  | RLS-policies op elke tabel; `schema-parity` bewaakt dat er geen tabel zonder RLS bij komt    |
+| ✅  | RPC-oppervlak voor de publieke route en de agent (`app.create_public_intake`, `app.agent_*`) |
+| ✅  | Ondoorzichtig, intrekbaar sessietoken (ADR-0007) + pakketsplitsing db / db-core              |
+| ✅  | Auth: login, sessie-middleware, uitnodigingscallback, uitloggen                              |
+| ✅  | Organisaties, rollen (4), rolrangorde in code én SQL                                         |
+| ✅  | Dashboardskelet met kaarten en intakelijst                                                   |
+| ✅  | Feitcatalogus arbeidsrecht: 17 categorieën, 45 feiten, conditioneel                          |
+| ✅  | Auditlog, append-only, met trigger op statuswijziging                                        |
+| ✅  | Rate limiting op de publieke intakeroute (kostenmaatregel)                                   |
+| ✅  | CI: boundaries, typecheck, tests, migratievolgorde, formattering                             |
+| ✅  | `pnpm db:check`: hele migratiereeks + seed tegen een lege Postgres, zonder Docker            |
+| ✅  | Seed: demo-kantoor + 5 intakes met feiten en risicovlaggen                                   |
+| ✅  | **Tenant-isolatietests: 44/44 groen tegen het echte project**                                |
+| ✅  | Supabase-project in de EU, migraties toegepast                                               |
+| ✅  | API-oppervlak afgebakend en in CI bewaakt (ADR-0008)                                         |
 
 ## Fase 1 — "Hello face" (de risicospike)
 

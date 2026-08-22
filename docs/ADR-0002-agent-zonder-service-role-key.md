@@ -48,7 +48,7 @@ uitgiftefuncties noemt.
 
 ## Verificatiestatus
 
-De broncodescan draait en is groen. De runtime-helft — dat een agent-token van intake A
-daadwerkelijk 42501 krijgt op intake B — staat als test klaar in
-`tenant-isolation.test.ts` maar heeft een echte database nodig. Zie
-[RISICOS.md](RISICOS.md), risico 3.
+Beide helften zijn groen. De broncodescan draait bij elke `pnpm test`; de runtime-helft
+is op 22 augustus 2026 bevestigd tegen een echt Supabase-project: een sessietoken van
+intake A krijgt 42501 op intake B, een verlopen of ingetrokken token wordt geweigerd, en
+sessie-einde trekt het token direct in.
