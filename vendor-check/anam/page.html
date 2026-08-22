@@ -123,6 +123,29 @@
           video.requestVideoFrameCallback(() => resolve(performance.now()));
         });
 
+        /**
+         * De resolutie over de tijd volgen, niet op één moment.
+         *
+         * Onze eigen bakeoff meldde 576x384 en dit voorbeeld 1152x768, bij hetzelfde
+         * avatar-id en dezelfde SDK-versie. Twee verklaringen zijn mogelijk en ze hebben
+         * heel verschillende gevolgen: een stroom die opschaalt (dan meet je een moment)
+         * of een andere kwaliteitsinstelling (dan vergelijk je twee workloads en zegt het
+         * latencyverschil van 100 ms niets).
+         */
+        const resoluties = [
+          { t: Math.round(eersteFrame - coldStart), w: video.videoWidth, h: video.videoHeight },
+        ];
+        const resTimer = setInterval(() => {
+          const laatste = resoluties[resoluties.length - 1];
+          if (video.videoWidth !== laatste.w || video.videoHeight !== laatste.h) {
+            resoluties.push({
+              t: Math.round(performance.now() - coldStart),
+              w: video.videoWidth,
+              h: video.videoHeight,
+            });
+          }
+        }, 200);
+
         // Even laten stabiliseren; anders meet je nog opstarttijd mee.
         await new Promise((r) => setTimeout(r, 1500));
 
@@ -167,11 +190,13 @@
           passthroughMs.push(Math.round((await detector.wacht()) - start));
         }
 
+        clearInterval(resTimer);
         await client.stopStreaming().catch(() => undefined);
         return {
           coldStartMs: Math.round(eersteFrame - coldStart),
           talkMs,
           passthroughMs,
+          resoluties,
           resolutie: `${video.videoWidth}x${video.videoHeight}`,
         };
       };

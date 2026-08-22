@@ -337,3 +337,17 @@ waarschijnlijk goedkoper en minder foutgevoelig.
 
 `apps/agent/scripts/diagnose-bey.mjs` blijft staan als reproductie van de oude,
 verkeerde aanpak — nuttig om tegen af te zetten zodra de nieuwe werkt.
+
+---
+
+## Nabrander: dit harnas heeft vier keer een artefact geleverd
+
+De ingetrokken tabel hierboven was de eerste. Er kwamen er nog drie, en het patroon staat
+nu als [risico 11](RISICOS.md) in de risicolijst: de burstdetector is het zwakste onderdeel
+van het meetapparaat, omdat een fout er geen foutmelding van maakt maar een plausibel
+getal.
+
+De regel die daaruit volgt geldt met terugwerkende kracht ook voor dit ADR: **een
+latencycijfer hoort hier niet in te staan voordat het langs een tweede, onafhankelijke weg
+is bevestigd.** De prefixproef deed dat voor de vulgrens; het leveranciersvoorbeeld in
+`vendor-check/` deed dat voor het verschil tussen hun keten en de onze.

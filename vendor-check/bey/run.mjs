@@ -46,7 +46,8 @@ initializeLogger({ pretty: true, level: process.env.LK_LOG_LEVEL ?? 'info' });
 
 const roomName = `vendorcheck-bey-${Date.now()}`;
 const t0 = performance.now();
-const log = (...a) => console.log(`[${String(Math.round(performance.now() - t0)).padStart(6)}ms]`, ...a);
+const log = (...a) =>
+  console.log(`[${String(Math.round(performance.now() - t0)).padStart(6)}ms]`, ...a);
 
 // 1. Room aanmaken met hun eigen server-SDK.
 const rooms = new RoomServiceClient(url.replace(/^ws/, 'http'), apiKey, apiSecret);

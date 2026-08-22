@@ -460,10 +460,10 @@ minimale voorbeelden die de documentatie van de leverancier volgen, buiten de wo
 zonder één import uit `@intake/*`. Voor Anam: hun SDK van een CDN, `createClient` en
 `streamToVideoElement`, geen wrapper van ons.
 
-| pad                       | p50    | spreiding    |
-| ------------------------- | ------ | ------------ |
-| hun eigen voorbeeld       | 511 ms | 500 – 517 ms |
-| onze keten, zelfde dag    | 609 ms | 599 – 644 ms |
+| pad                    | p50    | spreiding    |
+| ---------------------- | ------ | ------------ |
+| hun eigen voorbeeld    | 511 ms | 500 – 517 ms |
+| onze keten, zelfde dag | 609 ms | 599 – 644 ms |
 
 **Ongeveer honderd milliseconde is van ons; ruim vijfhonderd is van hen.** Onze integratie
 kost dus iets en dat is het onderzoeken waard, maar het leeuwendeel is met geen enkele
@@ -571,3 +571,47 @@ komen. Parafrase valt daarbuiten en is een open randgeval.
 
 De onderliggende regel, breder dan de implementatie: **het systeem is nooit zijn eigen
 bron.** Wat het zelf heeft geproduceerd, kan geen bewijs zijn voor wat het vastlegt.
+
+---
+
+## 11. Het meetapparaat is het zwakste onderdeel
+
+**Status: open. Dit is een werkwijze, geen bug.**
+
+De burstdetector heeft nu vier keer een getal opgeleverd dat achteraf geen stand hield:
+
+| getal      | wat het leek                 | wat het was                                                                                              |
+| ---------- | ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **36 ms**  | Anam passthrough, uitstekend | een kort geluidsfragment vóór de spraak, op de eerste beurt van een verse sessie                         |
+| **385 ms** | Anam `talk()`, binnen bereik | hetzelfde artefact — één burst van 61 ms, spraak begon op 830 ms                                         |
+| **807 ms** | Anam passthrough, ondergrens | niet fout maar achterhaald: andere dag, andere tape; opnieuw gemeten 609 ms                              |
+| **−5 ms**  | onmogelijk                   | detector vuurde op audio die al speelde, want er werd op een vaste pauze gewacht in plaats van op stilte |
+
+Drie daarvan zijn detectorartefacten; de vierde is een meting die door een beter beheerste
+opzet is vervangen. Alle vier zijn zelf gevonden, en dat is precies het probleem: ze waren
+alle vier ook níét gevonden kunnen worden. De 36 ms stond een week in
+[ADR-0010](ADR-0010-bakeoff-harnas.md) als bevestiging van een architectuurkeuze.
+
+**Waarom juist dit onderdeel.** De detector zet een continu signaal om in één moment. Dat
+moment is niet te controleren aan iets anders in dezelfde meting — er is geen tweede klok,
+geen checksum, geen tegenspraak. Een fout levert daarom geen foutmelding op maar een
+plausibel getal. Dat is dezelfde vorm als risico 2 en risico 9: het ziet er identiek uit
+als een goede uitkomst.
+
+**De regel die hieruit volgt.** Een latencycijfer landt niet in een ADR of een beslissing
+voordat het langs een tweede, onafhankelijke weg is bevestigd. "Onafhankelijk" betekent:
+niet dezelfde detector met andere instellingen, maar een andere soort waarneming.
+
+Wat er tot nu toe als tweede weg heeft gewerkt:
+
+- **de prefixproef** voor de vulgrens van ~730 ms — een ja/nee-uitkomst (komt er geluid?)
+  in plaats van een tijdstip, en die bevestigde wat de tempo-reeks aanwees;
+- **de burstduur** voor de vraag of het gedetecteerde geluid wel spraak was — een klik van
+  61 ms en een zin van 2040 ms geven hetzelfde onset-tijdstip;
+- **het voorbeeld van de leverancier** in `vendor-check/` voor het verschil van ~100 ms —
+  een volledig andere codeketen die hetzelfde meet;
+- **de fasesplitsing** in `diag:ttft` voor de TTFT — headers, eerste byte en eerste tekst
+  apart, waardoor zichtbaar werd dat onze SSE-verwerking niets kostte.
+
+**Wat dit niet is.** Geen reden om minder te meten. Het is een reden om een getal niet te
+gebruiken zolang er maar één weg naartoe loopt.

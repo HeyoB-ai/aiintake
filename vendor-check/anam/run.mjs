@@ -104,13 +104,21 @@ try {
 
   const p50 = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 
-  console.log(`\n  Anam — voorbeeld van de leverancier, ${r.resolutie}`);
+  console.log(`\n  Anam — voorbeeld van de leverancier`);
+  console.log(
+    `    resolutie          ${r.resoluties.map((x) => `${x.w}x${x.h} @${x.t}ms`).join(' -> ')}`,
+  );
   console.log(`    koude start        ${r.coldStartMs} ms`);
   console.log(`    talk()             p50 ${p50(r.talkMs)} ms   ruw ${r.talkMs.join(', ')}`);
-  console.log(`    passthrough        p50 ${p50(r.passthroughMs)} ms   ruw ${r.passthroughMs.join(', ')}`);
   console.log(
-    `\n  Onze keten mat ~800 ms voor passthrough. Ligt dit getal daar duidelijk onder,\n` +
-      `  dan zit de vertraging bij ons; ligt het ernaast, dan is het hun pipeline.\n`,
+    `    passthrough        p50 ${p50(r.passthroughMs)} ms   ruw ${r.passthroughMs.join(', ')}`,
+  );
+  console.log(
+    `\n  Vergelijk met onze eigen keten:\n` +
+      `    pnpm --filter @intake/agent exec vitest run --config vitest.bakeoff.config.ts -t "Anam passthrough"\n` +
+      `  Op 23 augustus 2026: hun voorbeeld p50 511 ms, onze keten p50 609 ms.\n` +
+      `  De resolutie schaalt op van 576x384 naar 1152x768; dat is dus geen verschil in\n` +
+      `  kwaliteitsinstelling tussen de twee metingen, alleen een verschil in meetmoment.\n`,
   );
   if (fouten.length > 0) console.log(`  paginafouten: ${fouten.slice(0, 3).join(' | ')}\n`);
 } catch (error) {
