@@ -1,0 +1,27 @@
+@import 'tailwindcss';
+@import '@intake/ui/tokens.css';
+
+@theme {
+  --color-ink-900: var(--ink-900);
+  --color-ink-700: var(--ink-700);
+  --color-ink-500: var(--ink-500);
+  --color-ink-200: var(--ink-200);
+  --color-ink-100: var(--ink-100);
+  --color-accent: var(--accent-600);
+  --font-sans: var(--font-sans);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Zichtbare focus. Een dashboard waarin een advocaat in twee minuten moet beslissen,
+   wordt met het toetsenbord bediend zodra iemand er dagelijks mee werkt. */
+:focus-visible {
+  outline: 2px solid var(--accent-500);
+  outline-offset: 2px;
+}
