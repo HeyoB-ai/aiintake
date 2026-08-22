@@ -24,9 +24,18 @@
     <video id="persona-video" autoplay playsinline></video>
 
     <script type="module">
-      // De SDK rechtstreeks van een CDN, zoals hun quickstart hem laat zien. Geen bundler
-      // van ons, geen wrapper, geen enkele regel uit onze codebase.
-      import { createClient } from 'https://esm.sh/@anam-ai/js-sdk@4';
+      // De SDK op twee manieren, zodat de leveringswijze zelf een variabele wordt.
+      //
+      // `cdn` is hun quickstart: de module rechtstreeks van esm.sh. `bundle` is wat wij
+      // in onze bakeoff doen: dezelfde SDK, maar door esbuild tot één bestand geplet.
+      // Verschilt de latency tussen die twee, dan ligt het aan de levering en niet aan
+      // onze integratie — en dat is één wijziging in hún code in plaats van in de onze.
+      const params = new URLSearchParams(location.search);
+      const sdk =
+        params.get('sdk') === 'bundle'
+          ? await import('./sdk-bundle.js')
+          : await import('https://esm.sh/@anam-ai/js-sdk@4');
+      const createClient = sdk.createClient;
 
       /**
        * Meet het begin van hoorbaar geluid op sample-niveau.

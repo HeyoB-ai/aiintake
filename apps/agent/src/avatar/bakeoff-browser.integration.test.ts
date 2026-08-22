@@ -184,7 +184,33 @@ async function synthetiseer(zin: string): Promise<Int16Array> {
     pcm.set(c, offset);
     offset += c.length;
   }
-  return pcm;
+  return trimAanloopstilte(pcm);
+}
+
+/**
+ * Aanloopstilte eraf.
+ *
+ * Cartesia levert vóór het eerste woord een halve seconde stilte — gemeten 537 ms bij een
+ * korte Nederlandse zin. Die stilte gaat in de meting mee als latency: wij starten de klok
+ * bij het versturen, de avatar speelt eerst de stilte af, en pas daarna kruist er iets de
+ * detectiedrempel.
+ *
+ * Daardoor waren de passthrough-cijfers niet vergelijkbaar tussen runs, want de hoeveelheid
+ * aanloopstilte verschilt per synthese. Het verschil van ~100 ms tussen onze keten en het
+ * leveranciersvoorbeeld bleek daar volledig binnen te vallen.
+ *
+ * Dit snijdt hem eraf voor de méting. Of hij er in productie ook af moet, is een aparte
+ * vraag met een groter belang: daar gaat diezelfde stilte wél naar de avatar en wacht de
+ * cliënt hem uit.
+ */
+function trimAanloopstilte(pcm: Int16Array, drempel = 0.01): Int16Array {
+  const grens = drempel * 32767;
+  let eerste = 0;
+  while (eerste < pcm.length && Math.abs(pcm[eerste]!) <= grens) eerste += 1;
+  if (eerste === 0 || eerste >= pcm.length) return pcm;
+  // eslint-disable-next-line no-console
+  console.log(`  (${Math.round((eerste / SAMPLE_RATE) * 1000)} ms aanloopstilte weggesneden)`);
+  return pcm.slice(eerste);
 }
 
 describe('bakeoff in de browser', () => {

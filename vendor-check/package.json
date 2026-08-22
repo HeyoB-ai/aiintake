@@ -13,6 +13,7 @@
     "@livekit/agents-plugin-bey": "1.7.0",
     "@livekit/rtc-node": "^0.13.34",
     "livekit-server-sdk": "^2.13.3",
-    "playwright": "^1.49.0"
+    "playwright": "^1.49.0",
+    "esbuild": "^0.24.0"
   }
 }

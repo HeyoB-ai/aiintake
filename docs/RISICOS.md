@@ -460,19 +460,34 @@ minimale voorbeelden die de documentatie van de leverancier volgen, buiten de wo
 zonder één import uit `@intake/*`. Voor Anam: hun SDK van een CDN, `createClient` en
 `streamToVideoElement`, geen wrapper van ons.
 
-| pad                    | p50    | spreiding    |
-| ---------------------- | ------ | ------------ |
-| hun eigen voorbeeld    | 511 ms | 500 – 517 ms |
-| onze keten, zelfde dag | 609 ms | 599 – 644 ms |
+| pad                                   | p50    |
+| ------------------------------------- | ------ |
+| hun voorbeeld, toon zonder aanloop    | 475 ms |
+| hun voorbeeld, Cartesia-spraak (REST) | 992 ms |
+| onze keten, ongesneden tape           | 609 ms |
+| onze keten, bijgesneden tape          | 498 ms |
 
-**Ongeveer honderd milliseconde is van ons; ruim vijfhonderd is van hen.** Onze integratie
-kost dus iets en dat is het onderzoeken waard, maar het leeuwendeel is met geen enkele
-wijziging aan onze kant weg te halen. Het budget van 180 ms p50 haalt hun eigen voorbeeld
-evenmin.
+**Er is geen honderd milliseconde van ons.** Dat vermoeden hield twee toetsen niet:
 
-Het eerder genoemde getal van ~800 ms is daarmee achterhaald: dat kwam uit een run van een
-andere dag met een andere tape. Beide getallen hierboven zijn op dezelfde dag gemeten, met
-tien beurten elk.
+1. Dezelfde meting in hún voorbeeld, met echte spraak in plaats van een toon, sprong van
+   475 naar 992 ms — de audio is dus de variabele en niet de keten. De SDK-levering
+   (esbuild-bundel tegenover CDN) verklaarde 36 ms.
+2. De aanloopstilte van de tapes gemeten: de toon 0 ms, Cartesia via REST 434 ms, onze
+   eigen tape 537 ms bij de ene synthese en 167 ms bij de volgende. Die stilte gaat als
+   latency de meting in — wij starten de klok bij het versturen, de avatar speelt eerst de
+   stilte af, en pas daarna kruist er iets de detectiedrempel.
+
+Met de aanloopstilte weggesneden meet onze keten 498 ms tegen hun 475 ms. Dat verschil is
+ruis. De eerdere vergelijking zette twee tapes met verschillende aanloopstilte naast elkaar
+en mat vooral dat verschil. Het budget van 180 ms p50 haalt hun eigen voorbeeld evenmin,
+en het eerder genoemde ~800 ms is eveneens achterhaald.
+
+**Wat het onderzoek wél opleverde, en het is groter dan waar het naar zocht.** Cartesia zet
+vóór het eerste woord 167 tot 537 ms stilte, wisselend per synthese. In productie gaat die
+stilte gewoon naar de avatar en wacht de cliënt hem uit — geen meetartefact maar echte,
+ervaren vertraging, en volledig in ons deel van de keten. Wegsnijden in de TTS-adapter is
+daarmee een grotere winst dan het vermoeden waar dit onderzoek naar zocht. Aandachtspunt:
+een zachte inzet mag niet worden afgekapt, en de drempel bepaalt dat.
 
 **Bijgewerkt, 22 augustus 2026.** Het tekstgestuurde pad is opnieuw gemeten met de
 burstdetector, in dezelfde sessie en afgewisseld met passthrough: mediaan 838 ms tegen
@@ -578,7 +593,7 @@ bron.** Wat het zelf heeft geproduceerd, kan geen bewijs zijn voor wat het vastl
 
 **Status: open. Dit is een werkwijze, geen bug.**
 
-De burstdetector heeft nu vier keer een getal opgeleverd dat achteraf geen stand hield:
+Het meetapparaat heeft nu vijf keer een getal opgeleverd dat achteraf geen stand hield:
 
 | getal      | wat het leek                 | wat het was                                                                                              |
 | ---------- | ---------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -586,11 +601,21 @@ De burstdetector heeft nu vier keer een getal opgeleverd dat achteraf geen stand
 | **385 ms** | Anam `talk()`, binnen bereik | hetzelfde artefact — één burst van 61 ms, spraak begon op 830 ms                                         |
 | **807 ms** | Anam passthrough, ondergrens | niet fout maar achterhaald: andere dag, andere tape; opnieuw gemeten 609 ms                              |
 | **−5 ms**  | onmogelijk                   | detector vuurde op audio die al speelde, want er werd op een vaste pauze gewacht in plaats van op stilte |
+| **100 ms** | overhead van onze integratie | verschil in aanloopstilte tussen twee tapes; met gelijke tapes 498 tegen 475 ms                          |
 
-Drie daarvan zijn detectorartefacten; de vierde is een meting die door een beter beheerste
-opzet is vervangen. Alle vier zijn zelf gevonden, en dat is precies het probleem: ze waren
-alle vier ook níét gevonden kunnen worden. De 36 ms stond een week in
+Drie zijn detectorartefacten, één is een meting die door een beter beheerste opzet werd
+vervangen, en de laatste is een verschil dat helemaal geen oorzaak had: twee metingen
+verschilden op meer dan één ding tegelijk, en het ding waaraan het werd toegeschreven was
+niet het ding.
+
+Alle vijf zijn zelf gevonden, en dat is precies het probleem: ze hadden alle vijf ook níét
+gevonden kunnen worden. De 36 ms stond een week in
 [ADR-0010](ADR-0010-bakeoff-harnas.md) als bevestiging van een architectuurkeuze.
+
+Het vijfde geval laat bovendien zien dat de regel breder moet zijn dan de detector. Daar
+was de detector in orde; wat ontbrak was de controle dat twee metingen op één ding
+verschilden. **Een vergelijking is pas een vergelijking als je kunt opnoemen wat er
+allemaal gelijk is gehouden.**
 
 **Waarom juist dit onderdeel.** De detector zet een continu signaal om in één moment. Dat
 moment is niet te controleren aan iets anders in dezelfde meting — er is geen tweede klok,
