@@ -9,21 +9,33 @@
  * Deze config draait in CI (`pnpm boundaries`) en faalt de build bij overtreding.
  */
 
-/** SDK's die nooit in vendor-onafhankelijke packages mogen voorkomen. */
+/**
+ * SDK's die nooit in vendor-onafhankelijke packages mogen voorkomen.
+ *
+ * `(^|node_modules/)` en niet alleen `^`: dependency-cruiser rapporteert een
+ * geïnstalleerd pakket als `node_modules/<naam>/...` en een niet-installeerbaar pakket
+ * als de kale naam. Met alleen `^` vangt de regel het tweede geval wel en het eerste
+ * niet — en juist het eerste is het geval dat ontstaat als iemand de SDK netjes aan
+ * package.json toevoegt.
+ *
+ * In een pnpm-workspace is `no-unresolvable` de facto de eerste vangst, omdat een
+ * niet-gedeclareerd pakket daar sowieso niet resolvet. Deze regel is de tweede laag,
+ * voor wanneer de dependency wél wordt toegevoegd.
+ */
 const VENDOR_SDKS = [
-  '^@anthropic-ai/',
-  '^openai$',
-  '^@deepgram/',
-  '^@cartesia/',
-  '^elevenlabs$',
-  '^@elevenlabs/',
-  '^livekit-client$',
-  '^@livekit/',
-  '^livekit-server-sdk$',
-  '^@supabase/',
-  '^@mediapipe/',
-  '^@bey/',
-  '^@anam-ai/',
+  '(^|node_modules/)@anthropic-ai/',
+  '(^|node_modules/)openai$',
+  '(^|node_modules/)@deepgram/',
+  '(^|node_modules/)@cartesia/',
+  '(^|node_modules/)elevenlabs$',
+  '(^|node_modules/)@elevenlabs/',
+  '(^|node_modules/)livekit-client',
+  '(^|node_modules/)@livekit/',
+  '(^|node_modules/)livekit-server-sdk',
+  '(^|node_modules/)@supabase/',
+  '(^|node_modules/)@mediapipe/',
+  '(^|node_modules/)@bey/',
+  '(^|node_modules/)@anam-ai/',
 ].join('|');
 
 /**
