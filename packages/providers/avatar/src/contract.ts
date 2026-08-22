@@ -56,6 +56,14 @@ export interface AvatarSession {
    * de cliënt nooit gehoord heeft.
    */
   interrupt(): Promise<{ spokenMs: number }>;
+  /**
+   * De assistent is uitgesproken; sluit het audiosegment af.
+   *
+   * Optioneel, want niet elk transport kent het begrip segment. Providers die audio over
+   * een stroom aanleveren wél: zonder afsluiting blijft de leverancier wachten op audio
+   * die niet meer komt, en meldt hij nooit terug hoeveel hij heeft afgespeeld.
+   */
+  endTurn?(): void;
   videoTrack(): Promise<TrackHandle>;
   on<E extends keyof AvatarEvents>(event: E, handler: AvatarEvents[E]): void;
   disconnect(): Promise<void>;

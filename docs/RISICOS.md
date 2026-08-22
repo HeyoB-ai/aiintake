@@ -157,6 +157,12 @@ subverwerkerslijst, auditrecht. Blijkt dat niet haalbaar, dan is Anam binnen een
 vervanger — mits die tweede provider daadwerkelijk gebouwd is, en niet alleen als
 mogelijkheid genoemd.
 
+**Nieuw, 22 augustus 2026.** De bey-adapter draait nu op `@livekit/agents`. Dat verlaagt
+het risico dat de vendor zijn dataframing wijzigt en wij dat als bug beleven, maar het
+voegt een afhankelijkheid toe aan een framework dat óók een compleet gespreksmodel
+meebrengt. De grens daartegen is expliciet: alleen `voice.DataStreamAudioOutput`, nooit
+`voice.AgentSession`. Zie ADR-0011.
+
 ---
 
 ## 6. Kostengedreven misbruik van de publieke intakeroute
@@ -175,3 +181,28 @@ dichte deur kost een cliënt, een chatgesprek niet.
 **Nog te doen.** Een bot-check vóór sessiecreatie, en de daadwerkelijke budgetbewaking op
 basis van `sessions.billed_seconds` en `llm_calls`. Die tellers staan er; de handhaving
 volgt in Fase 6.
+
+---
+
+## 7. Een architectuurgrens die stilzwijgend niets meer afdwingt
+
+**Waarom dit een eigen risico is.** De boundary-regels zijn de reden dat de
+intake-intelligentie vendor-onafhankelijk blijft. Maar `depcruise` meldt "no dependency
+violations found" net zo vrolijk wanneer de regels werken als wanneer ze nergens meer op
+kunnen matchen. Een kapotte grens ziet er precies zo uit als een gezonde grens.
+
+**Het is twee keer gebeurd.** Eerst matchte een padregel alleen resolvebare paden, zodat
+een niet-gedeclareerde workspace-import erdoorheen glipte. Daarna — gevonden op 22
+augustus 2026 — bleek `options.exclude` met het kale patroon `dist` de buildmap van élk
+npm-pakket uit de graaf te gooien, waardoor `engine-no-vendor-sdk` en `not-to-dev-dep`
+allebei op niets meer konden matchen. Beide keren was de build groen.
+
+**Mitigatie.** `pnpm boundaries` draait sinds nu ook
+`scripts/check-boundaries-effective.mjs`. Dat kijkt niet naar overtredingen maar naar de
+graaf: staan er npm-dependencies in, en zijn de vendor-SDK's die we daadwerkelijk
+gebruiken zichtbaar? Zo niet, dan faalt de build met de reden erbij. De controle is
+geverifieerd door de regressie opnieuw te introduceren.
+
+**Wat dit niet afdekt.** Het bewijst dat de regels ergens op kunnen matchen, niet dat elke
+regel het juiste afdekt. Een nieuwe vendor-SDK die niet in `VENDOR_SDKS` staat, wordt nog
+steeds nergens gemeld. Bij het toevoegen van een leverancier hoort die lijst mee.

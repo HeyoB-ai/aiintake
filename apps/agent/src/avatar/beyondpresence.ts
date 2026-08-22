@@ -1,14 +1,5 @@
-import {
-  AudioFrame,
-  AudioSource,
-  LocalAudioTrack,
-  Room,
-  RoomEvent,
-  TrackKind,
-  TrackPublishOptions,
-  TrackSource,
-  VideoStream,
-} from '@livekit/rtc-node';
+import { voice } from '@livekit/agents';
+import { AudioFrame, Room, RoomEvent, TrackKind, VideoStream } from '@livekit/rtc-node';
 import type {
   AvatarCapabilities,
   AvatarEvents,
@@ -26,18 +17,49 @@ import {
 /**
  * Beyond Presence in audio-to-video-modus.
  *
- * Het model: wij publiceren een audiotrack in een LiveKit-room, hun worker abonneert
- * zich daarop en publiceert een videotrack met een gezicht dat die audio meebeweegt.
- * Wij houden dus STT, TTS en dus de Nederlandse stemkwaliteit in eigen hand, en de
- * vendor doet alleen het gezicht — precies wat ADR-0001 vereist.
+ * **Deze adapter is herbouwd.** De eerste versie publiceerde een audiotrack in de room en
+ * hoopte dat de avatarworker zich daarop zou abonneren. Dat is niet hoe bey werkt, en de
+ * API-referentie zegt het zelf: gebruik de LiveKit-plugin, niet het endpoint direct. Drie
+ * dingen klopten niet, alle drie aan onze kant:
  *
- * Deze adapter woont in apps/agent en niet in packages/providers/avatar, om één reden:
- * hij hangt aan `@livekit/rtc-node`, een pakket met native binaries. De avatarpackage
- * blijft daarmee vrij van platformafhankelijkheden en dus importeerbaar in tests en in
- * de browser-build.
+ *   1. de audio gaat over een LiveKit **DataStream** naar de avatardeelnemer, niet over
+ *      een gepubliceerde audiotrack;
+ *   2. het avatartoken heeft `kind: "agent"` plus het attribuut `lk.publish_on_behalf`
+ *      met onze eigen identity nodig — anders komt de avatar als losse deelnemer binnen
+ *      in plaats van als het gezicht van de assistent;
+ *   3. het endpoint is `/v1/session` (enkelvoud) met `livekit_url` en `livekit_token`.
+ *
+ * Het dataprotocol zelf bouwen we daarom niet na. Dat is precies de afhankelijkheid die
+ * je niet wilt: een vendor mag zijn framing wijzigen, en dan hoort dat een `pnpm update`
+ * te zijn en geen debugsessie.
+ *
+ * ## Waar de grens ligt met @livekit/agents
+ *
+ * Van die library gebruiken we uitsluitend `voice.DataStreamAudioOutput`: een audiosink
+ * met `captureFrame`, `flush` en `clearBuffer`. Dat is transport.
+ *
+ * Wat we bewust *niet* gebruiken is `voice.AgentSession` — de klasse waar hun eigen
+ * bey-plugin op leunt. Die brengt een compleet gespreksmodel mee (agent, chatcontext,
+ * turn detection, hun STT/LLM/TTS-knopen). Zou onze turn-loop daarop gaan draaien, dan
+ * verhuist de intake-intelligentie van `packages/intake-engine` naar een vendor-framework
+ * en werkt de chat-fallback niet langer identiek aan de videomodus. De prijs voor die
+ * knip is deze adapter: wij regelen zelf de room, het token en het levenscyclusbeheer.
+ * Dat is ~80 regels, en ze staan hier, achter `AvatarProvider`.
+ *
+ * De boundary-regel dwingt dat af: `@livekit/agents` staat in VENDOR_SDKS en is een
+ * dependency van `apps/agent`, niet van een package. Een import in intake-engine faalt
+ * de build.
+ *
+ * Deze adapter woont in apps/agent en niet in packages/providers/avatar omdat hij aan
+ * `@livekit/rtc-node` hangt, een pakket met native binaries.
  */
 
-const API = 'https://api.bey.dev/v1';
+const API = 'https://api.bey.dev';
+
+/** Zoals hun plugin de deelnemer noemt; de vendor verwacht deze identity. */
+const AVATAR_IDENTITY = 'bey-avatar-agent';
+const AGENT_IDENTITY = 'intake-agent';
+const PUBLISH_ON_BEHALF = 'lk.publish_on_behalf';
 
 export interface BeyondPresenceOptions {
   readonly apiKey: string;
@@ -49,11 +71,10 @@ export interface BeyondPresenceOptions {
 class BeyondPresenceSession implements AvatarSession {
   private readonly handlers = new Map<string, Function[]>();
   private room: Room | null = null;
-  private source: AudioSource | null = null;
-  private sessionId: string | null = null;
+  private output: voice.DataStreamAudioOutput | null = null;
   private videoTrackHandle: TrackHandle | null = null;
 
-  /** Alles wat we hebben aangeleverd. Bovengrens van wat gehoord kan zijn. */
+  /** Alles wat we hebben aangeleverd sinds de laatste flush of interrupt. */
   private pushedMs = 0;
   private firstFrameSeen = false;
 
@@ -68,10 +89,9 @@ class BeyondPresenceSession implements AvatarSession {
     const rooms = new LiveKitRooms(livekit);
     await rooms.create(this.roomName, { emptyTimeoutSeconds: 120 });
 
-    // Wij sluiten aan als publisher van de assistentstem.
     const agent = createAccessToken(livekit, {
       room: this.roomName,
-      identity: 'intake-agent',
+      identity: AGENT_IDENTITY,
       role: 'agent',
     });
 
@@ -86,29 +106,23 @@ class BeyondPresenceSession implements AvatarSession {
 
     await room.connect(livekit.url, agent.token, { autoSubscribe: true, dynacast: false });
 
-    const source = new AudioSource(this.options.sampleRate, 1);
-    this.source = source;
-    const track = LocalAudioTrack.createAudioTrack('assistant', source);
-    const publishOptions = new TrackPublishOptions();
-    publishOptions.source = TrackSource.SOURCE_MICROPHONE;
-    await room.localParticipant?.publishTrack(track, publishOptions);
-
-    // Pas nu de vendor uitnodigen: staat onze audiotrack er nog niet, dan heeft zijn
-    // worker bij binnenkomst niets om op te synchroniseren.
+    // Het avatartoken. De twee claims die het verschil maken staan hieronder; zonder
+    // beide accepteert LiveKit de deelnemer wel, maar niet als publisher namens ons.
     const avatar = createAccessToken(livekit, {
       room: this.roomName,
-      identity: 'bey-avatar',
+      identity: AVATAR_IDENTITY,
       role: 'avatar',
+      kind: 'agent',
+      attributes: { [PUBLISH_ON_BEHALF]: AGENT_IDENTITY },
     });
 
-    const response = await fetch(`${API}/sessions`, {
+    const response = await fetch(`${API}/v1/session`, {
       method: 'POST',
       headers: { 'x-api-key': this.options.apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        transport: 'livekit',
         avatar_id: this.options.avatarId,
-        url: this.options.livekit.url,
-        token: avatar.token,
+        livekit_url: livekit.url,
+        livekit_token: avatar.token,
       }),
     });
 
@@ -117,8 +131,15 @@ class BeyondPresenceSession implements AvatarSession {
       throw new Error(`Beyond Presence: HTTP ${response.status} — ${detail.slice(0, 200)}`);
     }
 
-    const body = (await response.json()) as { id?: string };
-    this.sessionId = body.id ?? null;
+    // Pas nu de sink opzetten. Hij wacht zelf op de avatardeelnemer én op diens
+    // videotrack voordat het eerste frame wordt weggeschreven, dus audio die we
+    // aanleveren voordat de vendor klaarstaat gaat niet verloren.
+    this.output = new voice.DataStreamAudioOutput({
+      room,
+      destinationIdentity: AVATAR_IDENTITY,
+      sampleRate: this.options.sampleRate,
+      waitRemoteTrack: TrackKind.KIND_VIDEO,
+    });
   }
 
   /** Het eerste videoframe sluit de latencymeting van de beurt af. */
@@ -140,32 +161,63 @@ class BeyondPresenceSession implements AvatarSession {
   }
 
   async pushAudio(pcm: Int16Array, _seq: number): Promise<void> {
-    if (!this.source) return;
+    if (!this.output) return;
     const frame = new AudioFrame(pcm, this.options.sampleRate, 1, pcm.length);
     this.pushedMs += (pcm.length / this.options.sampleRate) * 1000;
-    await this.source.captureFrame(frame);
+    await this.output.captureFrame(frame);
   }
 
   /**
-   * Onderbreken: wachtrij leeg, en teruggeven hoeveel er daadwerkelijk klonk.
+   * Einde van de assistent-beurt: sluit het audiosegment af.
    *
-   * `queuedDuration` is wat er nog in de buffer staat en dus níét gehoord is. Het
-   * verschil met wat we hebben aangeleverd, is de uitgesproken tijd. Dat is dezelfde
-   * boekhouding als bij de null-provider, maar dan met de echte afspeelbuffer in plaats
-   * van een gesimuleerde klok.
+   * Zonder deze aanroep blijft de DataStream-writer open, blijft de vendor denken dat er
+   * nog audio komt, en meldt hij nooit dat het afspelen klaar is.
+   */
+  endTurn(): void {
+    this.output?.flush();
+    this.pushedMs = 0;
+  }
+
+  /**
+   * Onderbreken, en teruggeven hoeveel er daadwerkelijk klonk.
+   *
+   * `clearBuffer()` stuurt een RPC naar de avatarworker; die antwoordt met
+   * `playbackPosition` — hoeveel seconden hij écht heeft afgespeeld. Dat is een getal
+   * van de kant die het weet, en niet onze eigen schatting op basis van wat we hebben
+   * verstuurd.
+   *
+   * Het terugvalpad staat er omdat dit antwoord over het datakanaal moet komen en dus
+   * kan uitblijven. Blijft het uit, dan gebruiken we de bovengrens (alles wat we hebben
+   * aangeleverd) en melden we dat als fout. Die keuze kapt de assistent-beurt in het
+   * transcript te laat af in plaats van te vroeg: liever iets in het transcript dat de
+   * cliënt misschien niet hoorde, dan stilzwijgend tekst weggooien die hij wel hoorde.
    */
   async interrupt(): Promise<{ spokenMs: number }> {
-    if (!this.source) return { spokenMs: 0 };
+    const output = this.output;
+    if (!output) return { spokenMs: 0 };
 
-    const queuedMs = toMs(this.source.queuedDuration);
-    const spokenMs = Math.max(0, Math.round(this.pushedMs - queuedMs));
+    const bovengrens = Math.round(this.pushedMs);
+    output.clearBuffer();
 
-    this.source.clearQueue();
+    let spokenMs = bovengrens;
+    try {
+      const event = await withTimeout(output.waitForPlayout(), 1_000);
+      spokenMs = Math.round(event.playbackPosition * 1000);
+    } catch {
+      this.emit(
+        'error',
+        new Error(
+          'Beyond Presence meldde niet terug hoeveel audio is afgespeeld; ' +
+            `teruggevallen op de bovengrens van ${bovengrens} ms.`,
+        ),
+      );
+    }
+
     this.pushedMs = 0;
     this.firstFrameSeen = false;
     this.emit('speaking_end');
 
-    return { spokenMs };
+    return { spokenMs: Math.max(0, Math.min(spokenMs, bovengrens)) };
   }
 
   async videoTrack(): Promise<TrackHandle> {
@@ -183,10 +235,10 @@ class BeyondPresenceSession implements AvatarSession {
   }
 
   async disconnect(): Promise<void> {
-    this.source?.close();
+    this.output?.flush();
+    this.output = null;
     await this.room?.disconnect();
     this.room = null;
-    this.source = null;
 
     // De room opruimen in plaats van wachten op de timeout: elke seconde dat hij
     // bestaat, is een seconde waarin de vendor kan doorrenderen.
@@ -194,10 +246,20 @@ class BeyondPresenceSession implements AvatarSession {
   }
 }
 
-/** queuedDuration komt als seconden of als nanoseconden-bigint; beide afhandelen. */
-function toMs(value: number | bigint): number {
-  if (typeof value === 'bigint') return Number(value) / 1_000_000;
-  return value * 1000;
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
 }
 
 export class BeyondPresenceAvatarProvider implements AvatarProvider {

@@ -174,16 +174,54 @@ module.exports = {
     {
       name: 'not-to-dev-dep',
       severity: 'error',
-      comment: 'Productiecode mag geen devDependency importeren.',
-      from: { path: '^(packages|apps)/', pathNot: '\\.(test|spec)\\.tsx?$' },
+      comment:
+        'Productiecode mag geen devDependency importeren. Tests en configbestanden ' +
+        'natuurlijk wel — die zijn zelf geen productiecode.',
+      from: {
+        path: '^(packages|apps)/',
+        pathNot: [
+          '\\.(test|spec)\\.tsx?$',
+          '\\.integration\\.test\\.ts$',
+          // vitest.config.ts, next.config.ts, en broertjes: buildgereedschap.
+          '(^|/)[\\w.-]+\\.config\\.(ts|js|cjs|mjs)$',
+          // Het meetharnas van de bakeoff draait alleen met pnpm test:bakeoff.
+          'apps/[^/]+/bakeoff/.*',
+        ],
+      },
       to: { dependencyTypes: ['npm-dev'] },
     },
   ],
   options: {
+    // `doNotFollow` en niet `exclude` voor node_modules, en dat verschil is het hele punt.
+    //
+    // `doNotFollow` houdt het pakket in de graaf als bladknoop maar loopt er niet in door.
+    // `exclude` gooit het eruit. Stond node_modules in `exclude`, dan verdween elke
+    // geïnstalleerde npm-dependency uit de dependencylijst — en daarmee kon geen enkele
+    // regel die op `dependencyTypes: ['npm']` staat ooit nog vuren.
+    //
+    // Dat was hier het geval, en het maakte twee regels stilzwijgend krachteloos:
+    // `engine-no-vendor-sdk` en `not-to-dev-dep`. Beide leken te werken omdat een
+    // *niet-gedeclareerd* pakket onopgelost blijft en dan alsnog door `no-unresolvable`
+    // wordt gepakt. Maar juist het geval dat je wilt afvangen — iemand voegt de SDK netjes
+    // aan package.json toe en importeert hem dan — was groen.
     doNotFollow: { path: 'node_modules' },
+    // Verankerd op onze eigen mappen, en dat is niet cosmetisch.
+    //
+    // Hier stond het kale patroon `dist`. Dat matcht overal, dus ook de `dist/`-map van
+    // elk npm-pakket — en zo verdween @livekit/agents (dist/index.cjs) uit de graaf,
+    // terwijl zod (lib/index.mjs) er wel in stond. Een vendorregel die per pakket
+    // afhangt van hoe de leverancier zijn buildmap noemt, is geen regel.
+    //
     // next-env.d.ts verwijst naar interne Next-typedeclaraties die niet als module
     // resolven; het bestand wordt door Next gegenereerd en zegt niets over architectuur.
-    exclude: { path: '(node_modules|dist|\\.next|\\.turbo|next-env\\.d\\.ts)' },
+    exclude: {
+      path: [
+        '^(packages|apps)/[^/]+/dist/',
+        '(^|/)\\.next/',
+        '(^|/)\\.turbo/',
+        '(^|/)next-env\\.d\\.ts$',
+      ],
+    },
     tsPreCompilationDeps: true,
     // Zie tsconfig.depcruise.json voor waarom dit niet de base-config is.
     tsConfig: { fileName: 'tsconfig.depcruise.json' },

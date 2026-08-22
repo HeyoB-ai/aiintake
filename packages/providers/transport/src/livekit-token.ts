@@ -33,6 +33,22 @@ export interface TokenRequest {
   readonly ttlSeconds?: number;
   /** Vrije tekst die aan de deelnemer hangt; nooit persoonsgegevens. */
   readonly metadata?: string;
+  /**
+   * Deelnemersoort. LiveKit kent `standard` (impliciet) en `agent`.
+   *
+   * Een avatarworker moet `agent` zijn, anders weigert de server de combinatie met
+   * `lk.publish_on_behalf` hieronder.
+   */
+  readonly kind?: 'agent';
+  /**
+   * Deelnemerattributen, plat in de claim.
+   *
+   * De enige die wij zetten is `lk.publish_on_behalf`: die vertelt LiveKit dat de
+   * tracks van deze deelnemer namens een ándere deelnemer worden gepubliceerd. Zonder
+   * dat attribuut verschijnt de avatar als losse deelnemer in de room in plaats van als
+   * het gezicht van de assistent.
+   */
+  readonly attributes?: Readonly<Record<string, string>>;
 }
 
 interface VideoGrant {
@@ -79,7 +95,14 @@ function grantFor(role: ParticipantRole, room: string): VideoGrant {
         canPublishData: true,
       };
     case 'avatar':
-      return { room, roomJoin: true, canPublish: true, canSubscribe: true, canPublishData: false };
+      // `canPublishData: true`, en dat is geen ruimhartigheid maar een vereiste.
+      //
+      // De avatarworker meldt via een LiveKit-RPC (`lk.playback_finished`) terug hoeveel
+      // audio hij daadwerkelijk heeft afgespeeld. Die RPC loopt over het datakanaal.
+      // Stond dit op false, dan bleef het terugmeldpad stil en zou `interrupt()` een
+      // spokenMs teruggeven die op niets is gebaseerd — precies het stille dataverlies
+      // waar risico 2 over gaat, maar dan aan de assistentkant van het transcript.
+      return { room, roomJoin: true, canPublish: true, canSubscribe: true, canPublishData: true };
   }
 }
 
@@ -103,6 +126,11 @@ export function createAccessToken(
     video: grantFor(request.role, request.room),
   };
   if (request.metadata) payload['metadata'] = request.metadata;
+  // Plat in de claim, niet genest onder `video`: zo leest de LiveKit-server ze, en zo
+  // zet de officiële server-SDK ze ook neer (`claimsToJwtPayload` spreidt het
+  // grantobject uit over de payload).
+  if (request.kind) payload['kind'] = request.kind;
+  if (request.attributes) payload['attributes'] = request.attributes;
 
   const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body = b64url(JSON.stringify(payload));

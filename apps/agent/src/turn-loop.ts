@@ -202,8 +202,22 @@ export class TurnLoop {
 
     if (abort.signal.aborted) return;
 
-    const { spokenMs } = await this.o.avatar.interrupt();
-    await this.completeTurn({ content: this.sentToTts, interruptedAtChar: null, spokenMs });
+    // Een normaal beurteinde is géén interrupt.
+    //
+    // Hier stond `avatar.interrupt()`, puur om aan een spokenMs te komen. Bij de
+    // null-provider viel dat niet op, maar bij een echte provider stuurt interrupt een
+    // "gooi je buffer leeg" naar de leverancier — precies op het moment dat de laatste
+    // zin nog staat af te spelen. De HUD zou groen blijven en de cliënt zou de laatste
+    // seconde van elke beurt missen.
+    //
+    // Wat hier hoort is het segment afsluiten. Er is niets afgekapt, dus is alles wat de
+    // TTS heeft geproduceerd ook gesproken.
+    this.o.avatar.endTurn?.();
+    await this.completeTurn({
+      content: this.sentToTts,
+      interruptedAtChar: null,
+      spokenMs: this.emittedMs,
+    });
   }
 
   /**
