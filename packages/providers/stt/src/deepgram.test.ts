@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DeepgramSttStream } from './deepgram';
+import { DeepgramSttStream, continuationInterval, isPlausibleContinuationGap } from './deepgram';
 
 /**
  * De afkapdetectie, zonder netwerk.
@@ -118,14 +118,18 @@ describe('afkapdetectie — bovengrens', () => {
     expect(continuations[0]!.gapMs).toBe(500);
   });
 
-  it('behandelt precies utterance_end_ms nog als afkapping', () => {
-    // De grens hoort inclusief te zijn: bij exact dat gat besluit Deepgram zelf dat de
-    // uitspraak voorbij is, en dat moment telt nog mee als "het hoorde erbij".
+  it('behandelt de bovengrens van het interval nog als afkapping', () => {
+    // Deze test noemde eerst het getal 1000 — de definitionele grens uit ronde twee.
+    // Sindsdien is er één interval, en dat is strenger: de getunede 600 ms. Een test die
+    // een grens hardcodeert in plaats van hem bij het interval op te vragen, moet bij
+    // elke tuning mee worden aangepast, en dat is precies hoe die grenzen uit elkaar
+    // konden lopen.
+    const interval = continuationInterval(UTTERANCE_END_MS);
     const { stuur, continuations } = stroom();
     sluitBeurt(stuur, 0, 2, 'Ik werk daar sinds maart');
-    stuur({ type: 'UtteranceEnd', last_word_end: 3 });
+    stuur({ type: 'UtteranceEnd', last_word_end: 2 + interval.maxMs / 1000 });
     expect(continuations).toHaveLength(1);
-    expect(continuations[0]!.gapMs).toBe(1000);
+    expect(continuations[0]!.gapMs).toBe(interval.maxMs);
   });
 
   it('meldt één keer per geval, niet bij elk volgend segment', () => {
@@ -181,5 +185,89 @@ describe('hoe een beurt is afgesloten', () => {
     stuur({ type: 'UtteranceEnd', last_word_end: 2 });
     expect(turns).toHaveLength(1);
     expect(turns[0]!.endedBy).toBe('utterance_end');
+  });
+});
+
+describe('de vorm van de afkapdetectie', () => {
+  /**
+   * Dit is de derde ronde aan deze detector, en dat is het probleem dat hier getest
+   * wordt. Ronde één zette een bovengrens op de ene detector, ronde twee ontdekte dat de
+   * andere er geen had, ronde drie dat de ondergrens ontbrak. Telkens was de
+   * gerapporteerde waarde het symptoom en de verspreide definitie de oorzaak.
+   *
+   * Deze tests gaan daarom niet over 0 ms of 7300 ms maar over de vórm: er is één
+   * interval, het is aaneengesloten, het zit onder de definitionele grens, en beide
+   * detectoren gebruiken hetzelfde. Een vierde randgeval hoort hierdoor te vallen en niet
+   * door een vierde patch.
+   */
+
+  it('accepteert precies één aaneengesloten interval en niets daarbuiten', () => {
+    const interval = continuationInterval(UTTERANCE_END_MS);
+    const geaccepteerd: number[] = [];
+    for (let gap = -200; gap <= 3000; gap += 1) {
+      if (isPlausibleContinuationGap(gap, interval)) geaccepteerd.push(gap);
+    }
+
+    expect(geaccepteerd.length).toBeGreaterThan(0);
+    expect(geaccepteerd[0]).toBe(interval.minMs);
+    expect(geaccepteerd.at(-1)).toBe(interval.maxMs);
+    // Aaneengesloten: geen gaten in het midden, dus geen tweede regel die er stiekem
+    // een stuk uit knipt.
+    expect(geaccepteerd.length).toBe(interval.maxMs - interval.minMs + 1);
+  });
+
+  it('houdt de ondergrens boven nul — een knip vraagt een stilte om in te knippen', () => {
+    const interval = continuationInterval(UTTERANCE_END_MS);
+    expect(interval.minMs).toBeGreaterThan(0);
+    expect(isPlausibleContinuationGap(0, interval)).toBe(false);
+    expect(isPlausibleContinuationGap(-1, interval)).toBe(false);
+  });
+
+  it('blijft onder utterance_end_ms, ook als die lager wordt gezet', () => {
+    // De relatie wordt afgedwongen en niet in twee constanten herhaald. Zonder deze eis
+    // kan de tuning ongemerkt boven de definitionele grens uitkomen.
+    for (const utteranceEndMs of [200, 400, 600, 1000, 3000]) {
+      const interval = continuationInterval(utteranceEndMs);
+      expect(interval.maxMs).toBeLessThanOrEqual(utteranceEndMs);
+      expect(interval.maxMs).toBeGreaterThanOrEqual(interval.minMs);
+    }
+  });
+
+  it('weigert waarden die geen getal zijn', () => {
+    const interval = continuationInterval(UTTERANCE_END_MS);
+    expect(isPlausibleContinuationGap(Number.NaN, interval)).toBe(false);
+    expect(isPlausibleContinuationGap(Number.POSITIVE_INFINITY, interval)).toBe(false);
+  });
+
+  it('past hetzelfde interval toe op beide detectoren', () => {
+    // Dit is de test die ronde twee én ronde drie had gevangen: de twee detectoren
+    // hadden elk hun eigen grenzen. Zelfde gat, zelfde oordeel — welke detector hem ook
+    // aandraagt.
+    const interval = continuationInterval(UTTERANCE_END_MS);
+    const gaten = [0, 10, interval.minMs, 300, interval.maxMs, interval.maxMs + 1, 7300];
+
+    for (const gapMs of gaten) {
+      const verwacht = isPlausibleContinuationGap(gapMs, interval);
+      const gapSec = gapMs / 1000;
+
+      const viaWoordgat = stroom();
+      sluitBeurt(viaWoordgat.stuur, 0, 2, 'Ik ben ontslagen');
+      viaWoordgat.stuur({
+        type: 'Results',
+        is_final: true,
+        start: 2 + gapSec,
+        duration: 0.5,
+        channel: { alternatives: [{ transcript: 'en daarna' }] },
+      });
+
+      const viaUtteranceEnd = stroom();
+      sluitBeurt(viaUtteranceEnd.stuur, 0, 2, 'Ik ben ontslagen');
+      viaUtteranceEnd.stuur({ type: 'UtteranceEnd', last_word_end: 2 + gapSec });
+
+      expect(viaWoordgat.continuations.length > 0, `woordgat bij ${gapMs} ms`).toBe(verwacht);
+      expect(viaUtteranceEnd.continuations.length > 0, `utterance_end bij ${gapMs} ms`).toBe(
+        verwacht,
+      );
+    }
   });
 });

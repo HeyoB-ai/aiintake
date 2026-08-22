@@ -22,14 +22,58 @@ import type { SpeechToTextProvider, SttEvents, SttOptions, SttStream } from './c
 const WS_URL = 'wss://api.deepgram.com/v1/listen';
 
 /**
- * Een nieuw segment dat binnen dit gat op de vorige beurt volgt, hoorde bij dezelfde
- * uitspraak. Ruim onder `utterance_end_ms` (1000 ms) gekozen: een cliënt die echt
- * opnieuw inzet, heeft eerst het antwoord afgewacht en zit daar altijd boven.
+ * Het interval waarbinnen een gat een afkapping kán zijn.
+ *
+ * ## Waarom dit één ding is en geen twee losse grenzen
+ *
+ * Dit is de derde ronde aan deze detectie. Ronde één zette een bovengrens op de ene
+ * detector, ronde twee ontdekte dat de andere detector er geen had, ronde drie dat de
+ * ondergrens ontbrak — een gat van 0 ms werd als afkapping gemeld. Telkens was de
+ * gerapporteerde waarde het symptoom en de verspreide definitie de oorzaak: het interval
+ * stond op drie plaatsen met drie verschillende regels.
+ *
+ * Daarom staat het hier als één begrip, wordt het op één plek toegepast, en leveren de
+ * detectoren alleen nog kandidaten. Een vierde randgeval hoort door de vórm te worden
+ * afgevangen en niet door een vierde patch.
+ *
+ * ## De ondergrens
+ *
+ * Een afkapping veronderstelt een stilte om in te knippen. Deepgram sluit een beurt af na
+ * `endpointing_ms` aan stilte, dus bij elke knip die wij maken hoort er een pauze te
+ * zitten. Een "gat" van nul milliseconde betekent dat twee tijdstempels hetzelfde moment
+ * beschrijven — twee segmenten die een grens delen — en niet dat er een pauze is
+ * waargenomen. Vijftig milliseconde is de marge waaronder we die twee niet kunnen
+ * onderscheiden.
+ *
+ * ## De bovengrens
+ *
+ * Definitioneel begrensd door `utterance_end_ms`: bij precies dat gat besluit Deepgram
+ * zélf dat de uitspraak voorbij is, dus wat daarna komt is een nieuwe uitspraak. De
+ * getunede waarde van 600 ms ligt daaronder, en die relatie wordt hieronder afgedwongen
+ * in plaats van in twee constanten herhaald. Verlaagt iemand `utterance_end_ms`, dan zakt
+ * het interval mee.
  */
-const CONTINUATION_MAX_GAP_SEC = 0.6;
+const CONTINUATION_MIN_GAP_MS = 50;
+const CONTINUATION_MAX_GAP_MS = 600;
 
-/** Marge tegen afrondingsruis in de tijdstempels. */
-const CONTINUATION_EPSILON_SEC = 0.05;
+export interface ContinuationInterval {
+  readonly minMs: number;
+  readonly maxMs: number;
+}
+
+/** Het geldige interval, afgeleid van de configuratie in plaats van ernaast gezet. */
+export function continuationInterval(utteranceEndMs: number): ContinuationInterval {
+  return {
+    minMs: CONTINUATION_MIN_GAP_MS,
+    // `min`, want de getunede waarde mag nooit boven de definitionele grens uitkomen.
+    maxMs: Math.min(CONTINUATION_MAX_GAP_MS, utteranceEndMs),
+  };
+}
+
+/** Eén predicaat. Beide detectoren gaan hier doorheen, en elke toekomstige ook. */
+export function isPlausibleContinuationGap(gapMs: number, interval: ContinuationInterval): boolean {
+  return Number.isFinite(gapMs) && gapMs >= interval.minMs && gapMs <= interval.maxMs;
+}
 
 export interface DeepgramOptions {
   readonly apiKey: string;
@@ -143,11 +187,9 @@ export class DeepgramSttStream implements SttStream {
       // zijn eigen last_word_end. Ligt die voorbij het punt waarop wij afsloten, dan is
       // er ná onze knip nog gesproken.
       const utteranceEnd = Number(message.last_word_end ?? 0);
-      if (
-        this.closedTurnEndSec > 0 &&
-        Number.isFinite(utteranceEnd) &&
-        utteranceEnd > this.closedTurnEndSec + CONTINUATION_EPSILON_SEC
-      ) {
+      if (this.closedTurnEndSec > 0 && Number.isFinite(utteranceEnd)) {
+        // Alleen een kandidaat. Of dit gat een afkapping kán zijn, beslist het interval —
+        // niet deze detector.
         this.reportContinuation('', (utteranceEnd - this.closedTurnEndSec) * 1000, 'utterance_end');
       }
 
@@ -172,10 +214,8 @@ export class DeepgramSttStream implements SttStream {
         // daarbij en was de knip te vroeg. Een échte nieuwe beurt heeft een groter gat:
         // de cliënt heeft dan geluisterd en opnieuw ingezet.
         if (this.closedTurnEndSec > 0 && Number.isFinite(start)) {
-          const gapSec = start - this.closedTurnEndSec;
-          if (gapSec >= 0 && gapSec < CONTINUATION_MAX_GAP_SEC) {
-            this.reportContinuation(text, gapSec * 1000, 'word_gap');
-          }
+          // Alleen een kandidaat; het interval beslist. Zie continuationInterval().
+          this.reportContinuation(text, (start - this.closedTurnEndSec) * 1000, 'word_gap');
         }
 
         this.pending = this.pending ? `${this.pending} ${text}` : text;
@@ -218,21 +258,20 @@ export class DeepgramSttStream implements SttStream {
     gapMs: number,
     detectedBy: 'word_gap' | 'utterance_end',
   ): void {
-    // Harde bovengrens, en geen gewogen afweging.
+    // Het enige punt waar over het interval wordt beslist. Beide detectoren komen hier
+    // langs met een kandidaat; wat buiten het interval valt is geen afkapping.
     //
-    // Een gat groter dan `utterance_end_ms` kán per definitie geen afkapping zijn: bij
-    // precies dat gat besluit Deepgram zélf dat de uitspraak voorbij is. Wat daarna komt
-    // is een nieuwe uitspraak, hoe kort de pauze ook voelde.
+    // Een gat buiten het interval wél melden is niet neutraal: het plakt twee losse
+    // uitspraken aan elkaar. De detectie bestaat om stil dataverlies te repareren en zou
+    // het dan zelf veroorzaken.
+    // Afronden vóór de vergelijking, niet erna.
     //
-    // Deze controle staat hier en niet bij de twee detectoren, omdat hij voor elke
-    // detector geldt — ook voor een toekomstige. De word_gap-detector had zijn eigen
-    // grens van 600 ms; de utterance_end-detector had er geen enkele en meldde live een
-    // "afkapping" met een gat van 7300 ms. Twee uitspraken die zeven seconden uit elkaar
-    // lagen werden aan elkaar geplakt, en dat is geen dataverlies repareren maar
-    // dataverlies veroorzaken: de eerste uitspraak kreeg er tekst bij die er niet bij
-    // hoorde.
-    const bovengrensMs = this.config.utteranceEndMs;
-    if (gapMs > bovengrensMs) {
+    // De gaten komen uit een aftrekking van twee floats: `2.05 - 2` levert
+    // 49,99999999999982 ms op en niet 50. Precies op de grens beslist dan de
+    // drijvende-kommarepresentatie in plaats van de regel — en welke kant het uitvalt
+    // hangt af van de waarden die er toevallig in gaan. De vormtest ving dit meteen.
+    const afgerond = Math.round(gapMs);
+    if (!isPlausibleContinuationGap(afgerond, continuationInterval(this.config.utteranceEndMs))) {
       this.closedTurnEndSec = 0;
       this.closedTurnText = '';
       return;
@@ -243,7 +282,7 @@ export class DeepgramSttStream implements SttStream {
     this.closedTurnText = '';
 
     const fullUtterance = text ? `${closed} ${text}`.trim() : closed;
-    this.emit('turn_continued', text, { gapMs: Math.round(gapMs), detectedBy, fullUtterance });
+    this.emit('turn_continued', text, { gapMs: afgerond, detectedBy, fullUtterance });
   }
 
   push(pcm: Int16Array): void {

@@ -26,7 +26,8 @@
     "diag:bey": "pnpm --filter @intake/agent diag:bey",
     "diag:ttft": "pnpm --filter @intake/agent diag:ttft",
     "diag:netwerk": "pnpm --filter @intake/agent diag:netwerk",
-    "dev:live": "pnpm --filter @intake/agent dev:live"
+    "dev:live": "pnpm --filter @intake/agent dev:live",
+    "diag:speechfinal": "pnpm --filter @intake/agent diag:speechfinal"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

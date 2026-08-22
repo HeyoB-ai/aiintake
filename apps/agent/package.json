@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron geïmporteerd en zijn voor Node niet direct uitvoerbaar.",
+    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron ge\u00efmporteerd en zijn voor Node niet direct uitvoerbaar.",
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -15,7 +15,8 @@
     "diag:bey": "tsx --env-file=../../.env bakeoff/bey-diagnose.ts",
     "diag:ttft": "tsx --env-file=../../.env bakeoff/ttft-diagnose.ts",
     "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts",
-    "dev:live": "tsx --env-file=../../.env live/server.ts"
+    "dev:live": "tsx --env-file=../../.env live/server.ts",
+    "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

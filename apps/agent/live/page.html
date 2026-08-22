@@ -291,16 +291,48 @@
         const proc = ctxIn.createScriptProcessor(2048, 1, 1);
         const meter = $('niveau').firstElementChild;
 
+        // Ruispoort: onder de drempel sturen we echte nullen.
+        //
+        // Deepgram's `endpointing` — en daarmee `speech_final` — werkt op VAD over de
+        // audio: het moet stilte HOREN. Gemeten met pnpm diag:speechfinal sluit een beurt
+        // bij digitale stilte na ~600 ms via speech_final, bij een rustige kamer
+        // (-50 dBFS) pas na ~2000 ms, en bij ventilatorgeluid helemaal niet meer — dan
+        // neemt het UtteranceEnd-vangnet het over op ~2400 ms. De ruisvloer van een
+        // gewone microfoon bepaalt dus zowel het mechanisme als de latency.
+        //
+        // De drempel staat laag (~-46 dBFS) en er zit vertraging op het sluiten: pas na
+        // een aaneengesloten periode onder de drempel gaat de poort dicht. Zachte spraak
+        // afknippen zou dataverlies zijn, en dat is precies wat risico 2 verbiedt --
+        // liever ruis doorlaten dan een woord verliezen.
+        const POORT_DREMPEL = 0.005;
+        const POORT_SLUIT_NA_MS = 120;
+        let stilSinds = null;
+
         proc.onaudioprocess = (ev) => {
           const data = ev.inputBuffer.getChannelData(0);
           let piek = 0;
-          const pcm = new Int16Array(data.length);
+          let som = 0;
           for (let i = 0; i < data.length; i++) {
-            const s = Math.max(-1, Math.min(1, data[i]));
-            pcm[i] = s * 32767;
-            if (Math.abs(s) > piek) piek = Math.abs(s);
+            const v = data[i];
+            som += v * v;
+            if (Math.abs(v) > piek) piek = Math.abs(v);
           }
+          const rms = Math.sqrt(som / data.length);
+
+          const nu = performance.now();
+          if (rms > POORT_DREMPEL) stilSinds = null;
+          else stilSinds ??= nu;
+          const poortDicht = stilSinds !== null && nu - stilSinds >= POORT_SLUIT_NA_MS;
+
+          const pcm = new Int16Array(data.length);
+          if (!poortDicht) {
+            for (let i = 0; i < data.length; i++) {
+              pcm[i] = Math.max(-1, Math.min(1, data[i])) * 32767;
+            }
+          }
+
           meter.style.width = Math.min(100, piek * 180) + '%';
+          meter.style.background = poortDicht ? '#2a3441' : '#3c8a63';
           if (ws && ws.readyState === 1) ws.send(pcm.buffer);
         };
 

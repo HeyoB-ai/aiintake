@@ -25,6 +25,45 @@ EU-regio.
 **Signaal dat het misgaat.** `session_metrics` p50 boven 1,5 s na tuning, of een enkele
 stap die structureel boven zijn p95-budget zit.
 
+### Waarom `speech_final` uitblijft: de ruisvloer van de microfoon
+
+Gemeten met `pnpm diag:speechfinal` — dezelfde zin, dezelfde stilte erachter, alleen een
+andere ruisvloer. Stabiel over twee runs:
+
+| ruisvloer                     | sluit via       | na einde spraak |
+| ----------------------------- | --------------- | --------------- |
+| digitale stilte               | `speech_final`  | ~601 ms         |
+| rustige kamer (−50 dBFS)      | `speech_final`  | ~2000 ms        |
+| ventilator of straat (−36 dB) | `utterance_end` | ~2350 ms        |
+| rumoerig (−24 dBFS)           | `utterance_end` | ~2400 ms        |
+
+**De ruisvloer bepaalt zowel het mechanisme als de latency.** `endpointing` werkt op VAD
+over de audio: Deepgram moet stilte _horen_. `UtteranceEnd` werkt op gaten tussen
+woordtijdstempels en heeft alleen de afwezigheid van woorden nodig. Een microfoon in een
+rustige kamer levert geen digitale stilte, dus het normale pad wordt traag of blijft uit.
+
+Dit is dus geen instelling die verkeerd staat. `endpointing=300` is correct; er is alleen
+geen stilte om op te reageren.
+
+**Wat eraan gedaan is.** De praatpagina heeft nu een ruispoort: onder ~−46 dBFS gaan er
+echte nullen naar de STT. Dat maakt van het "rustige kamer"-geval het geval "digitale
+stilte", en dat scheelt volgens de tabel ruim een seconde.
+
+De drempel staat bewust laag en de poort sluit pas na 120 ms aaneengesloten stilte. Zachte
+spraak wegpoorten zou dataverlies zijn, en dat is precies wat risico 2 verbiedt — liever
+ruis doorlaten dan een woord verliezen. Of die afweging goed valt, hoort in een echte
+sessie beoordeeld te worden en niet op een tabel.
+
+**Wat dit niet oplost.** In een rumoerige omgeving blijft het vangnet het pad, en dan is
+~2,4 s tot het sluiten van de beurt de realiteit. Dat is een grens van deze
+STT-configuratie, geen tuningkwestie, en het hoort mee te wegen in de vraag of het
+totaalbudget van 1,2 s haalbaar is.
+
+**Een kanttekening bij de vergelijking.** De ~601 ms hierboven is gemeten vanaf het einde
+van de audio; de HUD meet vanaf het laatste woordtijdstempel. Die twee zijn niet
+inwisselbaar, en de getallen uit deze tabel horen dus niet naast de HUD-cijfers gelegd te
+worden.
+
 ### Een endpointing-uitschieter die er geen was
 
 Live viel één beurt op met **eot 1283 ms** tegen een normale 250–310. Dat leek het
@@ -217,8 +256,27 @@ twee onafhankelijke detectoren die op verschillende manieren falen; weet je alle
 is afgekapt, dan kun je bij een verkeerde melding niet zien welke van de twee je moet
 bijstellen.
 
-Zes regressietests in `packages/providers/stt/src/deepgram.test.ts`, inclusief het geval
-precies op de grens.
+**Derde ronde, en toen de vorm.** Daarna meldde de detector een afkapping met een gat van
+**0 ms**. Dat was geen nieuwe fout maar dezelfde: het interval stond op drie plaatsen met
+drie verschillende regels — `word_gap` liet 0 ms toe, `utterance_end` eiste 50 ms, en de
+bovengrens verschilde (600 tegen 1000 ms). Elke ronde repareerde er één.
+
+Nu is er één begrip: `continuationInterval(utteranceEndMs)` levert het geldige interval,
+`isPlausibleContinuationGap()` is het enige predicaat, en beide detectoren leveren alleen
+kandidaten. De ondergrens is 50 ms — een afkapping veronderstelt een stilte om in te
+knippen, en nul betekent dat twee tijdstempels hetzelfde moment beschrijven. De bovengrens
+is `min(600, utterance_end_ms)`, zodat de tuning nooit boven de definitionele grens uitkomt
+en meezakt als `utterance_end_ms` wordt verlaagd.
+
+De tests gaan over de vórm en niet over losse grenzen: het geaccepteerde bereik moet één
+aaneengesloten interval zijn, onder `utterance_end_ms` blijven bij elke configuratie, en
+béide detectoren moeten hetzelfde oordeel geven over hetzelfde gat. Die laatste test had
+ronde twee én ronde drie gevangen. Hij legde meteen een vierde randgeval bloot dat niemand
+had gemeld: precies op de ondergrens besliste de drijvende-kommarepresentatie in plaats van
+de regel, omdat `2,05 − 2` geen 50 ms oplevert maar 49,99999999999982. Er wordt nu
+afgerond vóór de vergelijking.
+
+Dertien regressietests in `packages/providers/stt/src/deepgram.test.ts`.
 
 **Mitigatie, nog te doen.**
 
@@ -407,7 +465,7 @@ een te groot verschil om op intuïtie af te doen.
 
 **Status: gerepareerd, 22 augustus 2026. Blijft staan als categorie.**
 
-Een cliënt zei: *"12 x 12000 is 140000."* De assistent antwoordde *"Ja, dat klopt"*, en de
+Een cliënt zei: _"12 x 12000 is 140000."_ De assistent antwoordde _"Ja, dat klopt"_, en de
 extractie legde 140.000 vast als `vso_severance_offered` met status `confirmed` en
 confidence 0,85 — inclusief een letterlijk citaat als onderbouwing. De citaatverankering
 vond die zin immers netjes terug in het transcript.
