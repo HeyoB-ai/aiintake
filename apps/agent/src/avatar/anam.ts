@@ -69,11 +69,17 @@ export class AnamAvatarProvider implements AvatarProvider {
         Authorization: `Bearer ${this.options.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ personaConfig: { id: this.options.personaId } }),
+      // `personaId`, niet `id`. Een token zonder persona wordt geaccepteerd door de API
+      // maar door de SDK geweigerd als "legacy session token" — de fout valt dus pas in
+      // de browser, ver van de plek waar hij is gemaakt.
+      body: JSON.stringify({ personaConfig: { personaId: this.options.personaId } }),
     });
 
     if (!response.ok) {
-      throw new Error(`Anam: sessietoken mislukt, HTTP ${response.status}`);
+      const detail = await response.text().catch(() => '');
+      throw new Error(
+        `Anam: sessietoken mislukt, HTTP ${response.status} — ${detail.slice(0, 200)}`,
+      );
     }
     const body = (await response.json()) as { sessionToken?: string };
     if (!body.sessionToken) throw new Error('Anam: geen sessionToken in het antwoord');

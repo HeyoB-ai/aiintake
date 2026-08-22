@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron ge\u00efmporteerd en zijn voor Node niet direct uitvoerbaar.",
+    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron geïmporteerd en zijn voor Node niet direct uitvoerbaar.",
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -26,8 +26,11 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@anam-ai/js-sdk": "^4.25.0",
     "@types/node": "^22.10.5",
     "esbuild": "^0.24.2",
+    "livekit-client": "^2.22.0",
+    "playwright": "^1.62.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

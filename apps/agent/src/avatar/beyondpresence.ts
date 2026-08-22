@@ -124,7 +124,9 @@ class BeyondPresenceSession implements AvatarSession {
   /** Het eerste videoframe sluit de latencymeting van de beurt af. */
   private async watchFirstFrame(track: { sid?: string }): Promise<void> {
     try {
-      const stream = new VideoStream(track as never);
+      // Cast omdat de DOM-lib (nodig voor de bakeoff-pagina) de asyncIterator-signatuur
+      // van rtc-node's VideoStream overschaduwt. Runtime is hij wel itereerbaar.
+      const stream = new VideoStream(track as never) as unknown as AsyncIterable<unknown>;
       for await (const _frame of stream) {
         if (!this.firstFrameSeen) {
           this.firstFrameSeen = true;

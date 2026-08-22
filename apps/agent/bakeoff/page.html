@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bakeoff-meetpagina</title>
+    <style>
+      body {
+        margin: 0;
+        background: #12161c;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+      }
+      video {
+        width: 640px;
+        height: 360px;
+        background: #000;
+        object-fit: cover;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- autoplay + muted: zonder muted weigert Chromium af te spelen zonder
+         gebruikersinteractie, en dan komt er nooit een frame. De meting gaat over
+         beeld, niet over geluid. -->
+    <video id="avatar" autoplay playsinline muted></video>
+    <script src="./client.js"></script>
+  </body>
+</html>

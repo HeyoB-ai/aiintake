@@ -7,7 +7,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     setupFiles: ['./src/test-support/load-env.ts'],
-    include: ['src/avatar/bakeoff.integration.test.ts'],
+    include: ['src/avatar/bakeoff*.integration.test.ts'],
     fileParallelism: false,
     testTimeout: 180_000,
     hookTimeout: 60_000,

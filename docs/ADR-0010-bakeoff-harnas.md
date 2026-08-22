@@ -1,6 +1,6 @@
 # ADR-0010 — De bakeoff moet in een browser draaien, niet in Node
 
-**Status:** voorgesteld · **Datum:** 22 augustus 2026 · **Fase:** 1
+**Status:** aanvaard en gebouwd · **Datum:** 22 augustus 2026 · **Fase:** 1
 
 ## Context
 
@@ -80,7 +80,39 @@ Het serverzijdige deel van Anam is er wel en is bruikbaar: `issueSessionToken()`
 `createEngineSession()`. Dat is precies wat een browserclient nodig heeft, met de
 API-key veilig op de server — hetzelfde principe als ADR-0007.
 
-## Openstaand, en het blokkeert de bakeoff
+## Eerste meting
+
+Het harnas draait. Anam, drie runs achter elkaar vanaf een machine in Nederland:
+
+|     | sessie → eerste geverfd frame |
+| --- | ----------------------------- |
+| 1   | 1045 ms                       |
+| 2   | 1021 ms                       |
+| 3   | 1038 ms                       |
+
+Resolutie 576×384. Stabiel binnen ~25 ms.
+
+**Wat dit getal wél en niet is.** Dit is de **koude start**: sessie opzetten, WebRTC
+onderhandelen, eerste frame. Het is níét de stap uit de latencybegroting — die meet
+audio erin tot mond beweegt, binnen een sessie die al loopt. Naast het p50-budget van
+180 ms leggen zou alarmerend ogen en niets betekenen.
+
+Waar het wél over gaat: **hoeveel prewarm-tijd je nodig hebt.** De architectuur zegt dat
+de sessie start zodra de cliënt het toestemmingsscherm opent, en dat die 8–15 seconden
+leest. Eén seconde koude start past daar ruim in. Dat is het antwoord dat dit getal
+geeft, en het is een geruststellend antwoord.
+
+De per-beurt meting (audio → mondbeweging) is de volgende stap en vraagt een lopende
+sessie waarin audio wordt aangeleverd.
+
+### Wat het harnas onderweg zelf opleverde
+
+Drie metingen snel achter elkaar liepen stuk. Oorzaak: de pagina sloot de Anam-sessie
+nooit af, dus ze stapelden op tot het maximum aantal gelijktijdige sessies. Dat is niet
+alleen een testprobleem — een sessie die blijft staan kost avatarminuten door, en dat is
+60–80% van de variabele kosten. `stopStreaming()` staat nu in een `finally`.
+
+## Openstaand, en het blokkeert de bey-helft
 
 De Beyond Presence-sessie komt niet op gang. `POST /v1/sessions` slaagt (201), maar de
 status blijft op `to_start`; hun worker verschijnt kort in de room, verdwijnt, komt terug

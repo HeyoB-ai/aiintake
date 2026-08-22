@@ -148,6 +148,9 @@ module.exports = {
           // Als losse regel geschreven omdat een geneste quantifier in het patroon
           // hierboven door de ReDoS-controle van dependency-cruiser wordt geweigerd.
           '(^|/)vitest\\.[\\w-]+\\.config\\.ts$',
+          // De bakeoff-meetpagina wordt door esbuild gebundeld en door de browser
+          // geladen; niets in deze repo importeert hem.
+          'apps/[^/]+/bakeoff/.*',
           // App Router-bestanden zijn per definitie losse entrypoints: Next.js roept
           // page/layout/route/middleware aan, niemand importeert ze.
           'apps/[^/]+/src/app/.*',
