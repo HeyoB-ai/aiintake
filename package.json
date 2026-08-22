@@ -24,7 +24,8 @@
     "db:reset": "supabase db reset",
     "db:types": "supabase gen types typescript --linked > packages/db/src/generated/database.types.ts",
     "diag:bey": "pnpm --filter @intake/agent diag:bey",
-    "diag:ttft": "pnpm --filter @intake/agent diag:ttft"
+    "diag:ttft": "pnpm --filter @intake/agent diag:ttft",
+    "diag:netwerk": "pnpm --filter @intake/agent diag:netwerk"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

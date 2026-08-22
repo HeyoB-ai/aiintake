@@ -102,7 +102,30 @@ subverwerkerketen moet in de EU liggen, zie §10 van het architectuurdocument, d
 wijziging bedient nu twee doelen: hij is nodig voor de AVG-lijn en hij raakt de grootste
 post die wij kunnen beïnvloeden.
 
-Hoeveel het scheelt is nog niet gemeten. Dat is de volgende meting, geen schatting.
+De netwerkpost is inmiddels wél per regio gemeten (`pnpm diag:netwerk`, vanaf Nederland):
+
+| endpoint                         | tcp   | tls   | warm verzoek |
+| -------------------------------- | ----- | ----- | ------------ |
+| api.anthropic.com (VS)           | 8 ms  | 22 ms | 123 ms       |
+| Bedrock eu-central-1 (Frankfurt) | 19 ms | 49 ms | 16 ms        |
+| Vertex europe-west4 (Eemshaven)  | 10 ms | 30 ms | 15 ms        |
+
+De handshake naar Anthropic duurt 8 ms — dat is een edge dichtbij, niet de VS. Maar een
+echt verzoek kost er 123 ms tegen 15 ms. De reis van de edge naar de origin is dus de post.
+
+**Gekozen: Vertex `europe-west4`.** Op het warme verzoek ontloopt het Frankfurt niets, op
+de handshake is Eemshaven bijna twee keer zo dichtbij, en het staat in Nederland — wat voor
+een Nederlands kantoor een ander antwoord is dan Duitsland. De provider staat in
+`packages/providers/llm/src/vertex.ts`.
+
+**Wat dit waarschijnlijk niet oplost.** Zakt de netwerkpost van ~205 ms naar ~20 ms terwijl
+het starten van de inferentie op ~310 ms blijft, dan landt de TTFT rond 400 ms. Beter dan
+594, en nog steeds boven de 300 ms uit de begroting. Dat die begroting zelf een aanname was
+en geen meting, staat in [ADR-0012](ADR-0012-latencybudget-is-een-aanname.md) — met vooraf
+vastgelegd wat er bij welke uitkomst met de regel gebeurt.
+
+**Nog te doen.** De eindmeting vraagt GCP-credentials (`VERTEX_*` in `.env.example`) en
+verificatie dat het Haiku-model in `europe-west4` beschikbaar is. Beide ontbreken nu.
 
 **Waarom dit samen met risico 8 gelezen moet worden.** Anam kost in passthrough ~807 ms
 voordat er geluid komt. Die twee stappen tellen niet volledig bij elkaar op — de TTS

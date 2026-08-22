@@ -1,4 +1,5 @@
 import type { LLMProvider, LlmUsage, StructuredRequest, TextRequest } from './contract';
+import { readSse, textFromSse, type StreamTotals } from './sse';
 import type { Validated } from '@intake/domain';
 
 /**
@@ -41,7 +42,6 @@ export class AnthropicLlmProvider implements LLMProvider {
    */
   async *streamText(request: TextRequest): AsyncIterable<string> {
     const gestart = Date.now();
-    let eersteToken: number | null = null;
 
     const response = await fetch(this.options.baseUrl ?? API, {
       method: 'POST',
@@ -61,62 +61,18 @@ export class AnthropicLlmProvider implements LLMProvider {
       throw new Error(`Anthropic: HTTP ${response.status} — ${detail.slice(0, 300)}`);
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let inputTokens: number | null = null;
-    let outputTokens: number | null = null;
-
+    const totals: StreamTotals = { inputTokens: null, outputTokens: null, firstTokenAt: null };
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // SSE scheidt gebeurtenissen met een lege regel. Alles tot de laatste volledige
-        // scheiding is compleet; de rest blijft in de buffer staan tot het volgende blok.
-        const blokken = buffer.split('\n\n');
-        buffer = blokken.pop() ?? '';
-
-        for (const blok of blokken) {
-          for (const regel of blok.split('\n')) {
-            if (!regel.startsWith('data:')) continue;
-            const payload = regel.slice(5).trim();
-            if (!payload || payload === '[DONE]') continue;
-
-            let event: AnthropicEvent;
-            try {
-              event = JSON.parse(payload) as AnthropicEvent;
-            } catch {
-              continue;
-            }
-
-            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-              const tekst = event.delta.text ?? '';
-              if (tekst) {
-                eersteToken ??= Date.now();
-                yield tekst;
-              }
-            }
-            if (event.type === 'message_start' && event.message?.usage) {
-              inputTokens = event.message.usage.input_tokens ?? null;
-            }
-            if (event.type === 'message_delta' && event.usage) {
-              outputTokens = event.usage.output_tokens ?? null;
-            }
-          }
-        }
-      }
+      yield* textFromSse(readSse(response.body), totals);
     } finally {
       // `latencyMs` is hier bewust de tijd tot het EERSTE token en niet tot het laatste.
       // Dat is het getal uit de latencybegroting: TTFT bepaalt wanneer de mond beweegt,
       // de totale duur bepaalt alleen hoe lang de zin is.
       this.usage = {
-        inputTokens,
-        outputTokens,
-        latencyMs: eersteToken === null ? null : eersteToken - gestart,
+        inputTokens: totals.inputTokens,
+        outputTokens: totals.outputTokens,
+        latencyMs: totals.firstTokenAt === null ? null : totals.firstTokenAt - gestart,
       };
-      reader.releaseLock();
     }
   }
 
@@ -211,13 +167,6 @@ function parseJson(tekst: string): { ok: true; value: unknown } | { ok: false; e
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'ongeldige JSON' };
   }
-}
-
-interface AnthropicEvent {
-  type: string;
-  delta?: { type?: string; text?: string };
-  message?: { usage?: { input_tokens?: number } };
-  usage?: { output_tokens?: number };
 }
 
 interface AnthropicMessage {
