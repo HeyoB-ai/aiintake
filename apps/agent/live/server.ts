@@ -173,6 +173,7 @@ wss.on('connection', async (ws) => {
           hud: formatHudLine(turn.metrics, {
             clientUtteranceWasCut: turn.clientUtteranceWasCut,
             endedBy: turn.endedBy,
+            trimmedLeadingMs: turn.trimmedLeadingMs,
             rejectedFacts: 0,
           }),
         });

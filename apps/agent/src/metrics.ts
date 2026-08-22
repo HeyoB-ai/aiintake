@@ -155,6 +155,8 @@ export interface HudExtras {
    * die er geen is.
    */
   readonly endedBy?: 'speech_final' | 'utterance_end';
+  /** Aanloopstilte die de TTS heeft weggesneden. Alleen vermeld als er iets weg ging. */
+  readonly trimmedLeadingMs?: number;
 }
 
 /**
@@ -178,6 +180,7 @@ export function formatHudLine(metrics: TurnMetrics, extras: HudExtras = {}): str
   ];
   if (metrics.wasInterrupted)
     parts.push(`onderbroken, stil na ${ms(metrics.interruptToSilenceMs)}`);
+  if (extras.trimmedLeadingMs) parts.push(`aanloop -${Math.round(extras.trimmedLeadingMs)}ms`);
   if (extras.endedBy === 'utterance_end') parts.push('eot via vangnet (UtteranceEnd)');
   if (extras.clientUtteranceWasCut) parts.push('UITSPRAAK AFGEKAPT');
   if (extras.rejectedFacts) parts.push(`${extras.rejectedFacts} feit(en) GEWEIGERD`);

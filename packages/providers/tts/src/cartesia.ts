@@ -24,6 +24,39 @@ export interface CartesiaOptions {
   readonly sampleRate?: number;
 }
 
+/**
+ * Aanloopstilte wegsnijden.
+ *
+ * Cartesia zet vóór het eerste woord stilte, en die is niet vast: dezelfde zin leverde in
+ * drie achtereenvolgende syntheses 548, 107 en 227 ms op. Het is dus gegenereerde prosodie
+ * en geen padding die met een parameter uit te zetten is — de API accepteert onbekende
+ * velden bovendien stilzwijgend, dus er valt ook niets aan af te lezen.
+ *
+ * In productie gaat die stilte gewoon naar de avatar en wacht de cliënt hem uit. Dat is
+ * geen meetartefact maar ervaren vertraging, en het is de grootste post die volledig in
+ * ons eigen deel van de keten zit.
+ *
+ * **Alleen vóór het eerste geluid, nooit ertussen.** Stilte binnen een beurt is prosodie:
+ * de pauze tussen twee zinnen, de adem voor een bijzin. Die wegsnijden zou van de
+ * assistent een ratelaar maken, en het zou dataverlies zijn van dezelfde soort als
+ * risico 2 — alleen dan aan de uitgaande kant.
+ */
+const AUDIBLE_THRESHOLD = 0.003;
+/**
+ * Wat we vóór het eerste hoorbare sample laten staan.
+ *
+ * Een medeklinker begint zacht en loopt op. Precies op het eerste sample boven de drempel
+ * snijden knipt die aanzet eraf en levert een harde inzet op die klinkt als een fout.
+ */
+const KEEP_LEAD_MS = 20;
+/**
+ * Bovengrens aan wat er weg mag.
+ *
+ * Zou er ooit een beurt binnenkomen die veel langer stil blijft, dan is er iets anders aan
+ * de hand dan prosodie, en dan hoort dat zichtbaar te worden in plaats van weggesneden.
+ */
+const MAX_TRIM_MS = 2000;
+
 export class CartesiaTtsStream implements TtsStream {
   private readonly handlers = new Map<string, Function[]>();
   private socket: WebSocket | null = null;
@@ -32,6 +65,10 @@ export class CartesiaTtsStream implements TtsStream {
   private emittedMs = 0;
   private cancelled = false;
   private turn = 0;
+  /** Zoeken we nog naar het eerste hoorbare sample van deze beurt? */
+  private trimming = true;
+  /** Hoeveel aanloopstilte deze beurt is weggesneden. */
+  private trimmedMs = 0;
 
   constructor(
     private readonly config: Required<CartesiaOptions>,
@@ -65,6 +102,8 @@ export class CartesiaTtsStream implements TtsStream {
     this.emittedMs = 0;
     this.seq = 0;
     this.cancelled = false;
+    this.trimming = true;
+    this.trimmedMs = 0;
   }
 
   private onMessage(raw: string): void {
@@ -81,7 +120,10 @@ export class CartesiaTtsStream implements TtsStream {
 
     if (message.type === 'chunk' && message.data) {
       const bytes = Buffer.from(message.data, 'base64');
-      const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.length / 2));
+      const ruw = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.length / 2));
+      const pcm = this.trimming ? this.trimLeading(ruw) : ruw;
+      if (pcm.length === 0) return;
+
       const durationMs = (pcm.length / this.config.sampleRate) * 1000;
       this.emittedMs += durationMs;
       this.emit('audio', { pcm, seq: this.seq++, durationMs });
@@ -90,6 +132,43 @@ export class CartesiaTtsStream implements TtsStream {
     } else if (message.type === 'error') {
       this.emit('error', new Error(`Cartesia: ${message.error ?? 'onbekende fout'}`));
     }
+  }
+
+  /**
+   * Snijdt de stilte vóór het eerste geluid weg. Alleen aan het begin van een beurt.
+   *
+   * Levert een leeg fragment op als deze chunk volledig stil is; dan telt hij als
+   * weggesneden en wordt hij niet doorgegeven.
+   */
+  private trimLeading(pcm: Int16Array): Int16Array {
+    const grens = AUDIBLE_THRESHOLD * 32767;
+    let eerste = 0;
+    while (eerste < pcm.length && Math.abs(pcm[eerste]!) <= grens) eerste += 1;
+
+    const chunkMs = (pcm.length / this.config.sampleRate) * 1000;
+
+    if (eerste >= pcm.length) {
+      // Volledig stil. Boven de bovengrens stoppen we met snijden en laten we de rest
+      // staan: dan is er iets anders aan de hand dan prosodie.
+      if (this.trimmedMs + chunkMs > MAX_TRIM_MS) {
+        this.trimming = false;
+        return pcm;
+      }
+      this.trimmedMs += chunkMs;
+      return new Int16Array(0);
+    }
+
+    // Gevonden. Een stukje aanloop laten staan zodat een zachte inzet niet wordt afgekapt.
+    const lead = Math.round((KEEP_LEAD_MS / 1000) * this.config.sampleRate);
+    const vanaf = Math.max(0, eerste - lead);
+    this.trimming = false;
+    this.trimmedMs += (vanaf / this.config.sampleRate) * 1000;
+    return vanaf === 0 ? pcm : pcm.slice(vanaf);
+  }
+
+  /** Hoeveel aanloopstilte er deze beurt is weggesneden. */
+  trimmedLeadingMs(): number {
+    return Math.round(this.trimmedMs);
   }
 
   say(text: string): void {

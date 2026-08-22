@@ -51,6 +51,14 @@ export interface CompletedTurn {
    * veld zijn die twee in de cijfers niet uit elkaar te houden.
    */
   readonly endedBy: 'speech_final' | 'utterance_end';
+  /**
+   * Aanloopstilte die de TTS deze beurt heeft weggesneden.
+   *
+   * Staat hier zodat het zichtbaar is en niet alleen werkt. Een snijder die zijn eigen
+   * werk verbergt, kun je niet betrappen op te veel pakken — en dat is precies het risico
+   * bij een zachte inzet.
+   */
+  readonly trimmedLeadingMs: number;
   readonly metrics: TurnMetrics;
 }
 
@@ -364,6 +372,7 @@ export class TurnLoop {
       spokenMs: result.spokenMs,
       clientUtteranceWasCut: this.utteranceWasCut,
       endedBy: this.endedBy,
+      trimmedLeadingMs: this.o.tts.trimmedLeadingMs?.() ?? 0,
       metrics: this.metrics.snapshot(),
     };
 

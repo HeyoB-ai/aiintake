@@ -52,6 +52,14 @@ export interface TtsStream {
    * draagt de transcript-truncatie.
    */
   cancel(): Promise<{ spokenMs: number }>;
+  /**
+   * Hoeveel aanloopstilte er deze beurt is weggesneden.
+   *
+   * Optioneel, want niet elke leverancier zet er stilte voor. Wie het wél doet, hoort het
+   * getal terug te geven zodat de HUD kan tonen hoeveel er is weggehaald — een snijder die
+   * zijn eigen werk niet laat zien, is niet te controleren op te veel pakken.
+   */
+  trimmedLeadingMs?(): number;
   on<E extends keyof TtsEvents>(event: E, handler: TtsEvents[E]): void;
   close(): Promise<void>;
 }

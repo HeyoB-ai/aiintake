@@ -483,11 +483,35 @@ en mat vooral dat verschil. Het budget van 180 ms p50 haalt hun eigen voorbeeld 
 en het eerder genoemde ~800 ms is eveneens achterhaald.
 
 **Wat het onderzoek wél opleverde, en het is groter dan waar het naar zocht.** Cartesia zet
-vóór het eerste woord 167 tot 537 ms stilte, wisselend per synthese. In productie gaat die
-stilte gewoon naar de avatar en wacht de cliënt hem uit — geen meetartefact maar echte,
-ervaren vertraging, en volledig in ons deel van de keten. Wegsnijden in de TTS-adapter is
-daarmee een grotere winst dan het vermoeden waar dit onderzoek naar zocht. Aandachtspunt:
-een zachte inzet mag niet worden afgekapt, en de drempel bepaalt dat.
+vóór het eerste woord stilte, en die is niet vast: dezelfde zin gaf in drie achtereen-
+volgende syntheses 548, 107 en 227 ms. Het is dus gegenereerde prosodie en geen padding.
+Een parameter om het uit te zetten is er niet te vinden — de API accepteert onbekende
+velden stilzwijgend, dus probing levert niets, en de wisselende lengte wijst er hoe dan ook
+op dat er niets vasts weg te zetten valt.
+
+In productie ging die stilte gewoon naar de avatar en wachtte de cliënt hem uit.
+
+**Gebouwd, 23 augustus 2026.** De Cartesia-adapter snijdt de aanloopstilte weg. Gemeten
+over zeven zinnen die een assistent werkelijk zegt:
+
+| | weggesneden |
+| --- | --- |
+| p50 | 204 ms |
+| min – max | 37 – 370 ms |
+| over zeven beurten samen | 1263 ms |
+
+Dat is ongeveer een zesde van het totaalbudget van 1,2 s, en het is de enige post tot nu
+toe die volledig in eigen beheer bleek te liggen.
+
+**Hoe het is begrensd, want dit raakt risico 2 aan de uitgaande kant.** Alleen vóór het
+eerste geluid van een beurt, nooit ertussen — stilte tússen zinnen is prosodie, en die
+wegsnijden maakt van de assistent een ratelaar. De drempel ligt laag (0,003 van de volle
+schaal), er blijft twintig milliseconde aanloop staan zodat een zachte medeklinker niet
+wordt afgekapt, en boven twee seconden stopt het snijden: dan is er iets anders aan de hand
+dan prosodie en hoort dat zichtbaar te worden.
+
+De HUD toont per beurt hoeveel er weg ging (`aanloop -204ms`). Een snijder die zijn eigen
+werk verbergt, is niet te betrappen op te veel pakken.
 
 **Bijgewerkt, 22 augustus 2026.** Het tekstgestuurde pad is opnieuw gemeten met de
 burstdetector, in dezelfde sessie en afgewisseld met passthrough: mediaan 838 ms tegen
