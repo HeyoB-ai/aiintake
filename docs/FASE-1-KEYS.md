@@ -226,3 +226,29 @@ nagetrokken, de fout zit aantoonbaar niet in de velden die wij vullen. Vragen: (
 blijven sessies op `to_start` staan, (2) hoe ruimen we de tien vastzittende sessies op, en
 (3) is er een gelijktijdigheidslimiet op deze key. Bijlage: de uitvoer van `pnpm diag:bey`
 en de sessie-id's.
+
+### Uitgesloten: het ligt niet aan onze integratie (23 augustus 2026)
+
+`vendor-check/bey/run.mjs` doet hetzelfde als hun eigen quickstart, buiten onze workspace
+en zonder één import uit `@intake/*`:
+
+- room aangemaakt met `RoomServiceClient` uit **hun** server-SDK;
+- token gemaakt met `AccessToken` uit **hun** server-SDK;
+- avatar gestart met `bey.AvatarSession` uit `@livekit/agents-plugin-bey`, met een echte
+  `voice.AgentSession` — de route die hun API-referentie voorschrijft;
+- de audio-uitgang gezet door **hun** plugin, niet door ons.
+
+Uitkomst, identiek aan ons eigen pad:
+
+```
+[  1209ms] deelnemer erbij: bey-avatar-agent | kind: 4 | attrs: {"lk.publish_on_behalf":"agent"}
+[  1883ms] avatar.start() teruggekeerd zonder fout
+[  3168ms] deelnemer weg: bey-avatar-agent
+           WARN: Participant bey-avatar-agent disconnected while waiting for track publication
+[  3257ms] deelnemer erbij: bey-avatar-agent
+[ 21884ms] geen videotrack binnen 20 s
+```
+
+Hun eigen plugin logt zelfs dezelfde waarschuwing. **De integratie is hiermee uitgesloten
+als oorzaak**; wat overblijft is hun kant of het account. Voeg deze uitvoer toe aan de
+supportmelding — het scheelt de eerste ronde "heeft u onze plugin geprobeerd".

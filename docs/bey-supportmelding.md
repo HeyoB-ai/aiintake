@@ -46,6 +46,15 @@ This mirrors your plugin exactly.
 - The session status stays `{"type": "to_start"}` indefinitely. We have never seen a
   session leave that state.
 
+**We also ran your own plugin, unmodified.** Outside our codebase, in a scratch project
+with no code of ours: room created with `RoomServiceClient`, token minted with
+`AccessToken` (both from `livekit-server-sdk`), avatar started with `bey.AvatarSession`
+from `@livekit/agents-plugin-bey` against a real `voice.AgentSession`. Same result — the
+participant joins, drops at ~3.1 s, rejoins, never publishes. Your own plugin logs
+`Participant bey-avatar-agent disconnected while waiting for track publication`.
+
+So this is not our integration.
+
 **What we ruled out on our side** (reproducible; see attached log)
 
 - **Token.** Accepted by LiveKit, correct kind and attributes, as above.

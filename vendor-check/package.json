@@ -1,0 +1,18 @@
+{
+  "name": "vendor-check",
+  "private": true,
+  "type": "module",
+  "description": "Minimale voorbeelden volgens de documentatie van de leverancier. Bewust buiten de pnpm-workspace: geen enkele import uit @intake/*.",
+  "scripts": {
+    "bey": "node --env-file=../.env bey/run.mjs",
+    "anam": "node --env-file=../.env anam/run.mjs"
+  },
+  "dependencies": {
+    "@anam-ai/js-sdk": "^4.0.0",
+    "@livekit/agents": "1.7.0",
+    "@livekit/agents-plugin-bey": "1.7.0",
+    "@livekit/rtc-node": "^0.13.34",
+    "livekit-server-sdk": "^2.13.3",
+    "playwright": "^1.49.0"
+  }
+}

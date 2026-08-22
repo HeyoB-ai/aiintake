@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Anam — voorbeeld van de leverancier</title>
+    <style>
+      body {
+        background: #111;
+        color: #eee;
+        font: 14px system-ui, sans-serif;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+      }
+      video {
+        width: 480px;
+        height: 320px;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <video id="persona-video" autoplay playsinline></video>
+
+    <script type="module">
+      // De SDK rechtstreeks van een CDN, zoals hun quickstart hem laat zien. Geen bundler
+      // van ons, geen wrapper, geen enkele regel uit onze codebase.
+      import { createClient } from 'https://esm.sh/@anam-ai/js-sdk@4';
+
+      /**
+       * Meet het begin van hoorbaar geluid op sample-niveau.
+       *
+       * Een ScriptProcessorNode en geen requestAnimationFrame: die laatste bemonstert
+       * ~60 keer per seconde en rondt elke meting af op 16,7 ms. Bij getallen van enkele
+       * honderden milliseconden is dat nog te overzien, maar het is de reden dat een
+       * eerdere meting van 36 ms niets bleek te betekenen.
+       */
+      function maakDetector(stream) {
+        const ctx = new AudioContext();
+        const processor = ctx.createScriptProcessor(256, 1, 1);
+        const DREMPEL = 0.01;
+        let onset = null;
+        let scherp = false;
+        let laatsteRms = 0;
+
+        processor.onaudioprocess = (ev) => {
+          const nu = performance.now();
+          const data = ev.inputBuffer.getChannelData(0);
+          let som = 0;
+          let eerste = -1;
+          for (let i = 0; i < data.length; i += 1) {
+            const v = data[i];
+            som += v * v;
+            if (eerste === -1 && Math.abs(v) > DREMPEL) eerste = i;
+          }
+          laatsteRms = Math.sqrt(som / data.length);
+          if (scherp && onset === null && eerste !== -1) {
+            onset = nu - ((data.length - eerste) / ev.inputBuffer.sampleRate) * 1000;
+          }
+        };
+
+        const stil = ctx.createGain();
+        stil.gain.value = 0;
+        ctx.createMediaStreamSource(stream).connect(processor);
+        processor.connect(stil);
+        stil.connect(ctx.destination);
+
+        const slaap = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        return {
+          /**
+           * Wacht tot het écht stil is voordat de volgende beurt begint.
+           *
+           * Eerst stond hier een vaste pauze van 2,5 seconde. Speelde de vorige beurt dan
+           * nog, of maakt de avatar tussendoor geluid, dan vuurde de detector meteen bij
+           * het scherpstellen — en dan meet je nul, of zelfs een negatief getal omdat het
+           * onset-tijdstip vóór de starttijd lag. Die uitkomst stond in de eerste run.
+           */
+          wachtOpStilte: async (minStilteMs = 800, timeoutMs = 20000) => {
+            const deadline = performance.now() + timeoutMs;
+            let stilSinds = null;
+            while (performance.now() < deadline) {
+              // Hysterese: strenger voor "het is stil" dan voor "er is geluid". Zonder dat
+              // verschil flappert een ruisvloer die rond de drempel zweeft, en dan wordt er
+              // scherpgesteld terwijl er al audio speelt. Dat leverde een onset vóór de
+              // starttijd op — de meting van -3 ms uit de vorige run.
+              if (laatsteRms <= DREMPEL * 0.4) {
+                if (stilSinds === null) stilSinds = performance.now();
+                if (performance.now() - stilSinds >= minStilteMs) return;
+              } else {
+                stilSinds = null;
+              }
+              await slaap(5);
+            }
+            throw new Error('het werd niet stil binnen 20 s');
+          },
+          wapen: () => {
+            onset = null;
+            scherp = true;
+          },
+          wacht: async (timeoutMs = 15000) => {
+            const deadline = performance.now() + timeoutMs;
+            while (onset === null) {
+              if (performance.now() > deadline) throw new Error('geen geluid binnen 15 s');
+              await slaap(1);
+            }
+            scherp = false;
+            return onset;
+          },
+        };
+      }
+
+      window.meet = async (sessionToken, zin, beurten, pcmBase64, sampleRate) => {
+        const video = document.getElementById('persona-video');
+        const coldStart = performance.now();
+
+        // Precies hun quickstart: client uit een sessietoken, stream naar een video-element.
+        const client = createClient(sessionToken);
+        await client.streamToVideoElement('persona-video');
+
+        const eersteFrame = await new Promise((resolve) => {
+          video.requestVideoFrameCallback(() => resolve(performance.now()));
+        });
+
+        // Even laten stabiliseren; anders meet je nog opstarttijd mee.
+        await new Promise((r) => setTimeout(r, 1500));
+
+        const stream = video.srcObject;
+        if (!stream || stream.getAudioTracks().length === 0) {
+          throw new Error('geen audiotrack op de stream');
+        }
+        const detector = maakDetector(new MediaStream(stream.getAudioTracks()));
+
+        // De stroom moet eerst tot rust komen; een avatar die net is opgestart maakt geluid.
+        await detector.wachtOpStilte();
+
+        const talkMs = [];
+        for (let i = 0; i < beurten; i += 1) {
+          await detector.wachtOpStilte();
+          detector.wapen();
+          const start = performance.now();
+          await client.talk(zin);
+          talkMs.push(Math.round((await detector.wacht()) - start));
+        }
+
+        // En het passthrough-pad: onze eigen PCM erin, zo snel als de SDK hem aanneemt.
+        const binary = atob(pcmBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        const bytesPerFrame = (sampleRate / 1000) * 20 * 2;
+
+        const passthroughMs = [];
+        for (let i = 0; i < beurten; i += 1) {
+          const input = client.createAgentAudioInputStream({
+            encoding: 'pcm_s16le',
+            sampleRate,
+            channels: 1,
+          });
+          await detector.wachtOpStilte();
+          detector.wapen();
+          const start = performance.now();
+          for (let o = 0; o < bytes.length; o += bytesPerFrame) {
+            input.sendAudioChunk(bytes.slice(o, Math.min(o + bytesPerFrame, bytes.length)));
+          }
+          input.endSequence();
+          passthroughMs.push(Math.round((await detector.wacht()) - start));
+        }
+
+        await client.stopStreaming().catch(() => undefined);
+        return {
+          coldStartMs: Math.round(eersteFrame - coldStart),
+          talkMs,
+          passthroughMs,
+          resolutie: `${video.videoWidth}x${video.videoHeight}`,
+        };
+      };
+    </script>
+  </body>
+</html>

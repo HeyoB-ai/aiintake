@@ -455,6 +455,25 @@ niet starten (zie FASE-1-KEYS.md), en dat is de enige vergelijking die zou zegge
 ~800 ms normaal is voor audio-to-video of specifiek voor Anam. Zonder dat tweede getal is
 dit een alarmerende meting zonder referentiepunt, en geen grond om Anam af te schrijven.
 
+**Ligt het aan ons of aan hen? Gemeten, 23 augustus 2026.** In `vendor-check/` staan twee
+minimale voorbeelden die de documentatie van de leverancier volgen, buiten de workspace en
+zonder één import uit `@intake/*`. Voor Anam: hun SDK van een CDN, `createClient` en
+`streamToVideoElement`, geen wrapper van ons.
+
+| pad                       | p50    | spreiding    |
+| ------------------------- | ------ | ------------ |
+| hun eigen voorbeeld       | 511 ms | 500 – 517 ms |
+| onze keten, zelfde dag    | 609 ms | 599 – 644 ms |
+
+**Ongeveer honderd milliseconde is van ons; ruim vijfhonderd is van hen.** Onze integratie
+kost dus iets en dat is het onderzoeken waard, maar het leeuwendeel is met geen enkele
+wijziging aan onze kant weg te halen. Het budget van 180 ms p50 haalt hun eigen voorbeeld
+evenmin.
+
+Het eerder genoemde getal van ~800 ms is daarmee achterhaald: dat kwam uit een run van een
+andere dag met een andere tape. Beide getallen hierboven zijn op dezelfde dag gemeten, met
+tien beurten elk.
+
 **Bijgewerkt, 22 augustus 2026.** Het tekstgestuurde pad is opnieuw gemeten met de
 burstdetector, in dezelfde sessie en afgewisseld met passthrough: mediaan 838 ms tegen
 731 ms voor passthrough. `talk()` is dus niet sneller, en de eerder gemeten 385 ms was
