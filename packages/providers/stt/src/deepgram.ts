@@ -21,6 +21,16 @@ import type { SpeechToTextProvider, SttEvents, SttOptions, SttStream } from './c
 
 const WS_URL = 'wss://api.deepgram.com/v1/listen';
 
+/**
+ * Een nieuw segment dat binnen dit gat op de vorige beurt volgt, hoorde bij dezelfde
+ * uitspraak. Ruim onder `utterance_end_ms` (1000 ms) gekozen: een cliënt die echt
+ * opnieuw inzet, heeft eerst het antwoord afgewacht en zit daar altijd boven.
+ */
+const CONTINUATION_MAX_GAP_SEC = 0.6;
+
+/** Marge tegen afrondingsruis in de tijdstempels. */
+const CONTINUATION_EPSILON_SEC = 0.05;
+
 export interface DeepgramOptions {
   readonly apiKey: string;
   readonly model?: string;
@@ -40,6 +50,12 @@ export class DeepgramSttStream implements SttStream {
   private streamStartedAt = 0;
   /** Einde van het laatste woord, in seconden vanaf streamstart. */
   private lastWordEndSec = 0;
+
+  // --- detectie van een te vroege knip (RISICOS.md risico 2)
+  /** Waar de vorige beurt werd afgekapt, in streamseconden. 0 = geen open geval. */
+  private closedTurnEndSec = 0;
+  /** De tekst van die beurt, zodat we de volledige uitspraak kunnen teruggeven. */
+  private closedTurnText = '';
 
   constructor(
     private readonly config: Required<DeepgramOptions>,
@@ -103,6 +119,18 @@ export class DeepgramSttStream implements SttStream {
     }
 
     if (message.type === 'UtteranceEnd') {
+      // Tweede, onafhankelijke aanwijzing dat we te vroeg knipten: UtteranceEnd draagt
+      // zijn eigen last_word_end. Ligt die voorbij het punt waarop wij afsloten, dan is
+      // er ná onze knip nog gesproken.
+      const utteranceEnd = Number(message.last_word_end ?? 0);
+      if (
+        this.closedTurnEndSec > 0 &&
+        Number.isFinite(utteranceEnd) &&
+        utteranceEnd > this.closedTurnEndSec + CONTINUATION_EPSILON_SEC
+      ) {
+        this.reportContinuation('', (utteranceEnd - this.closedTurnEndSec) * 1000, 'utterance_end');
+      }
+
       // Vangnet: het laatste woord is niet als speech_final doorgekomen, maar het gat
       // tussen woordtijdstempels is groot genoeg om de beurt af te sluiten.
       this.endTurn();
@@ -116,8 +144,19 @@ export class DeepgramSttStream implements SttStream {
       if (message.is_final) {
         // start + duration is het einde van dit segment in streamtijd. Daarmee weten we
         // wanneer de cliënt ophield met praten, en niet alleen wanneer wij dat hoorden.
-        const end = Number(message.start ?? 0) + Number(message.duration ?? 0);
+        const start = Number(message.start ?? 0);
+        const end = start + Number(message.duration ?? 0);
         if (Number.isFinite(end) && end > this.lastWordEndSec) this.lastWordEndSec = end;
+
+        // Sluit dit segment tijdgewijs aan op een net afgesloten beurt? Dan hoorde het
+        // daarbij en was de knip te vroeg. Een échte nieuwe beurt heeft een groter gat:
+        // de cliënt heeft dan geluisterd en opnieuw ingezet.
+        if (this.closedTurnEndSec > 0 && Number.isFinite(start)) {
+          const gapSec = start - this.closedTurnEndSec;
+          if (gapSec >= 0 && gapSec < CONTINUATION_MAX_GAP_SEC) {
+            this.reportContinuation(text, gapSec * 1000, 'word_gap');
+          }
+        }
 
         this.pending = this.pending ? `${this.pending} ${text}` : text;
         this.emit('final', text);
@@ -133,10 +172,38 @@ export class DeepgramSttStream implements SttStream {
     const speechEndedAt = this.streamStartedAt + this.lastWordEndSec * 1000;
 
     this.pending = '';
-    this.lastWordEndSec = 0;
     this.speaking = false;
 
-    if (text) this.emit('end_of_turn', text, { speechEndedAt });
+    if (!text) {
+      this.lastWordEndSec = 0;
+      return;
+    }
+
+    // Onthouden waar we afkapten, zodat het volgende segment ertegen af te zetten is.
+    this.closedTurnEndSec = this.lastWordEndSec;
+    this.closedTurnText = text;
+    this.lastWordEndSec = 0;
+
+    this.emit('end_of_turn', text, { speechEndedAt });
+  }
+
+  /**
+   * Meldt dat de vorige knip te vroeg was.
+   *
+   * Eén melding per geval: is het geval eenmaal gerapporteerd, dan hoort de rest van de
+   * uitspraak bij de lopende beurt en is er niets nieuws meer te melden.
+   */
+  private reportContinuation(
+    text: string,
+    gapMs: number,
+    detectedBy: 'word_gap' | 'utterance_end',
+  ): void {
+    const closed = this.closedTurnText;
+    this.closedTurnEndSec = 0;
+    this.closedTurnText = '';
+
+    const fullUtterance = text ? `${closed} ${text}`.trim() : closed;
+    this.emit('turn_continued', text, { gapMs: Math.round(gapMs), detectedBy, fullUtterance });
   }
 
   push(pcm: Int16Array): void {

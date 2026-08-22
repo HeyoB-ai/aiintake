@@ -26,6 +26,15 @@ export interface TurnEndMeta {
   readonly speechEndedAt: number;
 }
 
+export interface ContinuationMeta {
+  /** Gat tussen het einde van de afgesloten beurt en het eerste nieuwe woord. */
+  readonly gapMs: number;
+  /** Welk signaal de knip verraadde. */
+  readonly detectedBy: 'word_gap' | 'utterance_end';
+  /** De afgesloten beurt plus wat er alsnog binnenkwam. */
+  readonly fullUtterance: string;
+}
+
 export interface SttEvents {
   /** Tussentijds resultaat; mag wijzigen. Alleen voor de UI, nooit voor de engine. */
   partial: (text: string) => void;
@@ -41,6 +50,16 @@ export interface SttEvents {
    * dit veld is die niet te meten: de lus weet alleen wanneer het event binnenkwam.
    */
   end_of_turn: (text: string, meta: TurnEndMeta) => void;
+  /**
+   * De vorige beurt was te vroeg afgesloten: er kwamen woorden binnen die bij dezelfde
+   * uitspraak hoorden.
+   *
+   * Dit is geen latencysignaal maar een dataverlies-signaal. Zonder dit event verdwijnt
+   * de rest van de zin geruisloos: de engine heeft de beurt al verwerkt en er is geen
+   * foutmelding, alleen een transcript dat grammaticaal klopt en inhoudelijk incompleet
+   * is. Zie RISICOS.md risico 2.
+   */
+  turn_continued: (text: string, meta: ContinuationMeta) => void;
   error: (error: Error) => void;
 }
 

@@ -49,6 +49,7 @@ interface Harness {
   turns: CompletedTurn[];
   ducks: boolean[];
   backchannels: string[];
+  prematureCuts: { tekst: string; gapMs: number }[];
 }
 
 async function harness(
@@ -74,6 +75,7 @@ async function harness(
   const turns: CompletedTurn[] = [];
   const ducks: boolean[] = [];
   const backchannels: string[] = [];
+  const prematureCuts: { tekst: string; gapMs: number }[] = [];
 
   let self!: Harness;
   const loop = new TurnLoop({
@@ -92,9 +94,12 @@ async function harness(
     onBackchannel: (t) => {
       backchannels.push(t);
     },
+    onPrematureCut: (tekst, gapMs) => {
+      prematureCuts.push({ tekst, gapMs });
+    },
   });
 
-  self = { clock, stt, tts, avatar, loop, turns, ducks, backchannels };
+  self = { clock, stt, tts, avatar, loop, turns, ducks, backchannels, prematureCuts };
   return self;
 }
 
@@ -335,5 +340,54 @@ describe('HUD', () => {
   it('beoordeelt de Fase 1-poort op p50', () => {
     expect(meetsPhaseOneGate([900, 1100, 1200]).passes).toBe(true);
     expect(meetsPhaseOneGate([1400, 1900, 2200]).passes).toBe(false);
+  });
+});
+
+describe('te vroeg afgekapte uitspraak', () => {
+  /**
+   * Het geval uit RISICOS.md risico 2: de STT besluit dat de cliënt klaar is terwijl hij
+   * nog midden in een zin zit. Zonder detectie beantwoordt de assistent een halve vraag
+   * en klinkt daarbij volkomen zeker.
+   */
+  it('breekt het antwoord af zodra blijkt dat de cliënt nog aan het woord was', async () => {
+    const h = await harness(
+      (get) =>
+        async function* () {
+          yield `${ZIN_1} `;
+          get().clock.advance(400);
+          // De rest van de uitspraak komt alsnog binnen.
+          get().stt.continueTurn('van mijn werkgever.', 120, 'Ik kreeg een VSO');
+          yield ZIN_2;
+        },
+    );
+    h.stt.endOfTurn('Ik kreeg een VSO', h.clock.now());
+    await new Promise((r) => setImmediate(r));
+
+    const turn = h.turns[0]!;
+
+    // De vlag is het punt: zonder dit ziet het transcript er compleet uit.
+    expect(turn.clientUtteranceWasCut).toBe(true);
+    expect(h.prematureCuts).toHaveLength(1);
+    expect(h.prematureCuts[0]!.gapMs).toBe(120);
+
+    // En de volledige uitspraak staat er, niet de halve.
+    expect(turn.clientUtterance).toBe('Ik kreeg een VSO van mijn werkgever.');
+
+    // Het antwoord op de halve vraag is afgebroken in plaats van afgemaakt.
+    expect(turn.assistantContent).not.toContain('vaststellingsovereenkomst ontvangen');
+  });
+
+  it('markeert een normale beurt niet als afgekapt', async () => {
+    const h = await harness(
+      () =>
+        async function* () {
+          yield `${ZIN_1} `;
+        },
+    );
+
+    h.stt.endOfTurn('Ik kreeg een VSO.', h.clock.now());
+    await new Promise((r) => setImmediate(r));
+
+    expect(h.turns[0]!.clientUtteranceWasCut).toBe(false);
   });
 });

@@ -35,6 +35,13 @@ export interface CompletedTurn {
   readonly intendedContent: string;
   readonly interruptedAtChar: number | null;
   readonly spokenMs: number | null;
+  /**
+   * De STT kapte de uitspraak van de cliënt te vroeg af en er kwam nog tekst achteraan.
+   *
+   * Dit is dataverlies, geen vertraging: zonder deze vlag zou het transcript er compleet
+   * uitzien terwijl er een zinsdeel ontbreekt. Zie RISICOS.md risico 2.
+   */
+  readonly clientUtteranceWasCut: boolean;
   readonly metrics: TurnMetrics;
 }
 
@@ -50,6 +57,8 @@ export interface TurnLoopOptions {
   readonly onDuck?: (ducked: boolean) => void;
   /** Backchannels zijn geen onderbreking maar een bevestiging. */
   readonly onBackchannel?: (text: string) => void;
+  /** De STT kapte de cliënt af; de volledige uitspraak komt hier alsnog binnen. */
+  readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
 }
 
 type State = 'idle' | 'responding' | 'interrupting';
@@ -70,12 +79,25 @@ export class TurnLoop {
   private lastInterruptedPrefix: string | undefined;
   /** Wordt opgelost als de TTS klaar is met deze beurt. */
   private synthesisDone: (() => void) | null = null;
+  /** Is de uitspraak van de cliënt te vroeg afgekapt? */
+  private utteranceWasCut = false;
 
   constructor(private readonly o: TurnLoopOptions) {
     this.metrics = new TurnMetricsRecorder(o.now);
 
     o.stt.on('end_of_turn', (text, meta) => {
       void this.handleTurn(text, meta?.speechEndedAt);
+    });
+
+    o.stt.on('turn_continued', (_text, meta) => {
+      // De cliënt was nog aan het woord; onze beurt was gebaseerd op een halve zin.
+      this.currentUtterance = meta.fullUtterance;
+      this.utteranceWasCut = true;
+      this.o.onPrematureCut?.(meta.fullUtterance, meta.gapMs);
+
+      // Antwoorden we al? Dan beantwoorden we een half gehoorde vraag. Afbreken is hier
+      // hetzelfde herstel als bij een barge-in — en dat is precies wat het feitelijk is.
+      if (this.state === 'responding') void this.interrupt();
     });
 
     o.tts.on('audio', (chunk) => {
@@ -132,6 +154,7 @@ export class TurnLoop {
 
     this.state = 'responding';
     this.currentUtterance = utterance;
+    this.utteranceWasCut = false;
     this.intended = '';
     this.sentToTts = '';
     this.emittedMs = 0;
@@ -254,6 +277,7 @@ export class TurnLoop {
       intendedContent: this.intended,
       interruptedAtChar: result.interruptedAtChar,
       spokenMs: result.spokenMs,
+      clientUtteranceWasCut: this.utteranceWasCut,
       metrics: this.metrics.snapshot(),
     };
 

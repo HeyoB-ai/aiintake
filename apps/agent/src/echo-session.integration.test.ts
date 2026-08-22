@@ -122,8 +122,19 @@ describeLive('echo-agent over de echte keten', () => {
 
     // De echo bewijst dat de transcriptie door de lus is gekomen.
     expect(turn.assistantContent).toContain('U zei:');
-    expect(turn.assistantContent.toLowerCase()).toContain('vaststellingsovereenkomst');
-    expect(turn.metrics.wasInterrupted).toBe(false);
+    expect(turn.clientUtterance.toLowerCase()).toContain('vaststellingsovereenkomst');
+
+    if (turn.clientUtteranceWasCut) {
+      // De STT kapte de cliënt af (RISICOS.md risico 2). De lus breekt het antwoord dan
+      // bewust af — een half gehoorde vraag hoort niet zelfverzekerd beantwoord te
+      // worden. Het antwoord is dus korter, en dat is het gewenste gedrag.
+      //
+      // Wat hier wél moet kloppen: de volledige uitspraak is alsnog hersteld.
+      expect(turn.clientUtterance.trim().endsWith('werkgever.')).toBe(true);
+    } else {
+      expect(turn.assistantContent.toLowerCase()).toContain('vaststellingsovereenkomst');
+      expect(turn.metrics.wasInterrupted).toBe(false);
+    }
 
     // Elke stap moet gemeten zijn. Een streepje hier betekent dat de keten ergens
     // doorliep zonder op de vorige stap te wachten.

@@ -49,6 +49,18 @@ export class FakeSttStream implements SttStream {
     this.emit('end_of_turn', text, { speechEndedAt });
   }
 
+  /**
+   * Er kwamen alsnog woorden binnen die bij de vorige beurt hoorden: de knip was te
+   * vroeg. Zie RISICOS.md risico 2.
+   */
+  continueTurn(text: string, gapMs = 120, previous = ''): void {
+    this.emit('turn_continued', text, {
+      gapMs,
+      detectedBy: 'word_gap',
+      fullUtterance: `${previous} ${text}`.trim(),
+    });
+  }
+
   fail(message: string): void {
     this.emit('error', new Error(message));
   }

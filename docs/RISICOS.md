@@ -1,4 +1,4 @@
-# Vijf technische risico's
+# Technische risico's
 
 Op volgorde van hoe hard ze het project kunnen raken. Voor privacyrisico's als aparte
 categorie: zie [DPIA-input.md](DPIA-input.md).
@@ -27,7 +27,64 @@ stap die structureel boven zijn p95-budget zit.
 
 ---
 
-## 2. Barge-in werkt "wel", maar het transcript klopt niet
+## 2. De STT knipt een uitspraak doormidden en niemand merkt het
+
+**Dit is geen latencyprobleem.** Het staat los van het budget en hoort niet als
+bijvangst van endpointing behandeld te worden, want de schade is van een andere soort:
+bij latency wordt het gesprek traag, hier wordt de intake **stil onjuist**.
+
+**Wat er gebeurt.** Deepgram besluit op basis van een stiltedrempel dat de cliënt is
+uitgesproken (`speech_final`) terwijl die nog midden in een zin zit. Wij sluiten de
+beurt af met wat er tot dan toe binnenkwam. De rest van de zin komt daarna alsnog
+binnen, maar de engine heeft de beurt al verwerkt.
+
+Waargenomen op **1 van de 4 runs**, op schone synthetische spraak zonder aarzeling:
+
+```
+gezegd:      "Ik kreeg gisteren een vaststellingsovereenkomst van mijn werkgever."
+verwerkt:    "Ik kreeg gisteren een vaststellingsovereenkomst"
+```
+
+**Waarom dit erger is dan het lijkt.** De engine denkt te hebben gehoord wat er nooit
+binnenkwam. Er is geen foutmelding, geen lege waarde, geen twijfelsignaal — alleen een
+zin die grammaticaal klopt en inhoudelijk incompleet is. Dat werkt door:
+
+- de assistent beantwoordt een half gehoorde vraag, en klinkt daarbij volkomen zeker;
+- de fact extraction ziet een uitspraak zonder de bepaling die hem betekenis gaf
+  ("van mijn werkgever", "sinds maart", "nog niet");
+- de samenvatting neemt dat over als vastgesteld feit, met bronverwijzing en al — want
+  het citaat _staat_ letterlijk in het transcript;
+- de advocaat leest een samenvatting die klopt met de brondata en toch niet met wat de
+  cliënt zei.
+
+De ingebouwde controles vangen dit niet. `rejectUngroundedFacts` controleert of een
+feit in het transcript staat, niet of het transcript compleet is. Een afgekapte zin is
+een perfect verankerde bron.
+
+**Wat het gevaarlijkst maakt:** dit degradeert niet zichtbaar. Een systeem dat vastloopt
+merk je; een systeem dat elke twintigste zin halveert, merk je pas als een advocaat op
+een verkeerd feit afgaat.
+
+**Mitigatie, gebouwd.** De STT-laag detecteert nu een te vroege knip: komen er na een
+`speech_final` woorden binnen die tijdgewijs aansluiten op de vorige, dan hoorden ze bij
+dezelfde uitspraak. Deepgram's `UtteranceEnd` levert daarnaast een eigen `last_word_end`;
+ligt die ná het punt waarop wij afkapten, dan is dat een tweede, onafhankelijk signaal.
+De lus behandelt zo'n geval als wat het is — de cliënt was nog aan het woord — en breekt
+het antwoord af in plaats van een halve vraag te beantwoorden.
+
+**Mitigatie, nog te doen.**
+
+- Het signaal persisteren, zodat "hoe vaak knippen we verkeerd" een meetbare waarde
+  wordt en geen indruk. Vraagt een kolom op `messages`; staat in de roadmap.
+- Meten op echte spraak met aarzeling. Op synthetische audio is het 1 op 4; bij "eh" en
+  wegstervende zinnen wordt dat vaker, niet minder.
+- De afweging maken die daarna volgt: `endpointing` omhoog kost latencybudget maar
+  verlaagt het dataverlies. Dat is een productbeslissing, geen instelling — en met deze
+  detectie erbij is hij voor het eerst met cijfers te nemen in plaats van op gevoel.
+
+---
+
+## 3. Barge-in werkt "wel", maar het transcript klopt niet
 
 **Waarom dit gevaarlijk is.** Dit is de meest gemene realtime-bug en hij is onzichtbaar in
 unit tests: als je opslaat wat het model _wilde_ zeggen in plaats van wat de cliënt
@@ -47,7 +104,7 @@ truncatietest uit §11.
 
 ---
 
-## 3. ~~De tenantgrens is geschreven maar niet bewezen~~ — GESLOTEN, 22 augustus 2026
+## 4. ~~De tenantgrens is geschreven maar niet bewezen~~ — GESLOTEN, 22 augustus 2026
 
 **Uitkomst.** 44/44 isolatie-assertions groen tegen een echt Supabase-project in de EU.
 De tenantgrens is geen bewering meer.
@@ -79,7 +136,7 @@ zetten in de CI-job.
 
 ---
 
-## 4. Vendorafhankelijkheid, in het bijzonder de avatarleverancier
+## 5. Vendorafhankelijkheid, in het bijzonder de avatarleverancier
 
 **Twee kanten.** Commercieel: de avatar is 60–80% van de variabele kosten, dus een
 prijsverandering raakt de marge direct. Juridisch: Beyond Presence documenteert de eigen
@@ -102,7 +159,7 @@ mogelijkheid genoemd.
 
 ---
 
-## 5. Kostengedreven misbruik van de publieke intakeroute
+## 6. Kostengedreven misbruik van de publieke intakeroute
 
 **Waarom dit reëel is.** Elke sessie kost echt geld vanaf de eerste seconde: ~$2–3 per
 intake van twaalf minuten, waarvan het leeuwendeel avatar-minuten. Een openbare URL die

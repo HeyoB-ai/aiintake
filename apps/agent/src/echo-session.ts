@@ -4,6 +4,7 @@ import { DeepgramSttProvider, keytermsFor } from '@intake/provider-stt';
 import { CartesiaTtsProvider } from '@intake/provider-tts';
 import type { Language } from '@intake/domain';
 import type { AgentEnv } from './env';
+import { log } from './log';
 import { TurnLoop, type CompletedTurn, type ResponseSource } from './turn-loop';
 
 /**
@@ -52,6 +53,8 @@ export interface EchoSessionOptions {
   /** Default is de null-provider: de lus draait volledig zonder avatarleverancier. */
   readonly avatarProvider?: AvatarProvider;
   readonly onTurn?: (turn: CompletedTurn) => void;
+  /** De STT kapte de cliënt af. Dataverlies-signaal; zie RISICOS.md risico 2. */
+  readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
   readonly now?: () => number;
 }
 
@@ -112,6 +115,11 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     now,
     respond: echoResponse,
     onTurn: (turn) => options.onTurn?.(turn),
+    onPrematureCut: (fullUtterance, gapMs) => {
+      // Geen transcriptfragment in het log (§14) — alleen dát het gebeurde en hoe krap.
+      log.warn('uitspraak te vroeg afgekapt', { gapMs, tekens: fullUtterance.length });
+      options.onPrematureCut?.(fullUtterance, gapMs);
+    },
   });
 
   // De cliënt begint te praten terwijl de assistent aan het woord is. Deepgram's
