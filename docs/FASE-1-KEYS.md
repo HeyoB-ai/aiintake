@@ -189,3 +189,40 @@ Dit is een databasewachtwoord, geen API-key.
 Twee dingen die geen sleutel zijn maar wel op de kritieke pad staan: **een EU-regio bij
 elke leverancier**, en **de DPA bij de avatarvendor**. Dat laatste heeft de langste
 doorlooptijd van alles op deze lijst.
+
+---
+
+## Beyond Presence: sessies starten niet (22 augustus 2026)
+
+**Stand.** De key werkt (`keys:check` 5/5, `/v1/avatar` geeft 10 avatars). Maar geen
+enkele sessie komt van de grond. Tien sessies staan op `status: "to_start"` en zijn daar
+nooit uit gekomen; er is geen endpoint om ze te stoppen (`DELETE` 405, `POST .../stop`
+404, `PATCH` 405).
+
+**Wat de avatar wél doet.** De deelnemer `bey-avatar-agent` verbindt met de LiveKit-room,
+valt er na ongeveer 3,1 seconden één keer uit, komt 0,2 seconde later terug en blijft dan
+staan. Hij publiceert nooit een track — audio noch video.
+
+**Wat aan onze kant is uitgesloten.** Reproduceerbaar met `pnpm diag:bey`:
+
+- Het avatartoken klopt. LiveKit accepteert het en meldt de deelnemer als `kind: 4`
+  (AGENT) met `lk.publish_on_behalf: intake-agent`. Dat zijn precies de twee claims die
+  hun eigen plugin zet.
+- Endpoint en payload zijn identiek aan `@livekit/agents-plugin-bey@1.7.0`:
+  `POST /v1/session` met `avatar_id`, `livekit_url`, `livekit_token`. Antwoord: 201.
+- Zelfde gedrag met hun eigen stock-avatar (`694c83e2-…`, Nelly - Office), dus het ligt
+  niet aan `BEY_AVATAR_ID`.
+- Geen deadlock aan onze kant. Ook wanneer we zonder `waitRemoteTrack` twee seconden audio
+  over de DataStream sturen — die zonder fout wordt afgeleverd — publiceert de avatar in
+  de vijftien seconden daarna nog steeds niets.
+
+**Wat dit niet uitsluit.** Iets accountspecifieks: een quotum dat sessies laat wachten
+zonder dat te melden, of een instelling op het LiveKit Cloud-project. De tien vastzittende
+sessies zijn zelf een kandidaat — als er een gelijktijdigheidslimiet is en ze tellen mee,
+blokkeren ze elkaar en is er geen weg terug zonder ingrijpen van hun kant.
+
+**Actie.** Dit is het punt waarop support wél aan de beurt is: documentatie en payload zijn
+nagetrokken, de fout zit aantoonbaar niet in de velden die wij vullen. Vragen: (1) waarom
+blijven sessies op `to_start` staan, (2) hoe ruimen we de tien vastzittende sessies op, en
+(3) is er een gelijktijdigheidslimiet op deze key. Bijlage: de uitvoer van `pnpm diag:bey`
+en de sessie-id's.

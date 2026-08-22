@@ -22,7 +22,8 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,mjs,json,md,yml}\"",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
-    "db:types": "supabase gen types typescript --linked > packages/db/src/generated/database.types.ts"
+    "db:types": "supabase gen types typescript --linked > packages/db/src/generated/database.types.ts",
+    "diag:bey": "pnpm --filter @intake/agent diag:bey"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",
