@@ -13,6 +13,31 @@ Alles staat al in `.env.example`.
 
 ---
 
+## Stand van zaken — gemeten op 22 augustus 2026
+
+`pnpm keys:check` roept per leverancier het goedkoopste read-only eindpunt aan. Er wordt
+niets aangemaakt en niets gegenereerd, dus het kost geen credits. Sleutelwaarden worden
+nooit afgedrukt.
+
+| Leverancier         | Uitkomst                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| **Beyond Presence** | ✅ HTTP 200, 10 avatars — `BEY_AVATAR_ID` = _Fjolla_                                              |
+| **Anam**            | ✅ HTTP 200 — maar zie de opmerking hieronder                                                     |
+| LiveKit             | ⬜ `LIVEKIT_API_KEY` en `LIVEKIT_API_SECRET` leeg; `LIVEKIT_URL` staat op de placeholder `wss://` |
+| Deepgram            | ⬜ `DEEPGRAM_API_KEY` leeg                                                                        |
+| Cartesia            | ⬜ `CARTESIA_API_KEY` leeg                                                                        |
+
+**`ANAM_AVATAR_ID` klopt niet.** De ingevulde waarde begint met `https://` — dat is een
+dashboard-URL, geen identifier. Anam's persona-id's zijn UUID's van 36 tekens; er staan
+er twee op het account (_Samira - Study Coach_ en _Hana - Sales Representative_). De key
+zelf werkt wel.
+
+**LiveKit blokkeert de bakeoff, niet alleen de transportstap.** De realtime-avatar van
+Beyond Presence publiceert zijn videotrack in een LiveKit-room. Zonder LiveKit is er dus
+ook met een geldige `BEY_API_KEY` geen sessie te starten, en dus geen meting.
+
+---
+
 ## 1. LiveKit — transport (hoogste prioriteit)
 
 ```

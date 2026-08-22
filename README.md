@@ -103,6 +103,8 @@ het statement staat onderaan `supabase/seed/seed.sql`. Er is bewust geen zelfreg
 | `pnpm boundaries`     | architectuurgrenzen — faalt bij een overtreding                     |
 | `pnpm test:isolation` | tenant-isolatie tegen een echte database                            |
 | `pnpm db:check`       | volledige migratiereeks tegen een LEGE Postgres (geen Docker nodig) |
+| `pnpm db:seed`        | demo-kantoor + vijf intakes (vereist `SUPABASE_DB_URL`)             |
+| `pnpm keys:check`     | leverancier-keys uitproberen; read-only, kost geen credits          |
 | `pnpm db:push`        | migraties naar het gekoppelde project                               |
 | `pnpm db:types`       | genereer TypeScript-types uit het schema                            |
 
