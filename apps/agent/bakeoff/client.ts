@@ -74,14 +74,39 @@ export interface DiagnoseConditie {
   readonly hergebruikStream: boolean;
   /** Hoe lang het stil moet zijn voordat de volgende beurt begint. */
   readonly pauzeMs: number;
+  /**
+   * Aanlevertempo in audio-ms per wandklok-ms. 1 = op ware snelheid, 4 = vier keer zo
+   * snel, 0 = alles zonder wachten.
+   */
+  readonly snelheid: number;
+  /**
+   * Alleen de eerste zoveel ms audio sturen en dan stoppen. `null` = de hele tape.
+   *
+   * Samen met `sluitStroom: false` meet dit de vulgrens rechtstreeks: begint de avatar
+   * met afspelen terwijl hij weet dat er nog meer kan komen, dan was deze hoeveelheid
+   * genoeg.
+   */
+  readonly prefixMs: number | null;
+  /** `endSequence()` aanroepen. Uit bij de prefixproeven, anders forceert dat een flush. */
+  readonly sluitStroom: boolean;
+  readonly wachtMs: number;
 }
 
 export interface DiagnoseBeurt {
   readonly conditie: string;
   readonly beurt: number;
   readonly onsetMs: number | null;
-  /** Hoe lang wij erover deden om de audio aan te leveren. Hoort ~2000 ms te zijn. */
+  /** Hoe lang wij erover deden om de audio aan te leveren, in wandkloktijd. */
   readonly verzondenMs: number;
+  /** Hoeveel audio we in totaal hebben aangeleverd. */
+  readonly geleverdMs: number;
+  /**
+   * Hoeveel audio er was aangekomen op het moment dat de avatar begon te klinken.
+   *
+   * Dit is het getal waar het om draait. Blijft het constant terwijl het tempo verandert,
+   * dan is het een vulgrens. Verandert het evenredig mee, dan is het een vaste vertraging.
+   */
+  readonly geleverdBijOnsetMs: number | null;
   /** Elk stuk hoorbaar geluid na de start van deze beurt: begin en duur. */
   readonly bursts: Array<{ start: number; duur: number }>;
   readonly fout?: string;
@@ -393,11 +418,18 @@ window.bakeoff = {
           detector.wapen();
           const startedAt = performance.now();
 
-          // Op ware snelheid aanleveren: alles in één keer dumpen zou de meting
-          // vertekenen, want dan wacht de engine niet op audio die er nog niet is.
-          for (let offset = 0, i = 0; offset < bytes.length; offset += bytesPerFrame, i += 1) {
-            const wacht = i * 20 - (performance.now() - startedAt);
-            if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
+          // Zo snel als het kan, en niet op ware snelheid.
+          //
+          // Hier stond een pacinglus die elke 20 ms één frame stuurde. Dat leek
+          // zorgvuldig — "de engine mag niet wachten op audio die er nog niet is" — maar
+          // het is niet wat de turn-loop doet. Die geeft Cartesia-audio door zodra hij
+          // binnenkomt, en dat is sneller dan realtime.
+          //
+          // Het verschil is niet klein: op 1× meet je 1540 ms, zo snel mogelijk 807 ms.
+          // Ruim zevenhonderd milliseconde van dat eerste getal was mijn eigen
+          // aanlevertempo. Een harnas dat levert zoals niemand levert, meet een pad dat
+          // niemand loopt.
+          for (let offset = 0; offset < bytes.length; offset += bytesPerFrame) {
             input.sendAudioChunk(
               bytes.slice(offset, Math.min(offset + bytesPerFrame, bytes.length)),
             );
@@ -550,35 +582,65 @@ window.bakeoff = {
                 channels: 1,
               });
 
+            // Hoeveel bytes deze beurt: de hele tape, of alleen een prefix.
+            const teSturen =
+              conditie.prefixMs === null
+                ? bytes.length
+                : Math.min(bytes.length, Math.round(conditie.prefixMs / 20) * bytesPerFrame);
+
             detector.wapen();
             const startedAt = performance.now();
 
-            for (let offset = 0, i = 0; offset < bytes.length; offset += bytesPerFrame, i += 1) {
-              const wacht = i * 20 - (performance.now() - startedAt);
-              if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
-              input.sendAudioChunk(
-                bytes.slice(offset, Math.min(offset + bytesPerFrame, bytes.length)),
-              );
+            for (let offset = 0, i = 0; offset < teSturen; offset += bytesPerFrame, i += 1) {
+              // snelheid 0 = zo snel mogelijk: helemaal niet wachten.
+              if (conditie.snelheid > 0) {
+                const wacht = (i * 20) / conditie.snelheid - (performance.now() - startedAt);
+                if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
+              }
+              input.sendAudioChunk(bytes.slice(offset, Math.min(offset + bytesPerFrame, teSturen)));
             }
             const verzondenMs = Math.round(performance.now() - startedAt);
-            if (!gedeeld) input.endSequence();
+            const geleverdMs = Math.round((teSturen / bytesPerFrame) * 20);
+            if (conditie.sluitStroom && !gedeeld) input.endSequence();
 
             let onsetMs: number | null = null;
             let fout: string | null = null;
             try {
-              onsetMs = Math.round((await detector.wachtOpGeluid(20_000)) - startedAt);
+              onsetMs = Math.round((await detector.wachtOpGeluid(conditie.wachtMs)) - startedAt);
             } catch (e) {
               fout = (e as Error).message;
             }
 
+            // Hoeveel audio was er aangekomen toen het geluid begon? Bij tempo 0 staat
+            // alles er meteen; anders groeit het lineair met het tempo, afgetopt op wat we
+            // werkelijk hebben verstuurd.
+            const geleverdBijOnsetMs =
+              onsetMs === null
+                ? null
+                : conditie.snelheid === 0
+                  ? geleverdMs
+                  : Math.min(geleverdMs, Math.round(onsetMs * conditie.snelheid));
+
             // Nog even doorkijken zodat de burst zijn volle duur krijgt.
             await new Promise((r) => setTimeout(r, 2500));
+
+            // Een prefixproef laat de stroom bewust open; nu alsnog afsluiten, anders
+            // loopt hij de volgende conditie in.
+            if (!conditie.sluitStroom && !gedeeld) {
+              try {
+                input.endSequence();
+              } catch {
+                /* al gesloten */
+              }
+            }
 
             resultaten.push({
               conditie: conditie.naam,
               beurt,
               onsetMs,
               verzondenMs,
+              geleverdMs,
+              geleverdBijOnsetMs,
               bursts: detector.burstsSinds(startedAt).slice(0, 6),
               ...(fout ? { fout } : {}),
             });

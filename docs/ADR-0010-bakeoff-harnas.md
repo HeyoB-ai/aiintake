@@ -203,8 +203,60 @@ Bij de tweede is de productielatency een fractie van dit getal. Bij de eerste zi
 probleem. Eén experiment scheidt die twee: dezelfde tape aanleveren op 1×, 4× en zo snel
 mogelijk, en kijken of het onset-tijdstip meebeweegt.
 
-**Tot dat experiment is gedraaid heeft Anam geen bruikbaar per-beurtcijfer**, en dus is er
-niets om bey tegen af te zetten.
+### Het experiment, en de uitkomst
+
+Dezelfde tape op vier tempo's, drie beurten per tempo, één sessie. Brontape 1765 ms.
+
+| tempo | onset (wandklok) | voorspeld door `D + T/S` |
+| ----- | ---------------- | ------------------------ |
+| 1×    | 1540 ms          | 1540 ms                  |
+| 2×    | 1125 ms          | 1173 ms                  |
+| 4×    | 965 ms           | 990 ms                   |
+| max   | 807 ms           | 807 ms                   |
+
+Het is **allebei**, en dat maakt het antwoord ongemakkelijker dan de vraag toeliet:
+
+- een **vaste vertraging D ≈ 807 ms**, die blijft staan hoe snel we ook leveren;
+- een **vulgrens T ≈ 730 ms audio**, die met het tempo meeschaalt.
+
+De prefixproeven bevestigen T langs een onafhankelijke weg. Alleen een prefix insturen en
+de stroom bewust níét afsluiten, zodat `endSequence()` geen flush forceert:
+
+| prefix  | geluid?               |
+| ------- | --------------------- |
+| 200 ms  | nee, binnen 5 s niets |
+| 400 ms  | nee, binnen 5 s niets |
+| 800 ms  | ja                    |
+| 1600 ms | ja                    |
+
+De grens ligt tussen 400 en 800 ms. Dat is waar de fit hem zet.
+
+### Wat dit betekent
+
+**Blokkerend, geen tuningkwestie.** Zelfs bij oneindig snel aanleveren kost Anam in
+passthrough ~807 ms voordat de cliënt iets hoort. Het budget is 180 ms p50 en 350 ms p95.
+Dat is 4,5× respectievelijk 2,3× over, en die 807 ms is niet weg te tunen — het is wat er
+overblijft als het aanlevertempo geen rol meer speelt.
+
+**Kleinere Cartesia-chunks leveren niets op.** De grens gaat over opgebouwde
+audio-duur, niet over chunkgrootte. De avatar heeft ~730 ms aan audio-inhoud nodig,
+ongeacht in hoeveel stukjes die aankomt. Wat wél helpt is dat Cartesia die 730 ms sneller
+produceert; hoe fijn we hem daarna hakken, verandert niets.
+
+**Voor de productielatency** betekent dit: 807 ms vast, plus de tijd die Cartesia nodig
+heeft om 730 ms audio te maken. Bij een generatietempo van ~4× realtime is dat ~180 ms
+erbij, dus reken op ~1 seconde voor de avatarstap alleen.
+
+**Eén inconsistentie die nog open staat.** Het tekstgestuurde pad mat eerder 385 ms — dus
+sneller dan passthrough, terwijl passthrough hun TTS overslaat. Dat kan niet allebei waar
+zijn. Die 385 ms is gemeten met dezelfde onbetrouwbare detector als de ingetrokken 36 ms
+en moet opnieuw, met bursts, voordat er een vergelijking op gebouwd wordt.
+
+### Gevolg voor het harnas
+
+Het `1×`-aanleveren is eruit, aan beide kanten. Het harnas levert nu zo snel als het kan,
+want dat is wat de turn-loop doet: Cartesia-audio gaat door zodra hij binnenkomt. Ruim
+zevenhonderd milliseconde van de eerdere meting was mijn eigen aanlevertempo.
 
 ### Kanttekening die blijft staan
 

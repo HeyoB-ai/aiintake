@@ -339,11 +339,12 @@ describe('bakeoff in de browser', () => {
       const frameSamples = (SAMPLE_RATE / 1000) * 20; // 20 ms
       await page.exposeFunction('harnasNoop', async () => undefined);
       await page.exposeFunction('beyPush', async () => {
-        const startedAt = performance.now();
         let seq = 0;
         for (let offset = 0; offset < pcm!.length; offset += frameSamples) {
-          const wacht = seq * 20 - (performance.now() - startedAt);
-          if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
+          // Zonder pacing, net als aan de Anam-kant. De turn-loop geeft Cartesia-audio
+          // door zodra hij binnenkomt; op ware snelheid aanleveren meet een pad dat
+          // niemand loopt en telde bij Anam ruim 700 ms extra op.
+          //
           // slice en niet subarray: de DataStream-schrijver is asynchroon en een
           // gedeelde buffer zou onder handen kunnen veranderen.
           await session.pushAudio(pcm!.slice(offset, offset + frameSamples), seq);

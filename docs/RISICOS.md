@@ -206,3 +206,38 @@ geverifieerd door de regressie opnieuw te introduceren.
 **Wat dit niet afdekt.** Het bewijst dat de regels ergens op kunnen matchen, niet dat elke
 regel het juiste afdekt. Een nieuwe vendor-SDK die niet in `VENDOR_SDKS` staat, wordt nog
 steeds nergens gemeld. Bij het toevoegen van een leverancier hoort die lijst mee.
+
+---
+
+## 8. Anam haalt het latencybudget in passthrough niet — 807 ms vast
+
+**Status: open, blokkerend voor de providerkeuze.** Gemeten 22 augustus 2026.
+
+Bij oneindig snel aanleveren kost Anam in passthrough **~807 ms** voordat er geluid uit de
+avatar komt. Het budget is 180 ms p50 en 350 ms p95. Dat is 4,5× respectievelijk 2,3×
+over, en het is geen tuningkwestie: 807 ms is precies wat overblijft als het aanlevertempo
+geen rol meer speelt.
+
+Het gedrag valt uiteen in twee delen (zie [ADR-0010](ADR-0010-bakeoff-harnas.md)):
+
+- vaste vertraging D ≈ 807 ms;
+- vulgrens T ≈ 730 ms audio, bevestigd door prefixproeven (400 ms geeft geen geluid,
+  800 ms wel).
+
+**Waarom dit het hele product raakt.** Risico 1 gaat over een totaalbudget van 1,2 s p50.
+Als de avatarstap alleen al ~1 seconde kost — 807 ms plus de tijd om 730 ms audio te
+produceren — dan is dat budget niet krap maar onhaalbaar, en is "natuurlijk aanvoelend
+gesprek" geen realistische propositie meer op deze provider.
+
+**Wat het niet oplost.** Kleinere Cartesia-chunks. De grens gaat over opgebouwde
+audio-duur, niet over chunkgrootte.
+
+**Wat de stand onzeker maakt.** Bey is nog niet gemeten — die zit vast op sessies die
+niet starten (zie FASE-1-KEYS.md), en dat is de enige vergelijking die zou zeggen of
+~800 ms normaal is voor audio-to-video of specifiek voor Anam. Zonder dat tweede getal is
+dit een alarmerende meting zonder referentiepunt, en geen grond om Anam af te schrijven.
+
+**Volgende stappen.** (1) De bey-melding beantwoord krijgen zodat er een tweede getal komt.
+(2) Het tekstgestuurde pad opnieuw meten: dat gaf eerder 385 ms, wat niet samen kan gaan
+met 807 ms voor passthrough. (3) Bij Anam navragen of er een instelling is die de
+vulgrens verlaagt.

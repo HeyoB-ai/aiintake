@@ -43,14 +43,108 @@ interface DiagnoseBeurt {
   beurt: number;
   onsetMs: number | null;
   verzondenMs: number;
+  geleverdMs: number;
+  geleverdBijOnsetMs: number | null;
   bursts: Array<{ start: number; duur: number }>;
   fout?: string;
 }
 
+/**
+ * Twee assen, en ze beantwoorden verschillende vragen.
+ *
+ * **Tempo.** Zakt de wandkloktijd evenredig als we sneller leveren, dan is het een
+ * vulgrens en werkt passthrough. Blijft hij op ~1360 ms staan, dan wacht de avatar vast
+ * en zit Anam zeven keer over het budget van 180 ms.
+ *
+ * **Prefix.** Alleen de eerste zoveel audio insturen en de stroom bewust NIET afsluiten.
+ * Begint de avatar toch, dan was die hoeveelheid genoeg. Dat meet de vulgrens
+ * rechtstreeks in plaats van hem uit het tempo af te leiden — en dat getal bepaalt of
+ * kleinere Cartesia-chunks iets opleveren.
+ *
+ * `sluitStroom: false` is bij de prefixproeven wezenlijk: endSequence() zou een flush
+ * forceren en dan speelt hij af ongeacht de grens.
+ */
 const CONDITIES = [
-  { naam: 'nieuw/400', beurten: 4, hergebruikStream: false, pauzeMs: 400 },
-  { naam: 'nieuw/2500', beurten: 4, hergebruikStream: false, pauzeMs: 2500 },
-  { naam: 'hergebruik/400', beurten: 4, hergebruikStream: true, pauzeMs: 400 },
+  {
+    naam: 'tempo 1x',
+    beurten: 3,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 1,
+    prefixMs: null,
+    sluitStroom: true,
+    wachtMs: 15_000,
+  },
+  {
+    naam: 'tempo 2x',
+    beurten: 3,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 2,
+    prefixMs: null,
+    sluitStroom: true,
+    wachtMs: 15_000,
+  },
+  {
+    naam: 'tempo 4x',
+    beurten: 3,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 4,
+    prefixMs: null,
+    sluitStroom: true,
+    wachtMs: 15_000,
+  },
+  {
+    naam: 'tempo max',
+    beurten: 3,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 0,
+    prefixMs: null,
+    sluitStroom: true,
+    wachtMs: 15_000,
+  },
+  {
+    naam: 'prefix 200',
+    beurten: 1,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 0,
+    prefixMs: 200,
+    sluitStroom: false,
+    wachtMs: 5_000,
+  },
+  {
+    naam: 'prefix 400',
+    beurten: 1,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 0,
+    prefixMs: 400,
+    sluitStroom: false,
+    wachtMs: 5_000,
+  },
+  {
+    naam: 'prefix 800',
+    beurten: 1,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 0,
+    prefixMs: 800,
+    sluitStroom: false,
+    wachtMs: 5_000,
+  },
+  {
+    naam: 'prefix 1600',
+    beurten: 1,
+    hergebruikStream: false,
+    pauzeMs: 600,
+    snelheid: 0,
+    prefixMs: 1600,
+    sluitStroom: false,
+    wachtMs: 5_000,
+  },
 ];
 
 async function bundleClient(): Promise<string> {
@@ -175,14 +269,14 @@ describe('diagnose Anam-harnas', () => {
       const regels = [
         ``,
         `  Diagnose Anam-harnas — brontape ${duurMs} ms`,
-        `  ${'conditie'.padEnd(16)}${'beurt'.padEnd(7)}${'onset'.padEnd(9)}${'verzonden'.padEnd(11)}bursts (start/duur)`,
+        `  ${'conditie'.padEnd(14)}${'onset'.padEnd(9)}${'verzonden'.padEnd(11)}${'geleverd'.padEnd(10)}${'bij onset'.padEnd(11)}bursts (start/duur)`,
       ];
       for (const r of rijen) {
         const bursts = r.bursts.map((b) => `${b.start}/${b.duur}`).join('  ') || '(geen)';
         regels.push(
-          `  ${r.conditie.padEnd(16)}${String(r.beurt).padEnd(7)}` +
-            `${String(r.onsetMs ?? '—').padEnd(9)}${String(r.verzondenMs).padEnd(11)}${bursts}` +
-            (r.fout ? `  FOUT: ${r.fout}` : ''),
+          `  ${r.conditie.padEnd(14)}${String(r.onsetMs ?? 'geen').padEnd(9)}` +
+            `${String(r.verzondenMs).padEnd(11)}${String(r.geleverdMs).padEnd(10)}` +
+            `${String(r.geleverdBijOnsetMs ?? '—').padEnd(11)}${bursts}`,
         );
       }
       // eslint-disable-next-line no-console
