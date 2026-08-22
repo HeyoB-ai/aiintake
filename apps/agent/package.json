@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron geïmporteerd en zijn voor Node niet direct uitvoerbaar.",
+    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron ge\u00efmporteerd en zijn voor Node niet direct uitvoerbaar.",
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -15,6 +15,10 @@
     "@intake/db-core": "workspace:*",
     "@intake/domain": "workspace:*",
     "@intake/engine": "workspace:*",
+    "@intake/provider-avatar": "workspace:*",
+    "@intake/provider-llm": "workspace:*",
+    "@intake/provider-stt": "workspace:*",
+    "@intake/provider-tts": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

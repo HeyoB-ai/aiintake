@@ -47,6 +47,18 @@ importers:
       '@intake/engine':
         specifier: workspace:*
         version: link:../../packages/intake-engine
+      '@intake/provider-avatar':
+        specifier: workspace:*
+        version: link:../../packages/providers/avatar
+      '@intake/provider-llm':
+        specifier: workspace:*
+        version: link:../../packages/providers/llm
+      '@intake/provider-stt':
+        specifier: workspace:*
+        version: link:../../packages/providers/stt
+      '@intake/provider-tts':
+        specifier: workspace:*
+        version: link:../../packages/providers/tts
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -194,6 +206,71 @@ importers:
       '@intake/domain':
         specifier: workspace:*
         version: link:../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  packages/providers/avatar:
+    dependencies:
+      '@intake/domain':
+        specifier: workspace:*
+        version: link:../../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  packages/providers/llm:
+    dependencies:
+      '@intake/domain':
+        specifier: workspace:*
+        version: link:../../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  packages/providers/stt:
+    dependencies:
+      '@intake/domain':
+        specifier: workspace:*
+        version: link:../../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  packages/providers/tts:
+    dependencies:
+      '@intake/domain':
+        specifier: workspace:*
+        version: link:../../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  packages/providers/visual:
+    dependencies:
+      '@intake/domain':
+        specifier: workspace:*
+        version: link:../../domain
     devDependencies:
       typescript:
         specifier: ^5.7.3

@@ -42,26 +42,40 @@ Supabase-project in de EU.
 **Klaar wanneer:** je vanuit Nederland tegen een sprekend gezicht praat, het onderbreekt,
 en de HUD p50 < 1,5 s toont — gemeten per provider.
 
-|     | Taak                                                                                                                          |
-| --- | ----------------------------------------------------------------------------------------------------------------------------- |
-| 🟡  | `AvatarProvider` / `AvatarSession` interface (audio-first, met `interrupt() → spokenMs`)                                      |
-| ⬜  | LiveKit room + tokenuitgifte vanuit `apps/web`                                                                                |
-| ⬜  | Agent-worker: beurtcyclus STT → _echo_ → TTS → avatar                                                                         |
-| ⬜  | Deepgram-provider (Flux, end-of-turn) + fake                                                                                  |
-| ⬜  | Cartesia- en ElevenLabs-provider + fake; `cancel()` stil binnen 50 ms                                                         |
-| ⬜  | Beyond Presence-provider                                                                                                      |
-| ⬜  | Anam-provider                                                                                                                 |
-| ⬜  | `null`-provider (statische placeholder, voor tests en kantoren zonder video)                                                  |
-| ⬜  | Barge-in: client-VAD → lokaal dempen → STT start-of-turn → harde interrupt                                                    |
-| ⬜  | **Transcript-truncatie op `spokenMs`** — de logica staat er (`truncateToSpoken`, getest); de aansluiting op de echte lus niet |
-| ⬜  | Backchannel-onderdrukking in de lus (`isBackchannel` is getest)                                                               |
-| ⬜  | Prewarm tijdens het toestemmingsscherm                                                                                        |
-| ⬜  | Latency-HUD + wegschrijven naar `session_metrics`                                                                             |
-| ⬜  | **Bakeoff-rapport: gemeten p50/p95 per provider vanuit NL, op Nederlandse audio**                                             |
+**Stand:** alles wat zonder leverancier kan, draait en is getest. Wat resteert zijn
+adapters en de meting zelf. Zie [FASE-1-KEYS.md](FASE-1-KEYS.md) voor de accounts.
 
-> Deze fase kan pas echt draaien met accounts bij Beyond Presence en Anam. Alles wat
-> zonder die accounts kan — interfaces, fakes, de `null`-provider, de HUD — kan wel
-> vooruit.
+|     | Taak                                                                              |
+| --- | --------------------------------------------------------------------------------- |
+| ✅  | `AvatarProvider` / `AvatarSession` (audio-first, `interrupt() → spokenMs`)        |
+| ✅  | `SpeechToTextProvider` met model-native end-of-turn in het contract               |
+| ✅  | `TextToSpeechProvider`, streaming en annuleerbaar                                 |
+| ✅  | `LLMProvider` met gescheiden hot en cold path                                     |
+| ✅  | `VisualSignalProvider`-contract (implementatie in Fase 6)                         |
+| ✅  | Fakes voor STT, TTS en LLM — scriptbaar, zonder timers                            |
+| ✅  | `null`-avatarprovider **met echte afspeelklok**, zodat truncatie hier al klopt    |
+| ✅  | Beurtcyclus: end_of_turn → respons → zinsflush → TTS → avatar                     |
+| ✅  | Zinsgewijs flushen (leesteken of 120 tekens), 8 tests                             |
+| ✅  | Barge-in: annuleer generatie → TTS stil → avatar, in die volgorde                 |
+| ✅  | **Transcript-truncatie op `spokenMs`**, aangesloten op de echte lus               |
+| ✅  | Vals-positief-bescherming: backchannels en korte geluiden onderbreken niet        |
+| ✅  | Herstelgedrag: de gehoorde prefix gaat mee naar de volgende beurt                 |
+| ✅  | Latency-HUD: zes stappen, met budget en p50-poort                                 |
+| ✅  | **Synthetisch barge-in-harnas in CI** — 11 tests, geen netwerk, geen keys         |
+| ✅  | Nederlandse juridische keyterm-lijst (39 termen)                                  |
+| ⬜  | LiveKit-room + tokenuitgifte vanuit `apps/web`                                    |
+| ⬜  | Deepgram-adapter (Flux, end-of-turn, keyterms)                                    |
+| ⬜  | Cartesia-adapter + ElevenLabs als tweede                                          |
+| ⬜  | Beyond Presence-adapter                                                           |
+| ⬜  | Anam-adapter                                                                      |
+| ⬜  | Client-VAD gekoppeld aan `onClientSpeech`                                         |
+| ⬜  | Prewarm tijdens het toestemmingsscherm                                            |
+| ⬜  | Metriek wegschrijven naar `session_metrics` via de agent-RPC                      |
+| ⬜  | **Bakeoff-rapport: gemeten p50/p95 per provider vanuit NL, op Nederlandse audio** |
+
+> De resterende taken zijn adapters achter contracten die al vastliggen, plus de meting.
+> De duurste onderdelen — de beurtcyclus, barge-in en de truncatie — zijn eruit, en zijn
+> getest zonder dat er een account aan te pas kwam.
 
 ## Fase 2 — intelligentie
 

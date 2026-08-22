@@ -13,6 +13,7 @@
     "test": "turbo run test",
     "test:isolation": "pnpm --filter @intake/db test:isolation",
     "db:check": "node scripts/check-migrations.mjs",
+    "db:seed": "node scripts/seed.mjs",
     "boundaries": "depcruise --config .dependency-cruiser.cjs packages apps",
     "format": "prettier --write \"**/*.{ts,tsx,mjs,json,md,yml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,mjs,json,md,yml}\"",
