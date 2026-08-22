@@ -125,10 +125,36 @@ passthrough — wij leveren PCM en zij renderen alleen (ADR-0001, want de Nederl
 stemkwaliteit moet in eigen hand blijven). In die modus valt hun TTS uit de keten, en de
 gemeten 385 ms bevat dus tijd die wij niet gaan betalen.
 
-Hoeveel eraf gaat, weten we pas als het passthrough-pad is gemeten. Dat loopt via een
-andere SDK-aanroep en is de eerstvolgende stap. Zolang dat er niet is, is de eerlijke
-samenvatting: **Anam haalt het p50-budget niet in de tekstmodus, en het passthrough-pad
-is nog niet gemeten.**
+### Passthrough — het productiepad
+
+Gemeten via `createAgentAudioInputStream({ encoding: 'pcm_s16le', sampleRate, channels })`:
+onze eigen Cartesia-audio erin, op ware snelheid aangeleverd, en meten wanneer er geluid
+uit de avatar komt.
+
+|     | onze audio erin → hoorbaar eruit |
+| --- | -------------------------------- |
+| 1   | 38 ms                            |
+| 2   | 43 ms                            |
+| 3   | 24 ms                            |
+| 4   | 34 ms                            |
+
+**p50 ≈ 36 ms**, tegen een budget van 180 ms p50. Ruim binnen, en een orde van grootte
+beter dan de 385 ms van het tekstpad. Dat verschil is precies wat je verwacht: in
+passthrough doet Anam geen TTS meer, hij relayt en rendert alleen.
+
+Het bevestigt bovendien de keuze uit ADR-0001 met een getal. Audio passthrough is niet
+alleen beter voor de Nederlandse stemkwaliteit — het scheelt hier ~350 ms per beurt.
+
+**Twee kanttekeningen.**
+
+Dit meet de audio-omloop, niet de lipsynchronisatie. De architectuur spreekt van "eerste
+avatarframe met geluid", en geluid is daarvan de meetbare helft; of het gezicht op
+hetzelfde moment beweegt, is hiermee niet aangetoond. Dat vraagt frameanalyse.
+
+En 24–43 ms is snel genoeg om achterdochtig van te worden. De verklaring is plausibel —
+minimale buffering bij pure relay — maar het is één meetpunt met één detector. Bij de
+uiteindelijke providerkeuze hoort dit tegen bey afgezet te worden met hetzelfde harnas,
+en dat is precies waarom het harnas er is.
 
 ### Wat het harnas onderweg zelf opleverde
 

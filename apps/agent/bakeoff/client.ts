@@ -14,6 +14,11 @@ declare global {
     bakeoff: {
       anam(sessionToken: string): Promise<Meting>;
       anamPerBeurt(sessionToken: string, zin: string): Promise<BeurtMeting>;
+      anamPassthrough(
+        sessionToken: string,
+        pcmBase64: string,
+        sampleRate: number,
+      ): Promise<BeurtMeting>;
       livekit(config: { url: string; token: string }): Promise<Meting>;
     };
   }
@@ -166,6 +171,89 @@ window.bakeoff = {
       return {
         coldStartMs: Math.round(firstFrameAt - coldStart),
         responseMs: Math.round(geluidAt - opdrachtAt),
+      };
+    } finally {
+      try {
+        await client.stopStreaming();
+      } catch {
+        /* al gesloten */
+      }
+    }
+  },
+
+  /**
+   * De passthrough-meting: ónze audio erin, hoe snel komt hij eruit?
+   *
+   * Dit is het pad dat we in productie gebruiken (ADR-0001): wij doen de TTS, zij
+   * renderen alleen het gezicht. Hun TTS zit dus niet in de keten, en dat is precies het
+   * verschil met `anamPerBeurt` — dat getal bevat tijd die wij niet betalen.
+   */
+  async anamPassthrough(sessionToken, pcmBase64, sampleRate) {
+    const video = videoElement();
+    const coldStart = performance.now();
+    const frame = firstPaintedFrame(video);
+
+    const client = createClient(sessionToken);
+    try {
+      await client.streamToVideoElement('avatar');
+      const firstFrameAt = await frame;
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const stream = (video as HTMLVideoElement & { srcObject: MediaStream | null }).srcObject;
+      if (!stream || stream.getAudioTracks().length === 0) {
+        throw new Error('geen audiotrack op de avatarstream');
+      }
+
+      const audio = new AudioContext();
+      const analyser = audio.createAnalyser();
+      analyser.fftSize = 512;
+      audio.createMediaStreamSource(new MediaStream(stream.getAudioTracks())).connect(analyser);
+      const buffer = new Float32Array(analyser.fftSize);
+      const rms = (): number => {
+        analyser.getFloatTimeDomainData(buffer);
+        let sum = 0;
+        for (const sample of buffer) sum += sample * sample;
+        return Math.sqrt(sum / buffer.length);
+      };
+
+      const binary = atob(pcmBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+
+      const input = client.createAgentAudioInputStream({
+        encoding: 'pcm_s16le',
+        sampleRate,
+        channels: 1,
+      });
+
+      const bytesPerFrame = (sampleRate / 1000) * 20 * 2; // 20 ms, 16 bit mono
+      const startedAt = performance.now();
+
+      const geluid = new Promise<number>((resolve, reject) => {
+        const deadline = startedAt + 15_000;
+        const tick = () => {
+          if (rms() > 0.01) return resolve(performance.now());
+          if (performance.now() > deadline) return reject(new Error('geen geluid binnen 15s'));
+          requestAnimationFrame(tick);
+        };
+        tick();
+      });
+
+      // Op ware snelheid aanleveren: alles in één keer dumpen zou de meting vertekenen,
+      // want dan wacht de engine niet op audio die er nog niet is.
+      for (let offset = 0, index = 0; offset < bytes.length; offset += bytesPerFrame, index += 1) {
+        const wacht = index * 20 - (performance.now() - startedAt);
+        if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
+        input.sendAudioChunk(bytes.slice(offset, Math.min(offset + bytesPerFrame, bytes.length)));
+      }
+      input.endSequence();
+
+      const geluidAt = await geluid;
+      await audio.close();
+
+      return {
+        coldStartMs: Math.round(firstFrameAt - coldStart),
+        responseMs: Math.round(geluidAt - startedAt),
       };
     } finally {
       try {

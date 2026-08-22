@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { build } from 'esbuild';
 import { chromium, type Browser } from 'playwright';
+import { CartesiaTtsProvider, type CartesiaTtsStream } from '@intake/provider-tts';
 import { AnamAvatarProvider } from './anam';
 
 /**
@@ -90,6 +91,43 @@ interface Meting {
 interface BeurtMeting {
   coldStartMs: number;
   responseMs: number;
+}
+
+const SAMPLE_RATE = 16_000;
+
+/** Onze eigen TTS, zodat de passthrough-meting dezelfde audio gebruikt als productie. */
+async function synthetiseer(zin: string): Promise<Int16Array> {
+  const tts = new CartesiaTtsProvider({ apiKey: process.env['CARTESIA_API_KEY']! });
+  const stream = (await tts.open({
+    voiceId: process.env['CARTESIA_VOICE_ID']!,
+    language: 'nl',
+    sampleRate: SAMPLE_RATE,
+  })) as CartesiaTtsStream;
+
+  const chunks: Int16Array[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('synthese liep vast')), 30_000);
+    stream.on('audio', (c) => chunks.push(c.pcm));
+    stream.on('done', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    stream.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    stream.say(zin);
+    stream.flush();
+  });
+  await stream.close();
+
+  const pcm = new Int16Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const c of chunks) {
+    pcm.set(c, offset);
+    offset += c.length;
+  }
+  return pcm;
 }
 
 describeLive('bakeoff in de browser', () => {
@@ -197,6 +235,50 @@ describeLive('bakeoff in de browser', () => {
     await page.close();
     expect(meting.responseMs).toBeGreaterThan(0);
     // Boven een seconde is het geen avatarlatency meer maar een probleem.
+    expect(meting.responseMs).toBeLessThan(5000);
+  }, 180_000);
+
+  it('meet Anam passthrough: onze eigen audio erin, hoe snel eruit', async () => {
+    // Passthrough is het pad dat we in productie gebruiken: wij doen de TTS, zij
+    // renderen alleen. Hun TTS zit dus niet in de keten, en dít getal mag daarom tegen
+    // het budget van 180 ms p50.
+    const heeftCartesia = process.env['CARTESIA_API_KEY'] && process.env['CARTESIA_VOICE_ID'];
+    if (!heeftCartesia) {
+      // eslint-disable-next-line no-console
+      console.warn('\n  passthrough overgeslagen — Cartesia-keys ontbreken\n');
+      return;
+    }
+
+    const pcm = await synthetiseer('Goedemiddag, ik ben de digitale intake-assistent.');
+    const base64 = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).toString('base64');
+
+    const provider = new AnamAvatarProvider({
+      apiKey: process.env['ANAM_API_KEY']!,
+      personaId: process.env['ANAM_AVATAR_ID']!,
+    });
+    const sessionToken = await provider.issueSessionToken();
+
+    const page = await browser.newPage();
+    const fouten: string[] = [];
+    page.on('pageerror', (e) => fouten.push(e.message));
+    await page.goto(url);
+    await page.waitForFunction(() => typeof window.bakeoff?.anamPassthrough === 'function');
+
+    const meting = (await page.evaluate(
+      async ([token, audio, rate]) =>
+        window.bakeoff.anamPassthrough(token as string, audio as string, Number(rate)),
+      [sessionToken, base64, String(SAMPLE_RATE)],
+    )) as BeurtMeting;
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `\n  Anam — passthrough (ons productiepad)\n` +
+        `    onze audio erin -> hoorbaar eruit  ${meting.responseMs} ms  (budget p50 180 / p95 350)\n` +
+        (fouten.length > 0 ? `    paginafouten: ${fouten.slice(0, 2).join(' | ')}\n` : ''),
+    );
+
+    await page.close();
+    expect(meting.responseMs).toBeGreaterThan(0);
     expect(meting.responseMs).toBeLessThan(5000);
   }, 180_000);
 });
