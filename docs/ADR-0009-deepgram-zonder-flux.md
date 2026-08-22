@@ -14,6 +14,16 @@ niet voor enige taal: in de modellenlijst van dit account (`GET /v1/models`, 437
 modellen) komt de naam nergens voor. Nederlands wordt gedekt door `nova-3-general`
 (`nl`, `nl-BE`, `nl-NL`).
 
+**De aanname was fout, niet de uitvoering.** Flux stond als vaststaand gegeven in het
+architectuurdocument en is daar nooit tegen de API geverifieerd. Er is dus niets
+misgegaan bij het bouwen; er is iets misgegaan bij het aannemen. Dat onderscheid is de
+moeite van het opschrijven waard, omdat het bepaalt waar de correctie hoort: in de
+brondocumentatie en in de manier waarop we vendorclaims behandelen, niet in de adapter.
+
+De praktische les: elke leverancierseigenschap waarop een architectuurkeuze rust, hoort
+geverifieerd te worden vóórdat hij als argument telt. `pnpm keys:check` doet dat nu voor
+bereikbaarheid; modelbeschikbaarheid en taaldekking horen daar op termijn bij.
+
 ## Besluit
 
 Nederlands loopt op **nova-3**. Turn-taking gaat daarmee niet via het model maar via
@@ -72,3 +82,27 @@ zich er later op beroept.
 Als endpointing op echte spraak tegenvalt, is de volgende stap niet "een andere STT"
 maar client-side VAD combineren met een lagere `endpointing`, en de misgeknipte beurten
 opvangen in het herstelgedrag dat er al is.
+
+## Twee metingen die dit ADR nog moeten afmaken
+
+Beide staan als harnas klaar in `apps/agent/src/*.integration.test.ts` en wachten op
+invoer.
+
+**1. Endpointing op echte spraak met aarzeling.** De 157 ms hierboven is gemeten op
+synthetische audio met een schoon zinseinde. Wat de drempel werkelijk waard is, blijkt
+pas bij "eh", een pauze midden in een zin, en een zin die wegsterft — precies de
+gevallen waar een vaste stiltedrempel omvalt. Zodra de opname er is, wordt hier de
+gemeten p50/p95 opgenomen, met per fragment of de beurt op de juiste plek werd geknipt.
+
+Mogelijke uitkomst die we serieus moeten nemen: dat `endpointing=300` te vroeg knipt en
+omhoog moet. Dat kost direct latencybudget, en dan is de afweging expliciet in plaats
+van impliciet.
+
+**2. Keyterm prompting, mét en zonder lijst.** Nu is alleen vastgesteld dát
+"vaststellingsovereenkomst" goed terugkomt, niet dát de lijst daaraan bijdraagt — nova-3
+kan het woord ook zonder hulp kennen. De meting draait dezelfde fragmenten twee keer,
+één keer met `keyterm` en één keer zonder, over meerdere termen uit de lijst.
+
+Als het verschil nul is, hoort de keyterm-lijst uit de specificatie: dan is het dode
+configuratie die de indruk wekt dat er iets geregeld is. Dat is een reëel mogelijke
+uitkomst, want keyterm prompting is bij Deepgram gedocumenteerd voor nova-3 Engels.

@@ -42,36 +42,41 @@ Supabase-project in de EU.
 **Klaar wanneer:** je vanuit Nederland tegen een sprekend gezicht praat, het onderbreekt,
 en de HUD p50 < 1,5 s toont — gemeten per provider.
 
-**Stand:** alles wat zonder leverancier kan, draait en is getest. Wat resteert zijn
-adapters en de meting zelf. Zie [FASE-1-KEYS.md](FASE-1-KEYS.md) voor de accounts.
+**Stand:** STT, TTS en transport draaien tegen de echte API's, met gemeten cijfers.
+Eerste meting (Cartesia → Deepgram, Nederlandse demozin): TTFA 108–132 ms, endpointing
+155–167 ms, jargon foutloos. Wat resteert: de echo-agent op de echte keten, de twee
+avataradapters en de bakeoff.
 
-|     | Taak                                                                              |
-| --- | --------------------------------------------------------------------------------- |
-| ✅  | `AvatarProvider` / `AvatarSession` (audio-first, `interrupt() → spokenMs`)        |
-| ✅  | `SpeechToTextProvider` met model-native end-of-turn in het contract               |
-| ✅  | `TextToSpeechProvider`, streaming en annuleerbaar                                 |
-| ✅  | `LLMProvider` met gescheiden hot en cold path                                     |
-| ✅  | `VisualSignalProvider`-contract (implementatie in Fase 6)                         |
-| ✅  | Fakes voor STT, TTS en LLM — scriptbaar, zonder timers                            |
-| ✅  | `null`-avatarprovider **met echte afspeelklok**, zodat truncatie hier al klopt    |
-| ✅  | Beurtcyclus: end_of_turn → respons → zinsflush → TTS → avatar                     |
-| ✅  | Zinsgewijs flushen (leesteken of 120 tekens), 8 tests                             |
-| ✅  | Barge-in: annuleer generatie → TTS stil → avatar, in die volgorde                 |
-| ✅  | **Transcript-truncatie op `spokenMs`**, aangesloten op de echte lus               |
-| ✅  | Vals-positief-bescherming: backchannels en korte geluiden onderbreken niet        |
-| ✅  | Herstelgedrag: de gehoorde prefix gaat mee naar de volgende beurt                 |
-| ✅  | Latency-HUD: zes stappen, met budget en p50-poort                                 |
-| ✅  | **Synthetisch barge-in-harnas in CI** — 11 tests, geen netwerk, geen keys         |
-| ✅  | Nederlandse juridische keyterm-lijst (39 termen)                                  |
-| ⬜  | LiveKit-room + tokenuitgifte vanuit `apps/web`                                    |
-| ⬜  | Deepgram-adapter (Flux, end-of-turn, keyterms)                                    |
-| ⬜  | Cartesia-adapter + ElevenLabs als tweede                                          |
-| ⬜  | Beyond Presence-adapter                                                           |
-| ⬜  | Anam-adapter                                                                      |
-| ⬜  | Client-VAD gekoppeld aan `onClientSpeech`                                         |
-| ⬜  | Prewarm tijdens het toestemmingsscherm                                            |
-| ⬜  | Metriek wegschrijven naar `session_metrics` via de agent-RPC                      |
-| ⬜  | **Bakeoff-rapport: gemeten p50/p95 per provider vanuit NL, op Nederlandse audio** |
+|     | Taak                                                                                        |
+| --- | ------------------------------------------------------------------------------------------- |
+| ✅  | `AvatarProvider` / `AvatarSession` (audio-first, `interrupt() → spokenMs`)                  |
+| ✅  | `SpeechToTextProvider` met model-native end-of-turn in het contract                         |
+| ✅  | `TextToSpeechProvider`, streaming en annuleerbaar                                           |
+| ✅  | `LLMProvider` met gescheiden hot en cold path                                               |
+| ✅  | `VisualSignalProvider`-contract (implementatie in Fase 6)                                   |
+| ✅  | Fakes voor STT, TTS en LLM — scriptbaar, zonder timers                                      |
+| ✅  | `null`-avatarprovider **met echte afspeelklok**, zodat truncatie hier al klopt              |
+| ✅  | Beurtcyclus: end_of_turn → respons → zinsflush → TTS → avatar                               |
+| ✅  | Zinsgewijs flushen (leesteken of 120 tekens), 8 tests                                       |
+| ✅  | Barge-in: annuleer generatie → TTS stil → avatar, in die volgorde                           |
+| ✅  | **Transcript-truncatie op `spokenMs`**, aangesloten op de echte lus                         |
+| ✅  | Vals-positief-bescherming: backchannels en korte geluiden onderbreken niet                  |
+| ✅  | Herstelgedrag: de gehoorde prefix gaat mee naar de volgende beurt                           |
+| ✅  | Latency-HUD: zes stappen, met budget en p50-poort                                           |
+| ✅  | **Synthetisch barge-in-harnas in CI** — 11 tests, geen netwerk, geen keys                   |
+| ✅  | Nederlandse juridische keyterm-lijst (39 termen)                                            |
+| ✅  | LiveKit: roombeheer + tokens per rol, geverifieerd tegen de live server                     |
+| ✅  | Deepgram-adapter (nova-3, endpointing + UtteranceEnd, keyterms) — ADR-0009                  |
+| ✅  | Cartesia-adapter (sonic-3, per-beurt context, annuleerbaar)                                 |
+| ⬜  | ElevenLabs als tweede TTS                                                                   |
+| ⬜  | Beyond Presence-adapter                                                                     |
+| ⬜  | Anam-adapter                                                                                |
+| ⬜  | Client-VAD gekoppeld aan `onClientSpeech`                                                   |
+| ⬜  | Prewarm tijdens het toestemmingsscherm                                                      |
+| ⬜  | Metriek wegschrijven naar `session_metrics` via de agent-RPC                                |
+| ⬜  | **Bakeoff-rapport: p50/p95 per provider, gemeten vanaf een machine in NL — niet vanuit CI** |
+| ⬜  | Endpointing meten op echte spraak met aarzeling (opname wordt aangeleverd)                  |
+| ⬜  | Keyterm prompting meten mét en zonder lijst; werkt het niet, dan uit de spec                |
 
 > De resterende taken zijn adapters achter contracten die al vastliggen, plus de meting.
 > De duurste onderdelen — de beurtcyclus, barge-in en de truncatie — zijn eruit, en zijn

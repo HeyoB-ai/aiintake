@@ -19,6 +19,7 @@
     "@intake/provider-avatar": "workspace:*",
     "@intake/provider-llm": "workspace:*",
     "@intake/provider-stt": "workspace:*",
+    "@intake/provider-transport": "workspace:*",
     "@intake/provider-tts": "workspace:*",
     "zod": "^3.24.1"
   },
