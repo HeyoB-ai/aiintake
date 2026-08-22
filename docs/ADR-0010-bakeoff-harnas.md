@@ -102,8 +102,33 @@ de sessie start zodra de cliënt het toestemmingsscherm opent, en dat die 8–15
 leest. Eén seconde koude start past daar ruim in. Dat is het antwoord dat dit getal
 geeft, en het is een geruststellend antwoord.
 
-De per-beurt meting (audio → mondbeweging) is de volgende stap en vraagt een lopende
-sessie waarin audio wordt aangeleverd.
+### Per beurt — het getal dat wél tegen het budget mag
+
+Binnen een sessie die al draait, gemeten van opdracht tot hoorbaar geluid. Detectie via
+een AnalyserNode op de ontvangen audiotrack en niet via een SDK-event: een event zegt
+"ik heb je opdracht aangenomen", de RMS-drempel zegt "er komt geluid uit", en dat laatste
+is wat de cliënt hoort.
+
+|     | opdracht → hoorbaar |
+| --- | ------------------- |
+| 1   | 378 ms              |
+| 2   | 397 ms              |
+| 3   | 393 ms              |
+| 4   | 251 ms              |
+
+**p50 ≈ 385 ms**, tegen een budget van 180 ms p50 en 350 ms p95. Drie van de vier runs
+zitten boven p95.
+
+**Maar dit is een bovengrens, geen eindoordeel.** De meting gebruikt `talk()`, het
+tekstgestuurde pad: Anam doet daar zelf de TTS. Onze architectuur gebruikt audio
+passthrough — wij leveren PCM en zij renderen alleen (ADR-0001, want de Nederlandse
+stemkwaliteit moet in eigen hand blijven). In die modus valt hun TTS uit de keten, en de
+gemeten 385 ms bevat dus tijd die wij niet gaan betalen.
+
+Hoeveel eraf gaat, weten we pas als het passthrough-pad is gemeten. Dat loopt via een
+andere SDK-aanroep en is de eerstvolgende stap. Zolang dat er niet is, is de eerlijke
+samenvatting: **Anam haalt het p50-budget niet in de tekstmodus, en het passthrough-pad
+is nog niet gemeten.**
 
 ### Wat het harnas onderweg zelf opleverde
 
@@ -112,13 +137,47 @@ nooit af, dus ze stapelden op tot het maximum aantal gelijktijdige sessies. Dat 
 alleen een testprobleem — een sessie die blijft staan kost avatarminuten door, en dat is
 60–80% van de variabele kosten. `stopStreaming()` staat nu in een `finally`.
 
-## Openstaand, en het blokkeert de bey-helft
+## De bey-helft: het lag aan ons
 
-De Beyond Presence-sessie komt niet op gang. `POST /v1/sessions` slaagt (201), maar de
-status blijft op `to_start`; hun worker verschijnt kort in de room, verdwijnt, komt terug
-en publiceert nooit een videotrack. Reproduceerbaar over meerdere runs, met de
-stockavatar Fjolla (`available`, `public`) en ook met een ruimer avatartoken.
+Eerder stond hier dat de Beyond Presence-sessie op `to_start` bleef staan en dat dit een
+vraag voor hun support was. **Dat was voorbarig.** Na het napluizen van hun documentatie
+en de officiële LiveKit-plugin blijkt het een integratiefout aan onze kant, en wel op
+drie punten tegelijk.
 
-Reproductie: `apps/agent/scripts/diagnose-bey.mjs`. Dit is een vraag voor hun support en
-niet iets om omheen te bouwen — zolang dit staat, is er geen bey-meting, met of zonder
-browserharnas.
+De API-referentie van `/v1/sessions` zegt het zelf, en dat had ik moeten lezen:
+
+> Tip: do not to use this directly, use the LiveKit plugin instead.
+
+Uit de plugin (`livekit-plugins-bey`, `avatar.py`) blijkt wat die extra doet:
+
+**1. Audio gaat over een LiveKit DataStream, niet over een gepubliceerde audiotrack.**
+Dit is de grote. Wij publiceerden een audiotrack en verwachtten dat hun worker zich
+daarop zou abonneren. De plugin gebruikt `DataStreamAudioOutput(room,
+destination_identity=<avatar>, wait_remote_track=VIDEO)` — de audio wordt als
+databerichten naar de avatar-deelnemer gestuurd. Hun worker kwam dus binnen, vond niet
+waar hij op wachtte, en bleef idlen. Precies het gedrag dat we zagen.
+
+**2. Het avatartoken mist het attribuut `publish_on_behalf`.** De plugin zet dat op de
+identity van de agent, zodat de avatar publiceert namens ons. Ook zet hij
+`kind: "agent"` op het token.
+
+**3. De plugin gebruikt `POST /v1/session` (enkelvoud) met `livekit_url` en
+`livekit_token`**, niet `/v1/sessions` met `url` en `token`. Beide bestaan; de eerste is
+wat in productie gebruikt wordt.
+
+Dit is dezelfde klasse fout als bij Anam, waar `personaConfig.id` door de API werd
+geaccepteerd en door de SDK geweigerd: een payload die formeel klopt en functioneel niet.
+Een 201 betekende hier niet "het werkt", maar "het is aangenomen".
+
+**Les.** Bij een integratie die niet werkt terwijl de API 201 teruggeeft, is de eerste
+vraag niet "is de vendor stuk" maar "gebruik ik het pad dat zij zelf gebruiken". Er lag
+een officiële plugin die het antwoord bevatte.
+
+**Wat er nog moet gebeuren.** De adapter herbouwen op DataStream-audio in plaats van een
+audiotrack, met het juiste token-attribuut en het endpoint dat de plugin gebruikt. Het
+LiveKit-dataprotocol voor audio moet daarbij vanuit Node worden nagebouwd, of we nemen
+`@livekit/agents` erbij, dat `DataStreamAudioOutput` al bevat. Dat laatste is
+waarschijnlijk goedkoper en minder foutgevoelig.
+
+`apps/agent/scripts/diagnose-bey.mjs` blijft staan als reproductie van de oude,
+verkeerde aanpak — nuttig om tegen af te zetten zodra de nieuwe werkt.

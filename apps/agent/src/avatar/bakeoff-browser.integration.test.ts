@@ -87,6 +87,11 @@ interface Meting {
   height: number;
 }
 
+interface BeurtMeting {
+  coldStartMs: number;
+  responseMs: number;
+}
+
 describeLive('bakeoff in de browser', () => {
   let browser: Browser;
   let server: Server;
@@ -158,5 +163,40 @@ describeLive('bakeoff in de browser', () => {
     // videotrack er niet is en dat we een leeg <video> hebben zitten meten.
     expect(meting.width).toBeGreaterThan(0);
     expect(meting.height).toBeGreaterThan(0);
+  }, 180_000);
+
+  it('meet Anam per beurt: opdracht tot hoorbaar geluid', async () => {
+    const provider = new AnamAvatarProvider({
+      apiKey: process.env['ANAM_API_KEY']!,
+      personaId: process.env['ANAM_AVATAR_ID']!,
+    });
+    const sessionToken = await provider.issueSessionToken();
+
+    const page = await browser.newPage();
+    await page.goto(url);
+    await page.waitForFunction(() => typeof window.bakeoff?.anamPerBeurt === 'function');
+
+    const meting = (await page.evaluate(
+      async ([token, zin]) => window.bakeoff.anamPerBeurt(token!, zin!),
+      [sessionToken, 'Goedemiddag, ik ben de digitale intake-assistent.'],
+    )) as BeurtMeting;
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `
+  Anam — per beurt
+` +
+        `    opdracht -> hoorbaar geluid  ${meting.responseMs} ms  (budget p50 180 / p95 350)
+` +
+        `    koude start ter referentie   ${meting.coldStartMs} ms
+` +
+        `    (tekstgestuurd pad; audio passthrough loopt via een andere SDK-aanroep)
+`,
+    );
+
+    await page.close();
+    expect(meting.responseMs).toBeGreaterThan(0);
+    // Boven een seconde is het geen avatarlatency meer maar een probleem.
+    expect(meting.responseMs).toBeLessThan(5000);
   }, 180_000);
 });
