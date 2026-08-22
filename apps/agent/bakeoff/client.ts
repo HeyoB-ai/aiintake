@@ -24,6 +24,12 @@ declare global {
         config: { url: string; token: string },
         herhalingen: number,
       ): Promise<PassthroughMeting>;
+      anamDiagnose(
+        sessionToken: string,
+        pcmBase64: string,
+        sampleRate: number,
+        condities: DiagnoseConditie[],
+      ): Promise<DiagnoseBeurt[]>;
       livekit(config: { url: string; token: string }): Promise<Meting>;
     };
     /** Door Playwright aangeboden: laat de Node-kant één beurt audio insturen. */
@@ -61,6 +67,26 @@ export interface PassthroughMeting {
   readonly harnasOverheadMs?: number;
 }
 
+export interface DiagnoseConditie {
+  readonly naam: string;
+  readonly beurten: number;
+  /** Eén audiostroom voor alle beurten, in plaats van een nieuwe per beurt. */
+  readonly hergebruikStream: boolean;
+  /** Hoe lang het stil moet zijn voordat de volgende beurt begint. */
+  readonly pauzeMs: number;
+}
+
+export interface DiagnoseBeurt {
+  readonly conditie: string;
+  readonly beurt: number;
+  readonly onsetMs: number | null;
+  /** Hoe lang wij erover deden om de audio aan te leveren. Hoort ~2000 ms te zijn. */
+  readonly verzondenMs: number;
+  /** Elk stuk hoorbaar geluid na de start van deze beurt: begin en duur. */
+  readonly bursts: Array<{ start: number; duur: number }>;
+  readonly fout?: string;
+}
+
 /** Drempel boven de ruisvloer van een stille lijn, ruim onder spraakniveau. */
 const DREMPEL = 0.01;
 
@@ -92,6 +118,18 @@ function maakDetector(stream: MediaStream) {
   let onsetMs: number | null = null;
   let gewapend = false;
 
+  // Burstadministratie: elk aaneengesloten stuk hoorbaar geluid, met begin en duur.
+  //
+  // Dit bestaat omdat een onset-tijdstip alleen niet zegt wáár de detector op afging.
+  // Een klik van acht milliseconden en een gesproken zin van twee seconden geven
+  // hetzelfde onsetgetal, en het verschil tussen die twee is het verschil tussen een
+  // meting en een misverstand.
+  const bursts: Array<{ start: number; duur: number }> = [];
+  let inBurst = false;
+  let burstStart = 0;
+  let stilSinds: number | null = null;
+  const BURST_GAT_MS = 120;
+
   processor.onaudioprocess = (event) => {
     const nu = performance.now();
     laatsteBlokEindeMs = nu;
@@ -111,6 +149,21 @@ function maakDetector(stream: MediaStream) {
       // vóór het einde van het blok.
       const terug = ((data.length - eerste) / event.inputBuffer.sampleRate) * 1000;
       onsetMs = nu - terug;
+    }
+
+    if (eerste !== -1) {
+      stilSinds = null;
+      if (!inBurst) {
+        inBurst = true;
+        burstStart = nu;
+      }
+    } else if (inBurst) {
+      stilSinds ??= nu;
+      if (nu - stilSinds >= BURST_GAT_MS) {
+        bursts.push({ start: burstStart, duur: Math.round(stilSinds - burstStart) });
+        inBurst = false;
+        stilSinds = null;
+      }
     }
   };
 
@@ -160,6 +213,16 @@ function maakDetector(stream: MediaStream) {
         }
         await slaap(5);
       }
+    },
+    /** Alle stukken hoorbaar geluid sinds `vanaf`, relatief aan dat moment. */
+    burstsSinds(vanaf: number): Array<{ start: number; duur: number }> {
+      const open =
+        inBurst && burstStart >= vanaf
+          ? [{ start: burstStart, duur: Math.round(performance.now() - burstStart) }]
+          : [];
+      return [...bursts, ...open]
+        .filter((b) => b.start >= vanaf)
+        .map((b) => ({ start: Math.round(b.start - vanaf), duur: b.duur }));
     },
     async sluit(): Promise<void> {
       processor.onaudioprocess = null;
@@ -437,6 +500,105 @@ window.bakeoff = {
       return { coldStartMs: Math.round(firstFrameAt - coldStart), responseMs, harnasOverheadMs };
     } finally {
       await room.disconnect();
+    }
+  },
+
+  /**
+   * Diagnose van het passthrough-harnas, niet van de provider.
+   *
+   * De reeks 34, 27, dan oplopend 300–550, dan 931 en 1528 ziet er niet uit als latency.
+   * Deze functie draait dezelfde beurt onder verschillende condities en geeft per beurt
+   * terug wélk geluid de detector zag — begin én duur. Een klik van tien milliseconden en
+   * een gesproken zin van twee seconden leveren hetzelfde onsetgetal op; alleen de duur
+   * vertelt welke van de twee het was.
+   */
+  async anamDiagnose(sessionToken, pcmBase64, sampleRate, condities) {
+    const video = videoElement();
+    const bytes = decodeer(pcmBase64);
+    const bytesPerFrame = (sampleRate / 1000) * 20 * 2;
+    const client = createClient(sessionToken);
+    const resultaten: DiagnoseBeurt[] = [];
+
+    try {
+      await client.streamToVideoElement('avatar');
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const stream = (video as HTMLVideoElement & { srcObject: MediaStream | null }).srcObject;
+      if (!stream || stream.getAudioTracks().length === 0) {
+        throw new Error('geen audiotrack op de avatarstream');
+      }
+      const detector = maakDetector(new MediaStream(stream.getAudioTracks()));
+
+      try {
+        for (const conditie of condities) {
+          // Bij hergebruik één stroom voor alle beurten van deze conditie.
+          let gedeeld: ReturnType<typeof client.createAgentAudioInputStream> | null = null;
+          if (conditie.hergebruikStream) {
+            gedeeld = client.createAgentAudioInputStream({
+              encoding: 'pcm_s16le',
+              sampleRate,
+              channels: 1,
+            });
+          }
+
+          for (let beurt = 0; beurt < conditie.beurten; beurt += 1) {
+            const input =
+              gedeeld ??
+              client.createAgentAudioInputStream({
+                encoding: 'pcm_s16le',
+                sampleRate,
+                channels: 1,
+              });
+
+            detector.wapen();
+            const startedAt = performance.now();
+
+            for (let offset = 0, i = 0; offset < bytes.length; offset += bytesPerFrame, i += 1) {
+              const wacht = i * 20 - (performance.now() - startedAt);
+              if (wacht > 0) await new Promise((r) => setTimeout(r, wacht));
+              input.sendAudioChunk(
+                bytes.slice(offset, Math.min(offset + bytesPerFrame, bytes.length)),
+              );
+            }
+            const verzondenMs = Math.round(performance.now() - startedAt);
+            if (!gedeeld) input.endSequence();
+
+            let onsetMs: number | null = null;
+            let fout: string | null = null;
+            try {
+              onsetMs = Math.round((await detector.wachtOpGeluid(20_000)) - startedAt);
+            } catch (e) {
+              fout = (e as Error).message;
+            }
+
+            // Nog even doorkijken zodat de burst zijn volle duur krijgt.
+            await new Promise((r) => setTimeout(r, 2500));
+
+            resultaten.push({
+              conditie: conditie.naam,
+              beurt,
+              onsetMs,
+              verzondenMs,
+              bursts: detector.burstsSinds(startedAt).slice(0, 6),
+              ...(fout ? { fout } : {}),
+            });
+
+            await detector.wachtOpStilte(conditie.pauzeMs);
+          }
+
+          if (gedeeld) gedeeld.endSequence();
+        }
+      } finally {
+        await detector.sluit();
+      }
+
+      return resultaten;
+    } finally {
+      try {
+        await client.stopStreaming();
+      } catch {
+        /* al gesloten */
+      }
     }
   },
 

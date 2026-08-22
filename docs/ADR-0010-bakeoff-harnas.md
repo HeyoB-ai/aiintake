@@ -138,23 +138,79 @@ uit de avatar komt.
 | 3   | 24 ms                            |
 | 4   | 34 ms                            |
 
-**p50 ≈ 36 ms**, tegen een budget van 180 ms p50. Ruim binnen, en een orde van grootte
-beter dan de 385 ms van het tekstpad. Dat verschil is precies wat je verwacht: in
-passthrough doet Anam geen TTS meer, hij relayt en rendert alleen.
+> **INGETROKKEN, 22 augustus 2026.** Deze tabel is onjuist. Zie hieronder.
 
-Het bevestigt bovendien de keuze uit ADR-0001 met een getal. Audio passthrough is niet
-alleen beter voor de Nederlandse stemkwaliteit — het scheelt hier ~350 ms per beurt.
+Destijds schreef ik hierbij: "24–43 ms is snel genoeg om achterdochtig van te worden…
+het is één meetpunt met één detector." Die achterdocht was terecht, en ik heb hem niet
+doorgezet.
 
-**Twee kanttekeningen.**
+### Wat er werkelijk stond te gebeuren
+
+Bij twaalf beurten in één sessie kwam eruit: 34, 27, dan oplopend 300–550, dan 931 en 1528. Een diagnose die per beurt níét alleen het onset-tijdstip vastlegt maar ook de
+**duur** van elk stuk hoorbaar geluid, wees de oorzaak aan:
+
+```
+conditie        beurt  onset   verzonden  bursts (start/duur)
+nieuw/400       0      287     2121       291/290   1581/1930
+nieuw/400       1      1363    2120       1368/2050
+nieuw/2500      1      1370    2120       1375/2041
+hergebruik/400  1      1116    2121       1121/480  1742/1710
+```
+
+De brontape is 2136 ms. In vrijwel elke beurt staat één burst van ~2040 ms die begint op
+**~1360 ms**. Dát is de avatar die onze zin afspeelt. De korte burst van 290 ms in beurt 0
+is iets anders — en dáár ging de oude detector op af.
+
+De 24–43 ms was dus geen latency. Het was een artefact vóór de spraak, gemeten op de
+eerste beurt van een verse sessie, wat de vier oorspronkelijke runs toevallig allemaal
+waren. Het getal van 435 ms uit de latere twaalf-beurtenrun was net zo goed fout: een
+mengsel van dat artefact en de staart van de vorige beurt.
+
+**Een onset-tijdstip zonder duur is geen meting.** Een klik van tien milliseconden en een
+gesproken zin van twee seconden geven hetzelfde getal. De detector registreert nu bursts
+met begin én duur, en de conclusie "dit is de avatar die spreekt" is toetsbaar geworden in
+plaats van aangenomen.
+
+### Wat het niet is
+
+De vorm leek op een wachtrij die zich opbouwt. Dat is het niet:
+
+- **De pauze tussen beurten doet er niet toe.** 400 ms en 2500 ms geven dezelfde ~1360 ms.
+  Was het onze wachtrij, dan had een langere pauze het weggenomen.
+- **Eén audiostroom hergebruiken maakt het slechter, niet beter.** Die conditie geeft
+  gesplitste bursts (1121/480 gevolgd door 1742/1710) en meer spreiding. Een nieuwe stroom
+  per beurt is het schonere pad.
+
+### De openstaande vraag, en waarom die het getal kan halveren
+
+Het harnas levert de audio op **ware snelheid** aan: 2120 ms voor 2136 ms tape. Dat leek
+zorgvuldig — "alles in één keer dumpen zou de meting vertekenen" — maar het is niet wat de
+turn-loop in productie doet. Daar gaat Cartesia-audio naar de avatar zodra hij binnenkomt,
+en dat is sneller dan realtime.
+
+De gesplitste bursts verraden bovendien dat 1× voeden marginaal is: de avatar begint,
+loopt leeg en hervat. Dat is buffer-underrun, en dat is een eigenschap van mijn
+aanlevering, niet van hun product.
+
+Daarmee staat de kernvraag open, en die is niet cosmetisch:
+
+- **vaste vertraging** — de avatar wacht ~1360 ms ongeacht hoe snel wij leveren, of
+- **buffervulling** — de avatar wacht tot hij ~1360 ms aan audio heeft, en dan zakt de
+  wandkloktijd evenredig mee zodra wij sneller leveren.
+
+Bij de tweede is de productielatency een fractie van dit getal. Bij de eerste zit Anam met
+1360 ms zeven keer over het budget van 180 ms, en is passthrough geen oplossing maar een
+probleem. Eén experiment scheidt die twee: dezelfde tape aanleveren op 1×, 4× en zo snel
+mogelijk, en kijken of het onset-tijdstip meebeweegt.
+
+**Tot dat experiment is gedraaid heeft Anam geen bruikbaar per-beurtcijfer**, en dus is er
+niets om bey tegen af te zetten.
+
+### Kanttekening die blijft staan
 
 Dit meet de audio-omloop, niet de lipsynchronisatie. De architectuur spreekt van "eerste
 avatarframe met geluid", en geluid is daarvan de meetbare helft; of het gezicht op
 hetzelfde moment beweegt, is hiermee niet aangetoond. Dat vraagt frameanalyse.
-
-En 24–43 ms is snel genoeg om achterdochtig van te worden. De verklaring is plausibel —
-minimale buffering bij pure relay — maar het is één meetpunt met één detector. Bij de
-uiteindelijke providerkeuze hoort dit tegen bey afgezet te worden met hetzelfde harnas,
-en dat is precies waarom het harnas er is.
 
 ### Wat het harnas onderweg zelf opleverde
 
