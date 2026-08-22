@@ -50,6 +50,7 @@ interface Harness {
   ducks: boolean[];
   backchannels: string[];
   prematureCuts: { tekst: string; gapMs: number }[];
+  skipped: string[];
 }
 
 async function harness(
@@ -76,6 +77,7 @@ async function harness(
   const ducks: boolean[] = [];
   const backchannels: string[] = [];
   const prematureCuts: { tekst: string; gapMs: number }[] = [];
+  const skipped: string[] = [];
 
   let self!: Harness;
   const loop = new TurnLoop({
@@ -97,9 +99,12 @@ async function harness(
     onPrematureCut: (tekst, gapMs) => {
       prematureCuts.push({ tekst, gapMs });
     },
+    onSkippedTurn: (reden) => {
+      skipped.push(reden);
+    },
   });
 
-  self = { clock, stt, tts, avatar, loop, turns, ducks, backchannels, prematureCuts };
+  self = { clock, stt, tts, avatar, loop, turns, ducks, backchannels, prematureCuts, skipped };
   return self;
 }
 
@@ -389,5 +394,53 @@ describe('te vroeg afgekapte uitspraak', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(h.turns[0]!.clientUtteranceWasCut).toBe(false);
+  });
+});
+
+describe('beurt zonder inhoud van de cliënt', () => {
+  /**
+   * Live liep dit stuk op `messages.0: user messages must have non-empty content`.
+   *
+   * De STT meldt end_of_turn ook na geluid dat geen woorden opleverde. Zonder zeef
+   * beantwoordt de assistent een uitspraak die niet bestaat én belandt er een leeg
+   * cliëntbericht in de geschiedenis — en dat laatste breekt niet die beurt maar alle
+   * volgende. Eén kuch legde zo het gesprek stil.
+   */
+  it('start geen beurt en meldt dat hij blijft wachten', async () => {
+    let aangeroepen = 0;
+    const h = await harness(
+      () =>
+        async function* () {
+          aangeroepen += 1;
+          yield 'dit hoort niet te gebeuren';
+        },
+    );
+
+    h.stt.endOfTurn('   ', h.clock.now());
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(aangeroepen).toBe(0);
+    expect(h.turns).toHaveLength(0);
+    // Zichtbaar overgeslagen: stilte zonder melding is niet te onderscheiden van een
+    // vastgelopen lus.
+    expect(h.skipped).toEqual(['geen bruikbare tekst van de STT']);
+  });
+
+  it('blijft daarna gewoon werken', async () => {
+    const h = await harness(
+      () =>
+        async function* () {
+          yield ZIN_1;
+        },
+    );
+
+    h.stt.endOfTurn('', h.clock.now());
+    await new Promise((r) => setTimeout(r, 10));
+    h.stt.endOfTurn('Ik heb een vraag.', h.clock.now());
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(h.skipped).toHaveLength(1);
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0]!.clientUtterance).toBe('Ik heb een vraag.');
   });
 });

@@ -165,10 +165,15 @@ export class IntakeSession {
    * path alleen nog een naam.
    */
   recordTurn(clientUtterance: string, assistantContent: string): void {
-    this.history.push(
-      beurt('client', clientUtterance, this.history.length),
-      beurt('assistant', assistantContent, this.history.length + 1),
-    );
+    // Alleen vastleggen wat er werkelijk is gezegd. Bij de openingsbeurt zegt de cliënt
+    // niets, en een leeg cliëntbericht in de geschiedenis laat elke volgende beurt op
+    // een HTTP 400 stuklopen — precies het geval dat live naar boven kwam.
+    if (clientUtterance.trim()) {
+      this.history.push(beurt('client', clientUtterance, this.history.length));
+    }
+    if (assistantContent.trim()) {
+      this.history.push(beurt('assistant', assistantContent, this.history.length));
+    }
   }
 
   async observe(): Promise<ObservationResult> {

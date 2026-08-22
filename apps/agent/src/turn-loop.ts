@@ -60,6 +60,13 @@ export interface TurnLoopOptions {
   /** De STT kapte de cliënt af; de volledige uitspraak komt hier alsnog binnen. */
   readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
   /**
+   * Er kwam een beurt binnen zonder bruikbare inhoud van de cliënt.
+   *
+   * De assistent blijft dan gewoon wachten. Zichtbaar, want stilte zonder melding is
+   * niet te onderscheiden van een vastgelopen lus.
+   */
+  readonly onSkippedTurn?: (reason: string) => void;
+  /**
    * Een beurt liep stuk.
    *
    * Bestaat omdat de lus vanuit een event-handler wordt gestart: zonder afvanger wordt
@@ -94,6 +101,17 @@ export class TurnLoop {
     this.metrics = new TurnMetricsRecorder(o.now);
 
     o.stt.on('end_of_turn', (text, meta) => {
+      // Een lege beurt hoort niet in de lus.
+      //
+      // De STT meldt end_of_turn ook na geluid dat geen woorden opleverde: een kuch, een
+      // deur, een stuk stilte na ruis. Zonder deze zeef beantwoordt de assistent een
+      // uitspraak die niet bestaat, en belandt er een leeg cliëntbericht in de
+      // geschiedenis. Dat laatste is het ergste: elke volgende beurt stuurt dat mee, en
+      // de API weigert een bericht zonder inhoud. Eén kuch legde zo het hele gesprek stil.
+      if (!text.trim()) {
+        o.onSkippedTurn?.('geen bruikbare tekst van de STT');
+        return;
+      }
       this.handleTurn(text, meta?.speechEndedAt).catch((error: unknown) => {
         this.state = 'idle';
         o.onTurnError?.(error);

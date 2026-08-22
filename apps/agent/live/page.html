@@ -247,6 +247,9 @@
             if (m.client) regel('u', m.client, '', 'client');
             regel('assistent', m.assistant, m.hud + (m.interrupted ? ' · onderbroken' : ''));
           }
+          if (m.type === 'skipped') {
+            regel('systeem', `beurt overgeslagen — ${m.reden}; hij blijft wachten`, '', 'waarschuwing');
+          }
           if (m.type === 'cut') {
             regel('systeem', `uitspraak te vroeg afgekapt (gat ${m.gapMs} ms)`, '', 'waarschuwing');
           }

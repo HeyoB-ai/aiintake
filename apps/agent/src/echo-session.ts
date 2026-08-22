@@ -61,6 +61,7 @@ export interface EchoSessionOptions {
    */
   readonly respond?: ResponseSource;
   readonly onTurnError?: (error: unknown) => void;
+  readonly onSkippedTurn?: (reason: string) => void;
   readonly onTurn?: (turn: CompletedTurn) => void;
   /** De STT kapte de cliënt af. Dataverlies-signaal; zie RISICOS.md risico 2. */
   readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
@@ -124,6 +125,10 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     now,
     respond: options.respond ?? echoResponse,
     onTurn: (turn) => options.onTurn?.(turn),
+    onSkippedTurn: (reason) => {
+      log.info('beurt overgeslagen', { reden: reason });
+      options.onSkippedTurn?.(reason);
+    },
     onTurnError: (error) => {
       log.error('beurt mislukt', { fout: String(error).slice(0, 200) });
       options.onTurnError?.(error);

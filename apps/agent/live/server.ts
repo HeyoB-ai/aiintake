@@ -160,6 +160,7 @@ wss.on('connection', async (ws) => {
       respond: intake.responseSource(),
       avatarProvider: browserAvatar(new NullAvatarProvider(() => performance.now()), ws),
       onPrematureCut: (_volledig, gapMs) => stuur({ type: 'cut', gapMs }),
+      onSkippedTurn: (reden) => stuur({ type: 'skipped', reden }),
       onTurnError: (error) => stuur({ type: 'error', waar: 'beurt', wat: String(error) }),
       onTurn: (turn) => {
         // De HUD-regel is dezelfde als in de worker-logs, inclusief de twee signalen
