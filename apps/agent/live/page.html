@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Praat met de intake</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --rand: #2a3441;
+        --zacht: #8b98a8;
+      }
+      body {
+        margin: 0;
+        background: #12161c;
+        color: #e6edf3;
+        font: 15px/1.55 ui-sans-serif, system-ui, sans-serif;
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        height: 100vh;
+      }
+      main {
+        padding: 24px 28px;
+        overflow-y: auto;
+      }
+      aside {
+        border-left: 1px solid var(--rand);
+        padding: 24px 20px;
+        overflow-y: auto;
+        background: #0e1218;
+      }
+      h1 {
+        font-size: 17px;
+        margin: 0 0 4px;
+      }
+      p.sub {
+        color: var(--zacht);
+        margin: 0 0 20px;
+        font-size: 13px;
+      }
+      button {
+        font: inherit;
+        padding: 10px 18px;
+        border-radius: 7px;
+        border: 1px solid var(--rand);
+        background: #1b2230;
+        color: #e6edf3;
+        cursor: pointer;
+      }
+      button.primair {
+        background: #2f6f4f;
+        border-color: #3c8a63;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #niveau {
+        height: 6px;
+        background: #1b222c;
+        border-radius: 3px;
+        overflow: hidden;
+        margin: 18px 0 22px;
+      }
+      #niveau div {
+        height: 100%;
+        width: 0%;
+        background: #3c8a63;
+        transition: width 60ms linear;
+      }
+      .beurt {
+        border-top: 1px solid var(--rand);
+        padding: 14px 0;
+      }
+      .rol {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--zacht);
+      }
+      .client .rol {
+        color: #7aa2d6;
+      }
+      .hud {
+        font-family: ui-monospace, monospace;
+        font-size: 11.5px;
+        color: var(--zacht);
+        margin-top: 6px;
+      }
+      .waarschuwing {
+        color: #e0a44a;
+      }
+      h2 {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--zacht);
+        margin: 0 0 8px;
+      }
+      .blok {
+        margin-bottom: 22px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12.5px;
+      }
+      td {
+        padding: 3px 0;
+        vertical-align: top;
+      }
+      td.k {
+        color: var(--zacht);
+        padding-right: 10px;
+        white-space: nowrap;
+      }
+      .risico {
+        color: #e0a44a;
+        font-size: 12.5px;
+        padding: 2px 0;
+      }
+      .risico.kritiek {
+        color: #e06c5a;
+      }
+      #status {
+        font-size: 12.5px;
+        color: var(--zacht);
+        margin-top: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Praat met de intake</h1>
+      <p class="sub">
+        Nederlands, microfoon aan. Onderbreek gerust terwijl hij praat — dat is de test.
+      </p>
+      <button id="start" class="primair">Start gesprek</button>
+      <button id="stop" disabled>Stop</button>
+      <div id="niveau"><div></div></div>
+      <div id="gesprek"></div>
+      <div id="status">niet verbonden</div>
+    </main>
+
+    <aside>
+      <div class="blok">
+        <h2>Volledigheid</h2>
+        <div id="score">—</div>
+      </div>
+      <div class="blok">
+        <h2>Urgentie</h2>
+        <div id="risicos">geen signalen</div>
+      </div>
+      <div class="blok">
+        <h2>Vastgelegde feiten</h2>
+        <table id="feiten">
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="blok">
+        <h2>Geweigerd</h2>
+        <div id="geweigerd">geen</div>
+      </div>
+    </aside>
+
+    <script type="module">
+      const SR = 16000;
+      const $ = (id) => document.getElementById(id);
+      const status = (t) => ($('status').textContent = t);
+
+      let ws = null;
+      let ctxIn = null;
+      let ctxUit = null;
+      let volgendeStart = 0;
+      let bronnen = [];
+
+      function regel(rol, tekst, hud, klasse = '') {
+        const d = document.createElement('div');
+        d.className = 'beurt ' + klasse;
+        d.innerHTML =
+          `<div class="rol">${rol}</div><div>${tekst || '<i>(stilte)</i>'}</div>` +
+          (hud ? `<div class="hud">${hud}</div>` : '');
+        $('gesprek').prepend(d);
+      }
+
+      /** Audio afspelen op volgorde, zodat er geen gaten of overlap ontstaan. */
+      function speel(int16) {
+        if (!ctxUit) return;
+        const buf = ctxUit.createBuffer(1, int16.length, SR);
+        const kanaal = buf.getChannelData(0);
+        for (let i = 0; i < int16.length; i++) kanaal[i] = int16[i] / 32768;
+        const bron = ctxUit.createBufferSource();
+        bron.buffer = buf;
+        bron.connect(ctxUit.destination);
+        const nu = ctxUit.currentTime;
+        if (volgendeStart < nu) volgendeStart = nu + 0.05;
+        bron.start(volgendeStart);
+        volgendeStart += buf.duration;
+        bronnen.push(bron);
+        bron.onended = () => (bronnen = bronnen.filter((b) => b !== bron));
+      }
+
+      /** Barge-in: alles wat nog klaarstaat weggooien, niet uitspelen. */
+      function stopGeluid() {
+        for (const b of bronnen) {
+          try {
+            b.stop();
+          } catch {}
+        }
+        bronnen = [];
+        volgendeStart = 0;
+      }
+
+      async function start() {
+        $('start').disabled = true;
+        status('microfoon aanvragen…');
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        });
+
+        ctxIn = new AudioContext({ sampleRate: SR });
+        ctxUit = new AudioContext({ sampleRate: SR });
+        await ctxUit.resume();
+
+        ws = new WebSocket(`ws://${location.host}`);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+          status('verbonden — de keten wordt opgezet…');
+          $('stop').disabled = false;
+        };
+
+        ws.onmessage = (e) => {
+          if (e.data instanceof ArrayBuffer) {
+            speel(new Int16Array(e.data));
+            return;
+          }
+          const m = JSON.parse(e.data);
+          if (m.type === 'clear') stopGeluid();
+          if (m.type === 'ready') {
+            // Pas starten als de server zegt dat de keten er is. De server vangt een te
+            // vroege start ook af, maar twee keer voorzichtig kost hier niets.
+            status('klaar — hij begint zo');
+            ws.send(JSON.stringify({ type: 'start' }));
+          }
+          if (m.type === 'turn') {
+            if (m.client) regel('u', m.client, '', 'client');
+            regel('assistent', m.assistant, m.hud + (m.interrupted ? ' · onderbroken' : ''));
+          }
+          if (m.type === 'cut') {
+            regel('systeem', `uitspraak te vroeg afgekapt (gat ${m.gapMs} ms)`, '', 'waarschuwing');
+          }
+          if (m.type === 'facts') {
+            $('score').textContent = Math.round((m.completeness ?? 0) * 100) + '%';
+            const tb = $('feiten').querySelector('tbody');
+            tb.innerHTML = m.facts
+              .map((f) => `<tr><td class="k">${f.key}</td><td>${f.value}</td></tr>`)
+              .join('');
+            $('risicos').innerHTML = m.risks.length
+              ? m.risks
+                  .map(
+                    (r) =>
+                      `<div class="risico ${r.level === 'CRITICAL' ? 'kritiek' : ''}">${r.level} — ${r.label}</div>`,
+                  )
+                  .join('')
+              : 'geen signalen';
+            $('geweigerd').textContent = m.rejected.length
+              ? m.rejected.map((r) => `${r.key}: ${r.reason}`).join(' · ')
+              : 'geen';
+          }
+          if (m.type === 'error') status(`fout (${m.waar}): ${m.wat}`);
+        };
+
+        ws.onclose = () => status('verbinding gesloten');
+
+        // Microfoon → Int16 → server. ScriptProcessor omdat het één rekensom is en een
+        // AudioWorklet daar een apart modulebestand voor vraagt.
+        const bron = ctxIn.createMediaStreamSource(stream);
+        const proc = ctxIn.createScriptProcessor(2048, 1, 1);
+        const meter = $('niveau').firstElementChild;
+
+        proc.onaudioprocess = (ev) => {
+          const data = ev.inputBuffer.getChannelData(0);
+          let piek = 0;
+          const pcm = new Int16Array(data.length);
+          for (let i = 0; i < data.length; i++) {
+            const s = Math.max(-1, Math.min(1, data[i]));
+            pcm[i] = s * 32767;
+            if (Math.abs(s) > piek) piek = Math.abs(s);
+          }
+          meter.style.width = Math.min(100, piek * 180) + '%';
+          if (ws && ws.readyState === 1) ws.send(pcm.buffer);
+        };
+
+        bron.connect(proc);
+        // Naar de uitgang met gain 0: een ScriptProcessor draait alleen als hij in de
+        // graaf naar de destination loopt, maar we willen onszelf niet terughoren.
+        const stil = ctxIn.createGain();
+        stil.gain.value = 0;
+        proc.connect(stil);
+        stil.connect(ctxIn.destination);
+      }
+
+      function stop() {
+        stopGeluid();
+        ws?.close();
+        ctxIn?.close();
+        ctxUit?.close();
+        $('start').disabled = false;
+        $('stop').disabled = true;
+        status('gestopt');
+      }
+
+      $('start').onclick = () => start().catch((e) => status('fout: ' + e.message));
+      $('stop').onclick = stop;
+    </script>
+  </body>
+</html>

@@ -25,7 +25,8 @@
     "db:types": "supabase gen types typescript --linked > packages/db/src/generated/database.types.ts",
     "diag:bey": "pnpm --filter @intake/agent diag:bey",
     "diag:ttft": "pnpm --filter @intake/agent diag:ttft",
-    "diag:netwerk": "pnpm --filter @intake/agent diag:netwerk"
+    "diag:netwerk": "pnpm --filter @intake/agent diag:netwerk",
+    "dev:live": "pnpm --filter @intake/agent dev:live"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

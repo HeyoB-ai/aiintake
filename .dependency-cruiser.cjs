@@ -163,6 +163,9 @@ module.exports = {
           // De bakeoff-meetpagina wordt door esbuild gebundeld en door de browser
           // geladen; niets in deze repo importeert hem.
           'apps/[^/]+/bakeoff/.*',
+          // De praatpagina: een lokaal server-startpunt plus een HTML-pagina.
+          // Niemand importeert die; hij wordt gedraaid.
+          'apps/[^/]+/live/.*',
           // App Router-bestanden zijn per definitie losse entrypoints: Next.js roept
           // page/layout/route/middleware aan, niemand importeert ze.
           'apps/[^/]+/src/app/.*',
@@ -186,6 +189,9 @@ module.exports = {
           '(^|/)[\\w.-]+\\.config\\.(ts|js|cjs|mjs)$',
           // Het meetharnas van de bakeoff draait alleen met pnpm test:bakeoff.
           'apps/[^/]+/bakeoff/.*',
+          // De praatpagina: een lokaal server-startpunt plus een HTML-pagina.
+          // Niemand importeert die; hij wordt gedraaid.
+          'apps/[^/]+/live/.*',
         ],
       },
       to: { dependencyTypes: ['npm-dev'] },

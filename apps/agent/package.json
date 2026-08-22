@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron ge\u00efmporteerd en zijn voor Node niet direct uitvoerbaar.",
+    "//build": "Bundelen, niet los compileren: de workspace-packages worden als TypeScript-bron geïmporteerd en zijn voor Node niet direct uitvoerbaar.",
     "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -14,7 +14,8 @@
     "test:bakeoff": "vitest run --config vitest.bakeoff.config.ts --reporter verbose",
     "diag:bey": "tsx --env-file=../../.env bakeoff/bey-diagnose.ts",
     "diag:ttft": "tsx --env-file=../../.env bakeoff/ttft-diagnose.ts",
-    "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts"
+    "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts",
+    "dev:live": "tsx --env-file=../../.env live/server.ts"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",
@@ -29,11 +30,13 @@
     "@livekit/agents": "1.7.0",
     "@livekit/agents-plugin-bey": "1.7.0",
     "@livekit/rtc-node": "^0.13.34",
+    "ws": "^8.21.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@anam-ai/js-sdk": "^4.25.0",
     "@types/node": "^22.10.5",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.24.2",
     "livekit-client": "^2.22.0",
     "playwright": "^1.62.1",

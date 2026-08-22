@@ -70,24 +70,38 @@ export class IntakeSession {
 
   constructor(private readonly options: IntakeSessionOptions) {
     const hot: HotPathModel = {
-      stream: (req) =>
-        options.llm.streamText({
+      stream: (req) => {
+        const berichten = [
+          ...req.history.map((t) => ({
+            role: t.role === 'client' ? ('user' as const) : ('assistant' as const),
+            content: t.content,
+          })),
+          ...(req.lastClientUtterance
+            ? [{ role: 'user' as const, content: req.lastClientUtterance }]
+            : []),
+        ];
+
+        // De openingsbeurt heeft geen geschiedenis en geen uitspraak van de cliënt, en
+        // een chat-API weigert een lege berichtenlijst. Dit is de aanleiding, expliciet
+        // benoemd: zonder dit crasht precies de beurt waarop de cliënt zijn eerste
+        // indruk vormt, en met een HTTP 400 die niets over de oorzaak zegt.
+        if (berichten.length === 0) {
+          berichten.push({
+            role: 'user' as const,
+            content: '[De cliënt heeft de intake geopend en wacht op je eerste woorden.]',
+          });
+        }
+
+        return options.llm.streamText({
           system: req.system,
-          messages: [
-            ...req.history.map((t) => ({
-              role: t.role === 'client' ? ('user' as const) : ('assistant' as const),
-              content: t.content,
-            })),
-            ...(req.lastClientUtterance
-              ? [{ role: 'user' as const, content: req.lastClientUtterance }]
-              : []),
-          ],
+          messages: berichten,
           model: options.hotModel,
           // Kort. Een beurt van vijf zinnen is niet alleen traag om te genereren, hij is
           // ook onprettig om naar te luisteren en onmogelijk om te onderbreken zonder
           // dat er iets zinnigs half is uitgesproken.
           maxTokens: 220,
-        }),
+        });
+      },
     };
 
     const cold: ColdPathModel = {

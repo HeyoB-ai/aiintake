@@ -84,6 +84,17 @@ export class DeepgramSttStream implements SttStream {
 
     // Node's WebSocket kent geen custom headers. Deepgram accepteert de key daarom als
     // subprotocol — dezelfde weg die browserclients gebruiken.
+    // Flux draait op /v2/listen en deze adapter spreekt /v1. Zonder deze controle krijg
+    // je een kale "non-101 status code" en zoek je het in de key of het netwerk, terwijl
+    // het een modelnaam is. Zie ADR-0009 voor waarom Flux hier sowieso niet past.
+    if (/^flux/i.test(this.config.model ?? '')) {
+      throw new Error(
+        `Deepgram: model "${this.config.model}" is een Flux-model en werkt alleen op ` +
+          '/v2/listen; deze adapter spreekt /v1. Flux kent bovendien geen language-parameter ' +
+          'en is Engelstalig, dus voor Nederlands is nova-3 de keuze. Zet DEEPGRAM_MODEL=nova-3.',
+      );
+    }
+
     const socket = new WebSocket(`${WS_URL}?${params}`, ['token', this.config.apiKey]);
     this.socket = socket;
 
@@ -92,7 +103,16 @@ export class DeepgramSttStream implements SttStream {
         socket.removeEventListener('error', onError);
         resolve();
       };
-      const onError = () => reject(new Error('Deepgram: verbinding mislukt'));
+      // De oorzaak meenemen. Een kale "verbinding mislukt" laat je gissen tussen een
+      // verkeerde key, een onbereikbare host en een geweigerd model — en dat is precies
+      // het soort melding waar een half uur in gaat zitten.
+      const onError = (event: unknown) => {
+        const detail =
+          (event as { message?: string; error?: { message?: string } })?.message ??
+          (event as { error?: { message?: string } })?.error?.message ??
+          'geen details van de socket';
+        reject(new Error(`Deepgram: verbinding mislukt — ${detail}`));
+      };
       socket.addEventListener('open', onOpen, { once: true });
       socket.addEventListener('error', onError, { once: true });
     });

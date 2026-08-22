@@ -134,3 +134,48 @@ kan het woord ook zonder hulp kennen. De meting draait dezelfde fragmenten twee 
 Als het verschil nul is, hoort de keyterm-lijst uit de specificatie: dan is het dode
 configuratie die de indruk wekt dat er iets geregeld is. Dat is een reëel mogelijke
 uitkomst, want keyterm prompting is bij Deepgram gedocumenteerd voor nova-3 Engels.
+
+---
+
+## Correctie, 22 augustus 2026 — Flux bestaat wél
+
+Dit ADR stelde vast dat Flux niet bestond: 437 modellen in `GET /v1/models`, geen enkele
+met "flux" in de naam. Die waarneming klopte, de conclusie eruit niet.
+
+Bij het opzetten van de praatpagina weigerde Deepgram de verbinding met:
+
+```
+V2_MODEL_ON_V1_LISTEN_ENDPOINT
+Flux models are not supported on the `/v1/listen` endpoint. Please use `/v2/listen`.
+```
+
+Flux bestaat dus, maar leeft op een **ander endpoint met een eigen catalogus**. De
+v1-modellenlijst — inmiddels 539 modellen — bevat nog altijd nul flux-treffers, want die
+lijst gaat over v1. Ik heb in de verkeerde catalogus gekeken en de afwezigheid daar
+gelezen als afwezigheid overal.
+
+**Dat is dezelfde fout als de oorspronkelijke, alleen omgekeerd.** Toen werd een claim uit
+een architectuurdocument niet geverifieerd; hier werd één negatief zoekresultaat
+behandeld als bewijs. Beide keren ontbrak de vraag "zou ik dit hier moeten kunnen vinden?".
+
+### Wat de conclusie niet verandert
+
+Voor Nederlands blijft nova-3 de keuze, en nu op een hardere grond dan eerst. Gemeten
+tegen `/v2/listen`:
+
+```
+model=flux-general-en&language=nl   HTTP 400 — Unknown query parameters: language
+model=flux-general-en&language=en   HTTP 400 — Unknown query parameters: language
+v1 nova-3 + language=nl             verbinding open
+```
+
+Flux accepteert de parameter `language` niet en zijn modelnaam eindigt op `-en`: de taal
+zit in het model en er is geen Nederlandse variant. Het endpointing-voordeel waar het
+architectuurdocument op rekende, is voor dit product dus niet beschikbaar — niet omdat het
+niet bestaat, maar omdat het geen Nederlands spreekt.
+
+### Wat er in de code is veranderd
+
+De adapter faalt nu meteen met een uitleg als er een Flux-model is geconfigureerd, in
+plaats van met "Received network error or non-101 status code". Die kale melding kostte
+een half uur zoeken in de key en het netwerk terwijl het een modelnaam was.

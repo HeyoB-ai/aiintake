@@ -52,6 +52,15 @@ export interface EchoSessionOptions {
   readonly language?: Language;
   /** Default is de null-provider: de lus draait volledig zonder avatarleverancier. */
   readonly avatarProvider?: AvatarProvider;
+  /**
+   * De bron van de antwoorden. Standaard de echo.
+   *
+   * Bestaat zodat dezelfde mediaketen — STT, TTS, avatar, barge-in — met de echte engine
+   * gedraaid kan worden zonder dat er een tweede kopie van die bedrading ontstaat. Twee
+   * bedradingen betekent twee plekken waar de barge-in subtiel anders werkt.
+   */
+  readonly respond?: ResponseSource;
+  readonly onTurnError?: (error: unknown) => void;
   readonly onTurn?: (turn: CompletedTurn) => void;
   /** De STT kapte de cliënt af. Dataverlies-signaal; zie RISICOS.md risico 2. */
   readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
@@ -113,8 +122,12 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     avatar,
     language,
     now,
-    respond: echoResponse,
+    respond: options.respond ?? echoResponse,
     onTurn: (turn) => options.onTurn?.(turn),
+    onTurnError: (error) => {
+      log.error('beurt mislukt', { fout: String(error).slice(0, 200) });
+      options.onTurnError?.(error);
+    },
     onPrematureCut: (fullUtterance, gapMs) => {
       // Geen transcriptfragment in het log (§14) — alleen dát het gebeurde en hoe krap.
       log.warn('uitspraak te vroeg afgekapt', { gapMs, tekens: fullUtterance.length });

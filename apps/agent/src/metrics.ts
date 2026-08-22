@@ -158,7 +158,9 @@ export interface HudExtras {
  * ziet er groen uit terwijl er informatie ontbreekt.
  */
 export function formatHudLine(metrics: TurnMetrics, extras: HudExtras = {}): string {
-  const ms = (value: number | null) => (value === null ? '—' : `${value}ms`);
+  // Afronden: de klok is performance.now() en levert kommagetallen. "823.7115999999987ms"
+  // in een HUD leest als ruis en verbergt het getal waar het om gaat.
+  const ms = (value: number | null) => (value === null ? '—' : `${Math.round(value)}ms`);
   const parts = [
     `eot ${ms(metrics.speechEndToSttFinalMs)}`,
     `llm ${ms(metrics.sttToLlmFirstTokenMs)}`,

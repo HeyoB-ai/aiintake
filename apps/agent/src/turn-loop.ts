@@ -59,6 +59,14 @@ export interface TurnLoopOptions {
   readonly onBackchannel?: (text: string) => void;
   /** De STT kapte de cliënt af; de volledige uitspraak komt hier alsnog binnen. */
   readonly onPrematureCut?: (fullUtterance: string, gapMs: number) => void;
+  /**
+   * Een beurt liep stuk.
+   *
+   * Bestaat omdat de lus vanuit een event-handler wordt gestart: zonder afvanger wordt
+   * een fout hier een unhandled rejection, en die sloopt het hele proces. Eén mislukte
+   * beurt hoort de sessie te kosten, niet de worker met alle andere gesprekken erin.
+   */
+  readonly onTurnError?: (error: unknown) => void;
 }
 
 type State = 'idle' | 'responding' | 'interrupting';
@@ -86,7 +94,10 @@ export class TurnLoop {
     this.metrics = new TurnMetricsRecorder(o.now);
 
     o.stt.on('end_of_turn', (text, meta) => {
-      void this.handleTurn(text, meta?.speechEndedAt);
+      this.handleTurn(text, meta?.speechEndedAt).catch((error: unknown) => {
+        this.state = 'idle';
+        o.onTurnError?.(error);
+      });
     });
 
     o.stt.on('turn_continued', (_text, meta) => {
@@ -139,6 +150,24 @@ export class TurnLoop {
     }
 
     await this.interrupt();
+  }
+
+  /**
+   * De openingsbeurt: de assistent begint, zonder dat de cliënt iets heeft gezegd.
+   *
+   * Dit hoort in de lus en niet erbuiten. Zou de aanroeper de opening zelf naar de TTS
+   * sturen, dan telt hij niet mee in de metrics, is hij niet te onderbreken, en gedraagt
+   * de eerste beurt zich anders dan alle volgende — precies de beurt waarop de cliënt
+   * zijn indruk vormt.
+   */
+  async open(): Promise<void> {
+    if (this.state !== 'idle') return;
+    try {
+      await this.handleTurn('', this.o.now());
+    } catch (error) {
+      this.state = 'idle';
+      this.o.onTurnError?.(error);
+    }
   }
 
   /** Optimistisch dempen zodra de VAD iets hoort. Omkeerbaar. */
