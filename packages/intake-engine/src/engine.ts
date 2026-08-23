@@ -135,7 +135,10 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         !isOpening && !isClosing && turnCount > 0 && turnCount % FILLER_INTERVAL === 0;
       // In de narratieve fase iets meer ruimte: een uitnodiging om te vertellen kost
       // een zin meer dan een gesloten vraag.
-      const maxSentences = isClosing ? 2 : isOpening ? 3 : narrativePhase ? 3 : 2;
+      // De opening heeft er vier nodig: drie voor wie/wat/waarom, en één voor de vraag.
+      // Met drie sneuvelt er een van de vier verplichte punten, en dat is meestal
+      // uitgerekend "ik ben geen advocaat".
+      const maxSentences = isClosing ? 2 : isOpening ? 4 : narrativePhase ? 3 : 2;
 
       const prompt = render(
         PROMPTS.conversation,

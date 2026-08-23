@@ -438,3 +438,66 @@ describe('de assistent mag geen bron van zichzelf zijn', () => {
     expect(r.factUpdates.find((f) => f.key === 'summary_dismissal_date')?.value).toBe('2026-01-17');
   });
 });
+
+describe('de openingsbeurt', () => {
+  /**
+   * De opening is de enige beurt met een harde inhoudseis: er moet in staan dat dit geen
+   * advocaat is en dat er geen advies wordt gegeven. Dat is geen stijlkwestie maar de
+   * verwachting waarop iemand de rest van het gesprek beoordeelt — en het is precies het
+   * punt dat sneuvelt als het model zich beperkt tot een korte introductie.
+   *
+   * Deze tests staan op de instructie en niet op de uitvoer: wat het model ervan maakt is
+   * per beurt anders, maar de opdracht hoort er onvoorwaardelijk in te staan.
+   */
+  async function openingsPrompt(orgNaam = 'Kantoor De Vries') {
+    const model = hot(['x']);
+    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
+    await engine.respond(
+      invoer({ organization: { id: 'o', name: orgNaam, slug: 's' } as OrgConfig }),
+    );
+    return model.laatsteSysteem;
+  }
+
+  it('eist dat de assistent zegt geen advocaat te zijn en geen advies te geven', async () => {
+    const body = await openingsPrompt();
+    expect(body).toContain('géén advocaat');
+    expect(body).toContain('geen juridisch advies');
+    expect(body).toContain('niet worden afgezwakt');
+  });
+
+  it('noemt wat ze doet en waarom, in die volgorde', async () => {
+    const body = await openingsPrompt();
+    const wat = body.indexOf('vastleggen en ordenen');
+    const waarom = body.indexOf('sneller en beter');
+    const vraag = body.indexOf('Kunt u vertellen wat er speelt');
+    expect(wat).toBeGreaterThan(-1);
+    expect(waarom).toBeGreaterThan(wat);
+    expect(vraag).toBeGreaterThan(waarom);
+  });
+
+  it('verbiedt uitspraken over kosten', async () => {
+    // Het systeem doet geen financiële toezeggingen namens het kantoor. "Efficiënter voor
+    // de beoordeling" is iets anders dan "dit beperkt uw kosten".
+    const body = await openingsPrompt();
+    expect(body).toContain('Geen uitspraken over');
+    expect(body).toContain('die toezegging is niet aan u');
+  });
+
+  it('haalt de kantoornaam uit de organisatieconfiguratie', async () => {
+    const body = await openingsPrompt('Advocatenkantoor Jansen & Partners');
+    expect(body).toContain('Advocatenkantoor Jansen & Partners');
+    expect(body).not.toContain('Kantoor De Vries');
+  });
+
+  it('houdt de opening kort genoeg om uit te luisteren', async () => {
+    const body = await openingsPrompt();
+    expect(body).toContain('twee tot drie zinnen');
+    // Vier zinnen in totaal: drie voor wie/wat/waarom, één voor de vraag. Met drie
+    // sneuvelt er een van de vier punten, meestal uitgerekend "ik ben geen advocaat".
+    expect(body).toContain('Maximaal 4 zinnen');
+  });
+
+  it('staat op versie 5 of hoger, zodat llm_calls de opening kan onderscheiden', () => {
+    expect(PROMPTS.conversation.version).toBeGreaterThanOrEqual(5);
+  });
+});
