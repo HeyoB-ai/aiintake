@@ -22,6 +22,13 @@ export interface CartesiaOptions {
   /** sonic-3 is het huidige model; sonic, sonic-2 en sonic-turbo zijn uitgefaseerd. */
   readonly model?: string;
   readonly sampleRate?: number;
+  /**
+   * Aanloopstilte wegsnijden. Standaard aan.
+   *
+   * Uit te zetten om met eigen oren te vergelijken: een klik hoor je, en op de golfvorm is
+   * hij soms te klein om op te vallen.
+   */
+  readonly trimLeadingSilence?: boolean;
 }
 
 /**
@@ -50,12 +57,29 @@ const AUDIBLE_THRESHOLD = 0.003;
  */
 const KEEP_LEAD_MS = 20;
 /**
+ * Fade-in over het snijpunt.
+ *
+ * Gemeten is het snijpunt schoon — de bewaarde aanloop van 20 ms landt in near-silence en
+ * de grootste sprong in de eerste vijf milliseconde was 16 op een schaal van 32767. Toch
+ * staat deze fade er: hij kost niets, en hij neemt de hele klasse "sprong in de golfvorm"
+ * weg in plaats van hem per geval te moeten meten. Bij een andere stem of een hardere
+ * inzet kan die sprong wél groot zijn.
+ */
+const FADE_IN_MS = 8;
+/**
  * Bovengrens aan wat er weg mag.
  *
  * Zou er ooit een beurt binnenkomen die veel langer stil blijft, dan is er iets anders aan
  * de hand dan prosodie, en dan hoort dat zichtbaar te worden in plaats van weggesneden.
  */
 const MAX_TRIM_MS = 2000;
+
+/** Lineaire fade over de eerste `samples`, zodat het snijpunt geen sprong wordt. */
+function fadeIn(pcm: Int16Array, samples: number): Int16Array {
+  const n = Math.min(samples, pcm.length);
+  for (let i = 0; i < n; i += 1) pcm[i] = Math.round(pcm[i]! * (i / n));
+  return pcm;
+}
 
 export class CartesiaTtsStream implements TtsStream {
   private readonly handlers = new Map<string, Function[]>();
@@ -76,6 +100,23 @@ export class CartesiaTtsStream implements TtsStream {
   ) {}
 
   async connect(): Promise<void> {
+    // Gemeten valstrik: over de WEBSOCKET negeert Cartesia `sample_rate` en levert hij
+    // altijd 16 kHz. Dezelfde zin gaf via REST 2,37 s op zowel 16000 als 24000 — het
+    // aantal samples schaalde daar netjes mee — maar via de WebSocket bleef het aantal
+    // samples gelijk, wat op 24000 een duur van 1,39 s "oplevert".
+    //
+    // Wie hier een hogere rate instelt, labelt 16 kHz-audio als 24 kHz en krijgt spraak
+    // die anderhalf keer te snel klinkt. Dat is geen subtiel kwaliteitsverlies maar een
+    // kapot gesprek, dus het hoort te knallen en niet stilletjes te gebeuren.
+    if (this.config.sampleRate !== 16_000) {
+      throw new Error(
+        `Cartesia: sampleRate ${this.config.sampleRate} werkt niet over de WebSocket. ` +
+          'Die honoreert de parameter niet en levert altijd 16000 Hz; een andere waarde ' +
+          'labelt de audio verkeerd en laat hem te snel klinken. Zie de toelichting bij ' +
+          'connect() en RISICOS.md.',
+      );
+    }
+
     const url = `${WS_URL}?api_key=${encodeURIComponent(this.config.apiKey)}&cartesia_version=${API_VERSION}`;
     const socket = new WebSocket(url);
     this.socket = socket;
@@ -121,7 +162,7 @@ export class CartesiaTtsStream implements TtsStream {
     if (message.type === 'chunk' && message.data) {
       const bytes = Buffer.from(message.data, 'base64');
       const ruw = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.length / 2));
-      const pcm = this.trimming ? this.trimLeading(ruw) : ruw;
+      const pcm = this.trimming && this.config.trimLeadingSilence ? this.trimLeading(ruw) : ruw;
       if (pcm.length === 0) return;
 
       const durationMs = (pcm.length / this.config.sampleRate) * 1000;
@@ -163,7 +204,10 @@ export class CartesiaTtsStream implements TtsStream {
     const vanaf = Math.max(0, eerste - lead);
     this.trimming = false;
     this.trimmedMs += (vanaf / this.config.sampleRate) * 1000;
-    return vanaf === 0 ? pcm : pcm.slice(vanaf);
+    if (vanaf === 0) return pcm;
+
+    const uit = pcm.slice(vanaf);
+    return fadeIn(uit, Math.round((FADE_IN_MS / 1000) * this.config.sampleRate));
   }
 
   /** Hoeveel aanloopstilte er deze beurt is weggesneden. */
@@ -261,6 +305,7 @@ export class CartesiaTtsProvider implements TextToSpeechProvider {
       apiKey: options.apiKey,
       model: options.model ?? 'sonic-3',
       sampleRate: options.sampleRate ?? 16_000,
+      trimLeadingSilence: options.trimLeadingSilence ?? true,
     };
   }
 

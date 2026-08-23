@@ -109,7 +109,11 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     ...(media.deepgramModel ? { model: media.deepgramModel } : {}),
   }).connect({ language, keyterms: keytermsFor(language) });
 
-  const tts = await new CartesiaTtsProvider({ apiKey: media.cartesiaApiKey }).open({
+  const tts = await new CartesiaTtsProvider({
+    apiKey: media.cartesiaApiKey,
+    // Uit te zetten met TTS_TRIM_LEADING=0 om het verschil te horen in plaats van te meten.
+    trimLeadingSilence: process.env['TTS_TRIM_LEADING'] !== '0',
+  }).open({
     voiceId: media.cartesiaVoiceId,
     language,
   });

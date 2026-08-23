@@ -240,7 +240,10 @@ wss.on('connection', async (ws) => {
     }
   }
 
-  stuur({ type: 'ready', ...(anamToken ? { anamToken } : {}) });
+  // De samplerate meesturen in plaats van hem in de pagina te herhalen. Twee plekken met
+  // hetzelfde getal is hoe een mismatch ontstaat, en een mismatch klinkt hier als spraak
+  // die te snel of te traag loopt.
+  stuur({ type: 'ready', sampleRate: SAMPLE_RATE, ...(anamToken ? { anamToken } : {}) });
   if (wilStarten) void sessie.loop.open();
 });
 

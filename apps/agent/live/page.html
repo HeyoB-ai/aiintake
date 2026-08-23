@@ -195,7 +195,10 @@
        */
       let anam = null;
       let anamInvoer = null;
-      const SR_UIT = 16000;
+      // Komt van de server; niet hier herhalen. Anam accepteert 16000, 24000 en 44100, maar
+      // wat wij sturen bepaalt de TTS — en die staat op 16 kHz omdat Cartesia over de
+      // WebSocket geen hogere rate levert.
+      let SR_UIT = 16000;
 
       function nieuweAnamStroom() {
         if (!anam) return null;
@@ -292,6 +295,7 @@
           const m = JSON.parse(e.data);
           if (m.type === 'clear') stopGeluid();
           if (m.type === 'ready') {
+            if (m.sampleRate) SR_UIT = m.sampleRate;
             // Pas starten als de server zegt dat de keten er is. De server vangt een te
             // vroege start ook af, maar twee keer voorzichtig kost hier niets.
             if (m.anamToken) {

@@ -13,7 +13,7 @@ const SR = 16_000;
 
 function stroom() {
   const s = new CartesiaTtsStream(
-    { apiKey: 'test', model: 'sonic-3', sampleRate: SR },
+    { apiKey: 'test', model: 'sonic-3', sampleRate: SR, trimLeadingSilence: true },
     { voiceId: 'v', language: 'nl' },
   );
   const chunks: Int16Array[] = [];
@@ -107,5 +107,43 @@ describe('aanloopstilte wegsnijden', () => {
     stuur(stilte(200));
     expect(s.trimmedLeadingMs()).toBe(naEersteBeurt);
     expect(totaalMs(chunks)).toBe(500);
+  });
+});
+
+describe('de schakelaar', () => {
+  it('laat de aanloopstilte staan als het snijden uit staat', () => {
+    // Bestaat om met eigen oren te kunnen vergelijken: een klik hoor je, en op de
+    // golfvorm is hij soms te klein om op te vallen.
+    const s = new CartesiaTtsStream(
+      { apiKey: 'test', model: 'sonic-3', sampleRate: SR, trimLeadingSilence: false },
+      { voiceId: 'v', language: 'nl' },
+    );
+    const chunks: Int16Array[] = [];
+    s.on('audio', (c) => chunks.push(c.pcm));
+    const intern = s as unknown as { onMessage(raw: string): void; contextId: string };
+    const stil = stilte(200);
+    intern.onMessage(
+      JSON.stringify({
+        type: 'chunk',
+        context_id: intern.contextId,
+        data: Buffer.from(stil.buffer, stil.byteOffset, stil.byteLength).toString('base64'),
+      }),
+    );
+    expect(totaalMs(chunks)).toBe(200);
+    expect(s.trimmedLeadingMs()).toBe(0);
+  });
+});
+
+describe('de samplerate over de WebSocket', () => {
+  it('weigert een andere rate dan 16 kHz', async () => {
+    // Cartesia negeert `sample_rate` over de WebSocket en levert altijd 16 kHz. Gemeten:
+    // dezelfde zin gaf via REST 2,37 s op zowel 16000 als 24000, via de WebSocket bleef
+    // het aantal samples gelijk — op 24000 "duurt" die dan 1,39 s. Wie hier een hogere
+    // rate zet, labelt 16 kHz als 24 kHz en krijgt spraak die te snel klinkt.
+    const s = new CartesiaTtsStream(
+      { apiKey: 'test', model: 'sonic-3', sampleRate: 24_000, trimLeadingSilence: true },
+      { voiceId: 'v', language: 'nl' },
+    );
+    await expect(s.connect()).rejects.toThrow(/24000 werkt niet over de WebSocket/);
   });
 });

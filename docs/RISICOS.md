@@ -664,3 +664,55 @@ Wat er tot nu toe als tweede weg heeft gewerkt:
 
 **Wat dit niet is.** Geen reden om minder te meten. Het is een reden om een getal niet te
 gebruiken zolang er maar één weg naartoe loopt.
+
+---
+
+## 12. Audiokwaliteit: de keten zit vast op 16 kHz door de Cartesia-WebSocket
+
+**Status: open. Blokkeert een kwaliteitswinst die verder gratis is.**
+
+Live met avatar klonken er tikken en viel de kwaliteit tegen. Drie verdachten, alle drie
+gemeten in plaats van beredeneerd.
+
+**1. Het wegsnijden van de aanloopstilte — niet de oorzaak.** De golfvorm die onze TTS
+verlaat is schoon: het eerste sample na het snijpunt is −5 op een schaal van 32767, en de
+grootste sprong in de eerste vijf milliseconde is 16. De bewaarde aanloop van 20 ms landt
+dus in near-silence. Er is toch een fade-in van 8 ms bijgezet: die kost niets en neemt de
+hele klasse "sprong in de golfvorm" weg, in plaats van hem per stem opnieuw te moeten
+meten. Met `TTS_TRIM_LEADING=0` is het snijden uit te zetten om met eigen oren te
+vergelijken.
+
+**2. Chunkgrenzen — niet de oorzaak.** Geen enkele chunk met een oneven aantal bytes, en de
+grootste sprong óp een chunkgrens (5257) is kleiner dan de grootste sprong bínnen een
+chunk (18166). Er gaat op de grenzen dus niets verloren en er ontstaat geen sprong.
+
+**3. Samplerate — hier zit het.** Anam accepteert blijkens hun eigen type 16000, 24000 en
+44100. Wij sturen 16000, en 16 kHz spraak klinkt hoorbaar doffer dan 24 kHz.
+
+Maar het is niet zomaar op te hogen. Gemeten, dezelfde zin, drie syntheses per pad:
+
+| gevraagde rate | REST   | WebSocket |
+| -------------- | ------ | --------- |
+| 16000 Hz       | 2,37 s | 2,14 s    |
+| 24000 Hz       | 2,37 s | 1,39 s    |
+
+REST schaalt het aantal samples netjes mee met de rate — de duur blijft gelijk. De
+WebSocket doet dat niet: het aantal samples blijft hetzelfde, waardoor die audio op 24000
+"1,39 seconde duurt". **Cartesia negeert `sample_rate` over de WebSocket en levert altijd
+16 kHz.**
+
+Wie de rate daar toch ophoogt, labelt 16 kHz-audio als 24 kHz en krijgt spraak die
+anderhalf keer te snel klinkt. Dat is geen subtiel kwaliteitsverlies maar een kapot
+gesprek, dus de adapter gooit nu een fout bij elke andere waarde dan 16000 in plaats van
+het stilletjes te laten gebeuren.
+
+**Wat er nog niet is verklaard.** De tikken zelf. Onze audio is schoon tot het punt waar
+hij de browser verlaat, de rates komen overeen, en de chunkgrenzen kloppen. Wat overblijft
+is Anams eigen verwerking: hun resampler van 16 kHz naar hun interne rate, of hun
+afhandeling van chunks die wij sneller aanleveren dan realtime. Dat is niet van binnenuit
+te meten en hoort een vraag aan hen te zijn.
+
+**Wat het waard is.** Een keten op 24 kHz in plaats van 16 kHz is een merkbare
+kwaliteitswinst die verder niets kost — geen latency, geen extra stap. Hij zit alleen
+achter een leverancierslimiet. Vraag aan Cartesia: honoreert de WebSocket `sample_rate`,
+en zo nee, hoe komen we dan aan een hogere rate zonder de streaming op te geven.
