@@ -71,11 +71,14 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // v3: verbod op het voorstellen van concrete waarden die de cliënt niet noemde.
   // In v2 vroeg de assistent "was dat 17 januari?" over een datum die nooit was gezegd.
   // v4: gespreksvorm — korte gesloten vragen, vulwoorden als erkenning, meteen doorvragen.
+  // v6: het woord "AI" moet letterlijk vallen. In v5 stond "AI-intake-assistent" in de
+  // instructie, maar het model maakte er "intake-assistent" van — en dat kan een cliënt
+  // horen als een medewerker die de intake doet.
   // v5: de opening. Die introduceerde zichzelf in één zin en ging meteen vragen stellen;
   // dat er geen advocaat aan de lijn zit en dat er geen advies wordt gegeven, kwam er niet
   // in voor. Tegelijk de je-vorm vervangen door u-vorm, want het model mengde ze binnen
   // één gesprek ("Kunt u vertellen" gevolgd door "Dank je").
-  version: 5,
+  version: 6,
   description:
     'Hot-path gespreksinstructie voor de arbeidsrecht-intake. Platte tekst, één vraag per beurt.',
 
@@ -142,10 +145,15 @@ function rendernl(v: ConversationVars): string {
       '',
       'Dit is de opening. Vier dingen, in deze volgorde, en dan stopt u.',
       '',
-      `1. Wie u bent: de AI-intake-assistent van ${v.organisationName}. Zeg er nadrukkelijk ` +
-        'bij dat u géén advocaat bent en geen juridisch advies geeft. Dit mag niet ' +
-        'ontbreken en niet worden afgezwakt — het is de eerste zin waarop iemand zijn ' +
-        'verwachting baseert.',
+      `1. Wie u bent: de AI-intake-assistent van ${v.organisationName}.`,
+      '   Het woord "AI" moet er letterlijk in staan. Niet "intake-assistent", niet ' +
+        '"digitale assistent", niet "virtuele medewerker" — een cliënt kan "assistent" ' +
+        'horen als een mens die de intake doet, en dan is de mededeling niet gedaan.',
+      '   Zeg er nadrukkelijk bij dat u géén advocaat bent en geen juridisch advies geeft. ' +
+        'Dat is een ándere mededeling en vervangt de eerste niet: "ik ben geen advocaat" ' +
+        'zegt wat u niet bent, niet wát u bent. Allebei moeten ze er staan, en geen van ' +
+        'beide mag worden afgezwakt — dit is de eerste zin waarop iemand zijn verwachting ' +
+        'baseert.',
       '2. Wat u doet: dit gesprek voeren, en wat er verteld wordt vastleggen en ordenen.',
       `3. Waarom: zodat een advocaat van ${v.organisationName} de zaak sneller en beter ` +
         'kan beoordelen. Zeg het als efficiëntie voor de beoordeling. Geen uitspraken over ' +
@@ -278,8 +286,12 @@ function renderen(v: ConversationVars): string {
     regels.push(
       '',
       'This is the opening. Four things, in this order, then stop.',
-      `1. Who you are: the AI intake assistant for ${v.organisationName}. State explicitly ` +
-        'that you are not a lawyer and give no legal advice. This may not be omitted or softened.',
+      `1. Who you are: the AI intake assistant for ${v.organisationName}.`,
+      '   The word "AI" must appear literally. Not "intake assistant", not "digital ' +
+        'assistant" — a client can hear "assistant" as a human doing the intake.',
+      '   Also state explicitly that you are not a lawyer and give no legal advice. That is ' +
+        'a different statement and does not replace the first: it says what you are not, ' +
+        'not what you are. Both must be there, neither may be softened.',
       '2. What you do: hold this conversation, and record and organise what is said.',
       `3. Why: so a lawyer at ${v.organisationName} can assess the case faster and better. ` +
         'Frame it as efficiency for the assessment. No statements about cost or fees.',

@@ -458,11 +458,21 @@ describe('de openingsbeurt', () => {
     return model.laatsteSysteem;
   }
 
+  it('eist dat het woord AI letterlijk valt', async () => {
+    // "intake-assistent" kan een cliënt horen als een medewerker die de intake doet. De
+    // spec eist dat er staat dát het een AI is, en dat is iets anders dan de mededeling
+    // dat het geen advocaat is.
+    const body = await openingsPrompt();
+    expect(body).toContain('AI-intake-assistent');
+    expect(body).toContain('Het woord "AI" moet er letterlijk in staan');
+    expect(body).toContain('ándere mededeling');
+  });
+
   it('eist dat de assistent zegt geen advocaat te zijn en geen advies te geven', async () => {
     const body = await openingsPrompt();
     expect(body).toContain('géén advocaat');
     expect(body).toContain('geen juridisch advies');
-    expect(body).toContain('niet worden afgezwakt');
+    expect(body).toContain('afgezwakt');
   });
 
   it('noemt wat ze doet en waarom, in die volgorde', async () => {
@@ -497,7 +507,7 @@ describe('de openingsbeurt', () => {
     expect(body).toContain('Maximaal 4 zinnen');
   });
 
-  it('staat op versie 5 of hoger, zodat llm_calls de opening kan onderscheiden', () => {
-    expect(PROMPTS.conversation.version).toBeGreaterThanOrEqual(5);
+  it('staat op versie 6 of hoger, zodat llm_calls de opening kan onderscheiden', () => {
+    expect(PROMPTS.conversation.version).toBeGreaterThanOrEqual(6);
   });
 });
