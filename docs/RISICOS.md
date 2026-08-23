@@ -686,8 +686,7 @@ vergelijken.
 grootste sprong óp een chunkgrens (5257) is kleiner dan de grootste sprong bínnen een
 chunk (18166). Er gaat op de grenzen dus niets verloren en er ontstaat geen sprong.
 
-**3. Samplerate — hier zit het.** Anam accepteert blijkens hun eigen type 16000, 24000 en
-44100. Wij sturen 16000, en 16 kHz spraak klinkt hoorbaar doffer dan 24 kHz.
+**3. Samplerate — hier zit het.** Anam accepteert blijkens hun eigen type 16000, 24000 en 44100. Wij sturen 16000, en 16 kHz spraak klinkt hoorbaar doffer dan 24 kHz.
 
 Maar het is niet zomaar op te hogen. Gemeten, dezelfde zin, drie syntheses per pad:
 

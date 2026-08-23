@@ -32,8 +32,40 @@ const API = 'https://api.anam.ai/v1';
 
 export interface AnamOptions {
   readonly apiKey: string;
-  /** Persona-id (UUID). Bepaalt gezicht, stem en taal aan hun kant. */
-  readonly personaId: string;
+  /**
+   * Persona-id (UUID) uit `GET /v1/personas`.
+   *
+   * Een persona is een kant-en-klaar profiel: gezicht, stem, taal en systeemprompt in één.
+   * De stock-persona's zijn demo's ("Anika - Spanish Barista"), en voor een Nederlandse
+   * arbeidsrecht-intake is dat zelden wat je wilt.
+   */
+  readonly personaId?: string;
+  /**
+   * Avatar-id (UUID) uit `GET /v1/avatars`. Alleen het gezicht.
+   *
+   * Dit is het pad dat je wilt voor dit product: wij leveren de stem via passthrough en
+   * de taal komt uit ons eigen gesprek, dus van hun kant is alleen het gezicht nodig.
+   *
+   * Let op: een avatar-id is géén persona-id. Een avatar-UUID doorgeven als `personaId`
+   * levert HTTP 400 "Persona not found or unavailable" — dat is gemeten, en het is de
+   * reden dat deze twee als aparte velden bestaan in plaats van één "id".
+   */
+  readonly avatarId?: string;
+  /**
+   * Stem-id (UUID) uit `GET /v1/voices`.
+   *
+   * Verplicht zodra je een `avatarId` gebruikt: hun `CustomPersonaConfig` eist personaId,
+   * name, avatarId én voiceId, alle vier. Een config met alleen een avatarId levert een
+   * token op dat de API met 200 accepteert maar dat de signalling daarna weigert met
+   * "HTTP Authentication failed" — dezelfde klasse fout als personaConfig.id destijds:
+   * de melding valt in de browser, ver van de plek waar hij is gemaakt.
+   *
+   * Bij passthrough gebruiken wij deze stem niet; hij moet er alleen zijn.
+   */
+  readonly voiceId?: string;
+  /** Naam van de deelnemer aan hun kant; alleen zichtbaar in hun logs. */
+  readonly name?: string;
+  readonly languageCode?: string;
 }
 
 export interface AnamEngineSession {
@@ -54,7 +86,42 @@ export class AnamAvatarProvider implements AvatarProvider {
     idleMotion: true,
   };
 
-  constructor(private readonly options: AnamOptions) {}
+  constructor(private readonly options: AnamOptions) {
+    if (!options.avatarId && !options.personaId) {
+      throw new Error(
+        'Anam: geef ANAM_AVATAR_ID (uit GET /v1/avatars) of ANAM_PERSONA_ID (uit ' +
+          'GET /v1/personas). Een avatar is alleen een gezicht; een persona is een ' +
+          'kant-en-klaar profiel met stem en taal erbij.',
+      );
+    }
+  }
+
+  /**
+   * De configuratie die met het sessietoken meegaat.
+   *
+   * Een avatar-id gaat als `avatarId` mee en niet als `personaId`; die twee zijn niet
+   * uitwisselbaar. Staat er een avatar, dan wint die: bij passthrough leveren wij de stem
+   * en komt de taal uit ons eigen gesprek, dus van hun kant is alleen het gezicht nodig.
+   */
+  private personaConfig(): Record<string, string> {
+    if (!this.options.avatarId) return { personaId: this.options.personaId! };
+
+    if (!this.options.personaId || !this.options.voiceId) {
+      throw new Error(
+        'Anam: een eigen avatar vraagt de volledige configuratie — personaId, avatarId ' +
+          'en voiceId samen. Een config met alleen een avatarId geeft een token dat de ' +
+          'API accepteert maar de signalling weigert. Zet ANAM_PERSONA_ID en ' +
+          'ANAM_VOICE_ID erbij (GET /v1/personas en GET /v1/voices).',
+      );
+    }
+    return {
+      personaId: this.options.personaId,
+      avatarId: this.options.avatarId,
+      voiceId: this.options.voiceId,
+      name: this.options.name ?? 'Intake',
+      languageCode: this.options.languageCode ?? 'nl',
+    };
+  }
 
   /**
    * Kortlevend token voor de browser.
@@ -72,7 +139,7 @@ export class AnamAvatarProvider implements AvatarProvider {
       // `personaId`, niet `id`. Een token zonder persona wordt geaccepteerd door de API
       // maar door de SDK geweigerd als "legacy session token" — de fout valt dus pas in
       // de browser, ver van de plek waar hij is gemaakt.
-      body: JSON.stringify({ personaConfig: { personaId: this.options.personaId } }),
+      body: JSON.stringify({ personaConfig: this.personaConfig() }),
     });
 
     if (!response.ok) {
@@ -94,7 +161,7 @@ export class AnamAvatarProvider implements AvatarProvider {
         Authorization: `Bearer ${this.options.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ personaConfig: { personaId: this.options.personaId } }),
+      body: JSON.stringify({ personaConfig: this.personaConfig() }),
     });
 
     if (!response.ok) {

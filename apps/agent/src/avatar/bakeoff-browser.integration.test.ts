@@ -36,7 +36,9 @@ const SAMPLE_RATE = 16_000;
 const ZIN = 'Goedemiddag, ik ben de digitale intake-assistent.';
 
 const heeftCartesia = Boolean(process.env['CARTESIA_API_KEY'] && process.env['CARTESIA_VOICE_ID']);
-const heeftAnam = Boolean(process.env['ANAM_API_KEY'] && process.env['ANAM_AVATAR_ID']);
+const heeftAnam = Boolean(
+  process.env['ANAM_API_KEY'] && (process.env['ANAM_AVATAR_ID'] || process.env['ANAM_PERSONA_ID']),
+);
 const heeftLivekit = Boolean(
   process.env['LIVEKIT_URL'] && process.env['LIVEKIT_API_KEY'] && process.env['LIVEKIT_API_SECRET'],
 );
@@ -46,7 +48,7 @@ const heeftBey =
 function meldOverslaan(): void {
   const ontbreekt: string[] = [];
   if (!heeftCartesia) ontbreekt.push('CARTESIA_API_KEY/CARTESIA_VOICE_ID');
-  if (!heeftAnam) ontbreekt.push('ANAM_API_KEY/ANAM_AVATAR_ID');
+  if (!heeftAnam) ontbreekt.push('ANAM_API_KEY + ANAM_AVATAR_ID of ANAM_PERSONA_ID');
   if (!heeftBey) ontbreekt.push('BEY_API_KEY/BEY_AVATAR_ID + LIVEKIT_*');
   if (ontbreekt.length > 0) {
     // eslint-disable-next-line no-console
@@ -243,7 +245,11 @@ describe('bakeoff in de browser', () => {
     async () => {
       const provider = new AnamAvatarProvider({
         apiKey: process.env['ANAM_API_KEY']!,
-        personaId: process.env['ANAM_AVATAR_ID']!,
+        // Avatar wint boven persona; zie AnamOptions. Beide mogen leeg zijn zolang er
+        // maar één is ingevuld.
+        ...(process.env['ANAM_AVATAR_ID'] ? { avatarId: process.env['ANAM_AVATAR_ID'] } : {}),
+        ...(process.env['ANAM_PERSONA_ID'] ? { personaId: process.env['ANAM_PERSONA_ID'] } : {}),
+        ...(process.env['ANAM_VOICE_ID'] ? { voiceId: process.env['ANAM_VOICE_ID'] } : {}),
       });
       const sessionToken = await provider.issueSessionToken();
 
@@ -291,7 +297,11 @@ describe('bakeoff in de browser', () => {
 
       const provider = new AnamAvatarProvider({
         apiKey: process.env['ANAM_API_KEY']!,
-        personaId: process.env['ANAM_AVATAR_ID']!,
+        // Avatar wint boven persona; zie AnamOptions. Beide mogen leeg zijn zolang er
+        // maar één is ingevuld.
+        ...(process.env['ANAM_AVATAR_ID'] ? { avatarId: process.env['ANAM_AVATAR_ID'] } : {}),
+        ...(process.env['ANAM_PERSONA_ID'] ? { personaId: process.env['ANAM_PERSONA_ID'] } : {}),
+        ...(process.env['ANAM_VOICE_ID'] ? { voiceId: process.env['ANAM_VOICE_ID'] } : {}),
       });
       const sessionToken = await provider.issueSessionToken();
 

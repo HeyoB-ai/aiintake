@@ -233,7 +233,11 @@ wss.on('connection', async (ws) => {
     try {
       anamToken = await new AnamAvatarProvider({
         apiKey: process.env['ANAM_API_KEY']!,
-        personaId: process.env['ANAM_AVATAR_ID']!,
+        // Avatar wint boven persona; zie AnamOptions. Beide mogen leeg zijn zolang er
+        // maar één is ingevuld.
+        ...(process.env['ANAM_AVATAR_ID'] ? { avatarId: process.env['ANAM_AVATAR_ID'] } : {}),
+        ...(process.env['ANAM_PERSONA_ID'] ? { personaId: process.env['ANAM_PERSONA_ID'] } : {}),
+        ...(process.env['ANAM_VOICE_ID'] ? { voiceId: process.env['ANAM_VOICE_ID'] } : {}),
       }).issueSessionToken();
     } catch (error) {
       stuur({ type: 'error', waar: 'avatar', wat: String(error) });
