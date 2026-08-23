@@ -116,12 +116,27 @@ function browserAvatar(inner: AvatarProvider, ws: WebSocket): AvatarProvider {
 }
 
 const html = readFileSync(join(HIER, 'page.html'), 'utf8');
+/** Stempel waaraan te zien is of de pagina van déze serverstart komt. */
+const gestartOp = new Date().toISOString().slice(11, 19);
 const server = createServer((req, res) => {
   if ((req.url ?? '/').startsWith('/health')) {
     res.writeHead(200).end('ok');
     return;
   }
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html);
+  // Niet cachen.
+  //
+  // Deze pagina verandert bij elke iteratie, en een browser die hem vasthoudt draait
+  // stilletjes oude code. Dat is geen theoretisch risico: een oude versie zonder
+  // video-element speelt de audio gewoon lokaal af, dus je hóórt een gesprek en ziet
+  // geen gezicht — precies het symptoom waarvoor je de frontend gaat zitten uitpluizen.
+  res
+    .writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    })
+    .end(html.replace('__BUILD__', String(gestartOp)));
 });
 
 const wss = new WebSocketServer({ server });

@@ -17,7 +17,8 @@
     "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts",
     "dev:live": "tsx --env-file=../../.env live/server.ts",
     "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts",
-    "diag:gespreksvorm": "tsx --env-file=../../.env bakeoff/gespreksvorm-diagnose.ts"
+    "diag:gespreksvorm": "tsx --env-file=../../.env bakeoff/gespreksvorm-diagnose.ts",
+    "zichtbaarheid": "node live/zichtbaarheid.mjs"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

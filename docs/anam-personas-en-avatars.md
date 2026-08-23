@@ -4,11 +4,11 @@ Opgehaald 23 augustus 2026 via `GET /v1/personas`, `/v1/avatars` en `/v1/voices`
 
 ## Persona's (3) — allemaal stock-demo's
 
-| UUID | naam | taal | avatarModel |
-| --- | --- | --- | --- |
-| `4314d606-bab4-5fc8-808b-878c43ae6a4c` | Anika - Spanish Barista | **es** | cara-4 |
-| `1526aaba-6f99-51a4-8c80-f0fd32d0f2e0` | Samira - Study Coach | en | cara-4 |
-| `62b6df6d-24f9-5d35-b310-209c7953465e` | Hana - Sales Representative | en | cara-4 |
+| UUID                                   | naam                        | taal   | avatarModel |
+| -------------------------------------- | --------------------------- | ------ | ----------- |
+| `4314d606-bab4-5fc8-808b-878c43ae6a4c` | Anika - Spanish Barista     | **es** | cara-4      |
+| `1526aaba-6f99-51a4-8c80-f0fd32d0f2e0` | Samira - Study Coach        | en     | cara-4      |
+| `62b6df6d-24f9-5d35-b310-209c7953465e` | Hana - Sales Representative | en     | cara-4      |
 
 **De eerste stond in `.env` als `ANAM_AVATAR_ID`** — een Spaanse barista met
 `languageCode: es`. Dat is geen avatar maar een compleet profiel, inclusief taal en
@@ -16,18 +16,18 @@ systeemprompt, en het is niet wat je voor een Nederlandse arbeidsrecht-intake wi
 
 ## Avatars (10) — alleen het gezicht
 
-| UUID | naam | variant |
-| --- | --- | --- |
-| `edf6fdcb-acab-44b8-b974-ded72665ee26` | Mia | studio |
-| `071b0286-4cce-4808-bee2-e642f1062de3` | Liv | home |
-| `6cc28442-cccd-42a8-b6e4-24b7210a09c5` | Gabriel | table |
-| `27e12daa-50fc-4384-93c2-ebca73f1f78d` | Anne | home |
-| `dc9aa3e1-32f2-499e-9921-ecabac1076fc` | Bella | sofa |
-| `8a339c9f-0666-46bd-ab27-e90acd0409dc` | Finn | lean |
-| `6dbc1e47-7768-403e-878a-94d7fcc3677b` | Sophie | sofa |
-| `ecfb2ddb-80ec-4526-88a7-299a4738957c` | Hunter | table |
-| `edcb8f1a-334f-4cdb-871c-5c513db806a7` | Julia | sofa |
-| `ccf00c0e-7302-455b-ace2-057e0cf58127` | Kevin | table |
+| UUID                                   | naam    | variant |
+| -------------------------------------- | ------- | ------- |
+| `edf6fdcb-acab-44b8-b974-ded72665ee26` | Mia     | studio  |
+| `071b0286-4cce-4808-bee2-e642f1062de3` | Liv     | home    |
+| `6cc28442-cccd-42a8-b6e4-24b7210a09c5` | Gabriel | table   |
+| `27e12daa-50fc-4384-93c2-ebca73f1f78d` | Anne    | home    |
+| `dc9aa3e1-32f2-499e-9921-ecabac1076fc` | Bella   | sofa    |
+| `8a339c9f-0666-46bd-ab27-e90acd0409dc` | Finn    | lean    |
+| `6dbc1e47-7768-403e-878a-94d7fcc3677b` | Sophie  | sofa    |
+| `ecfb2ddb-80ec-4526-88a7-299a4738957c` | Hunter  | table   |
+| `edcb8f1a-334f-4cdb-871c-5c513db806a7` | Julia   | sofa    |
+| `ccf00c0e-7302-455b-ace2-057e0cf58127` | Kevin   | table   |
 
 Alle tien: `renderStyle: realistic`, `activeVersion: cara-4`,
 `availableVersions: ["cara-3", "cara-4", "cara-4-latest"]`.

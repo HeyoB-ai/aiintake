@@ -54,6 +54,39 @@
         opacity: 0.45;
         cursor: default;
       }
+      #fase {
+        display: none;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 12px;
+      }
+      #fase.aan {
+        display: flex;
+      }
+      .stap {
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--rand);
+        color: var(--zacht);
+      }
+      .stap.bezig {
+        border-color: #3c8a63;
+        color: #9ad3b4;
+      }
+      .stap.klaar {
+        background: #23422f;
+        border-color: #3c8a63;
+        color: #cdeadb;
+      }
+      #fasefout {
+        color: #e06c5a;
+      }
+      #build {
+        font-size: 11px;
+        color: #55606e;
+        margin-top: 6px;
+      }
       video#avatar {
         display: none;
         width: 100%;
@@ -145,12 +178,19 @@
       <p class="sub">
         Nederlands, microfoon aan. Onderbreek gerust terwijl hij praat — dat is de test.
       </p>
+      <div id="fase">
+        <span class="stap" data-stap="sessie">sessie starten</span>
+        <span class="stap" data-stap="verbonden">verbonden</span>
+        <span class="stap" data-stap="frame">eerste frame</span>
+        <span id="fasefout"></span>
+      </div>
       <video id="avatar" autoplay playsinline></video>
       <button id="start" class="primair">Start gesprek</button>
       <button id="stop" disabled>Stop</button>
       <div id="niveau"><div></div></div>
       <div id="gesprek"></div>
       <div id="status">niet verbonden</div>
+      <div id="build">pagina van __BUILD__</div>
     </main>
 
     <aside>
@@ -207,6 +247,23 @@
           sampleRate: SR_UIT,
           channels: 1,
         });
+      }
+
+      /**
+       * De fasen van het opzetten, zichtbaar.
+       *
+       * Zonder dit is "ik zie geen gezicht" niet te onderscheiden van "de sessie is nooit
+       * gestart", "het token is geweigerd" of "er komt wel een stream maar geen frame".
+       * Dat onderscheid kost anders een avond frontend uitpluizen.
+       */
+      function fase(naam, stand, fout) {
+        document.getElementById('fase').classList.add('aan');
+        const el = document.querySelector(`.stap[data-stap="${naam}"]`);
+        if (el) {
+          el.classList.remove('bezig', 'klaar');
+          if (stand) el.classList.add(stand);
+        }
+        document.getElementById('fasefout').textContent = fout ?? '';
       }
 
       function regel(rol, tekst, hud, klasse = '') {
@@ -305,7 +362,13 @@
                   status('klaar — hij begint zo');
                   ws.send(JSON.stringify({ type: 'start' }));
                 })
-                .catch((e) => status('avatar mislukt: ' + e.message));
+                .catch((e) => {
+                  // Hard falen en niet doorgaan zonder gezicht: anders hoor je een gesprek,
+                  // zie je niets, en lijkt het een frontendprobleem terwijl de avatar
+                  // nooit is opgezet.
+                  fase('sessie', null, 'mislukt: ' + e.message);
+                  status('avatar mislukt — het gesprek is niet gestart: ' + e.message);
+                });
             } else {
               status('klaar — hij begint zo');
               ws.send(JSON.stringify({ type: 'start' }));
@@ -421,10 +484,36 @@
 
       /** De SDK van een CDN, zoals hun quickstart. Geen bundler nodig voor een devpagina. */
       async function startAvatar(token) {
+        const video = document.getElementById('avatar');
+        fase('sessie', 'bezig');
+        video.classList.add('aan');
+
         const { createClient } = await import('https://esm.sh/@anam-ai/js-sdk@4');
         anam = createClient(token);
-        document.getElementById('avatar').classList.add('aan');
+
+        // Het frame-abonnement vóór het verbinden: anders mis je het eerste frame als de
+        // verbinding sneller is dan de volgende regel.
+        const eersteFrame = new Promise((res) => {
+          if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => res());
+          else video.addEventListener('playing', () => res(), { once: true });
+        });
+
         await anam.streamToVideoElement('avatar');
+        fase('sessie', 'klaar');
+        fase('verbonden', 'klaar');
+
+        // Expliciet play(). Het element heeft `autoplay`, maar met een audiotrack erbij
+        // mag een browser dat weigeren zonder gebruikersgebaar. De klik op Start dekt dat
+        // af; deze aanroep maakt zichtbaar wanneer hij dat tóch niet doet.
+        try {
+          await video.play();
+        } catch (e) {
+          fase('frame', null, 'browser weigert afspelen: ' + e.message);
+          throw e;
+        }
+
+        await eersteFrame;
+        fase('frame', 'klaar');
       }
 
       function stop() {
