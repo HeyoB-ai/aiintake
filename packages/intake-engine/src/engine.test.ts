@@ -257,7 +257,13 @@ describe('extractieprompt', () => {
         transcript: 'Cliënt: Ik werk bij Acme.',
         wantedFacts: [{ key: 'employer_name', label: 'Werkgever', valueType: 'string' }],
         knownFacts: [],
-        todayIso: '2026-08-22',
+        anker: {
+          iso: '2026-08-22',
+          weekdag: 'zaterdag',
+          weekdagIndex: 6,
+          tijd: '12:00',
+          timeZone: 'Europe/Amsterdam',
+        },
       },
       'nl',
     );
@@ -449,11 +455,27 @@ describe('de openingsbeurt', () => {
    * Deze tests staan op de instructie en niet op de uitvoer: wat het model ervan maakt is
    * per beurt anders, maar de opdracht hoort er onvoorwaardelijk in te staan.
    */
-  async function openingsPrompt(orgNaam = 'Kantoor De Vries') {
+  /**
+   * De regel met de uitgeschreven opening, los van de toelichting eronder.
+   *
+   * De instructie noemt dezelfde zinsdelen twee keer: één keer als voorbeeld en één keer
+   * als uitleg waarom het zo moet. Een test die de hele tekst doorzoekt, kan de uitleg
+   * voor het voorbeeld aanzien.
+   */
+  function voorbeeldzin(body: string): string {
+    const regel = body.split('\n').find((r) => r.includes('Ik ben de AI-intake-assistent van'));
+    if (!regel) throw new Error('geen uitgeschreven opening in de instructie gevonden');
+    return regel;
+  }
+
+  async function openingsPrompt(orgNaam = 'Kantoor De Vries', now?: Date) {
     const model = hot(['x']);
     const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
     await engine.respond(
-      invoer({ organization: { id: 'o', name: orgNaam, slug: 's' } as OrgConfig }),
+      invoer({
+        organization: { id: 'o', name: orgNaam, slug: 's' } as OrgConfig,
+        ...(now ? { now } : {}),
+      }),
     );
     return model.laatsteSysteem;
   }
@@ -465,20 +487,20 @@ describe('de openingsbeurt', () => {
     const body = await openingsPrompt();
     expect(body).toContain('AI-intake-assistent');
     expect(body).toContain('Het woord "AI" moet er letterlijk in staan');
-    expect(body).toContain('ándere mededeling');
+    expect(body).toContain('twee verschillende mededelingen');
   });
 
   it('eist dat de assistent zegt geen advocaat te zijn en geen advies te geven', async () => {
     const body = await openingsPrompt();
-    expect(body).toContain('géén advocaat');
+    expect(body).toContain('Ik ben geen advocaat');
     expect(body).toContain('geen juridisch advies');
     expect(body).toContain('afgezwakt');
   });
 
   it('noemt wat ze doet en waarom, in die volgorde', async () => {
     const body = await openingsPrompt();
-    const wat = body.indexOf('vastleggen en ordenen');
-    const waarom = body.indexOf('sneller en beter');
+    const wat = body.indexOf('de gegevens van uw zaak vast te leggen');
+    const waarom = body.indexOf('sneller kan beoordelen');
     const vraag = body.indexOf('Kunt u vertellen wat er speelt');
     expect(wat).toBeGreaterThan(-1);
     expect(waarom).toBeGreaterThan(wat);
@@ -501,13 +523,227 @@ describe('de openingsbeurt', () => {
 
   it('houdt de opening kort genoeg om uit te luisteren', async () => {
     const body = await openingsPrompt();
-    expect(body).toContain('twee tot drie zinnen');
-    // Vier zinnen in totaal: drie voor wie/wat/waarom, één voor de vraag. Met drie
-    // sneuvelt er een van de vier punten, meestal uitgerekend "ik ben geen advocaat".
+    // Vier zinnen in totaal. Met drie sneuvelt er een van de vier mededelingen, meestal
+    // uitgerekend "ik ben geen advocaat".
     expect(body).toContain('Maximaal 4 zinnen');
   });
 
-  it('staat op versie 6 of hoger, zodat llm_calls de opening kan onderscheiden', () => {
-    expect(PROMPTS.conversation.version).toBeGreaterThanOrEqual(6);
+  it('zet een zinseinde na de kantoornaam en geen komma met "en"', async () => {
+    // Gesproken plakt ", en" twee mededelingen aan elkaar die elk op zichzelf moeten
+    // landen; de luisteraar verliest dan de eerste helft.
+    const body = await openingsPrompt();
+    expect(body).toContain('Ik ben de AI-intake-assistent van Kantoor De Vries. Ik ben geen');
+    expect(body).toContain('volgt een punt');
+    expect(body).not.toContain('van Kantoor De Vries, en ik ben geen advocaat');
+  });
+
+  it('noemt de taak vóór de beperking, in de voorbeeldzin zelf', async () => {
+    /*
+     * Alleen binnen de voorbeeldzin kijken, en niet in de hele instructie.
+     *
+     * Een eerdere versie zocht de twee fragmenten in de volledige tekst. Die test bleef
+     * groen toen de voorbeeldzin de beperking naar voren haalde — want "Zelf geef ik geen
+     * juridisch advies" staat óók in de toelichting eronder, en die staat sowieso later.
+     * Hij bewees dus de volgorde van de uitleg in plaats van die van de zin.
+     */
+    const body = await openingsPrompt();
+    const voorbeeld = voorbeeldzin(body);
+    const taak = voorbeeld.indexOf('aangesteld om de gegevens van uw zaak vast te leggen');
+    const beperking = voorbeeld.indexOf('Zelf geef ik geen juridisch advies');
+    expect(taak).toBeGreaterThan(-1);
+    expect(beperking).toBeGreaterThan(taak);
+  });
+
+  it('schrijft losse korte zinnen voor, omdat dit wordt uitgesproken', async () => {
+    const body = await openingsPrompt();
+    expect(body).toContain('uitgesproken, niet gelezen');
+    expect(body).toContain('een adem te lang');
+  });
+
+  it('kiest de groet op het tijdstip en laat dat niet aan het model', async () => {
+    // De engine heeft `now`; een model heeft geen klok en zei "Goedemorgen" om acht uur
+    // 's avonds. De grenzen zelf staan in packages/prompts/src/groet.test.ts.
+    const ochtend = await openingsPrompt('Kantoor De Vries', new Date('2026-08-22T07:00:00Z'));
+    const avond = await openingsPrompt('Kantoor De Vries', new Date('2026-08-22T19:00:00Z'));
+    expect(ochtend).toContain('Goedemorgen.');
+    expect(avond).toContain('Goedenavond.');
+    expect(avond).not.toContain('Goedemorgen');
+    expect(avond).toContain('Het tijdstip is bekend; kies er zelf geen andere');
+  });
+
+  it('staat op versie 8 of hoger, zodat llm_calls de opening kan onderscheiden', () => {
+    expect(PROMPTS.conversation.version).toBeGreaterThanOrEqual(8);
+  });
+});
+
+describe('de gespreksvorm', () => {
+  /**
+   * Drie regels die het gesprek van een verhoor onderscheiden, en die tot nu toe alleen in
+   * de prompttekst stonden.
+   *
+   * De openingsbeurt had al tests; deze drie niet. Dat is een verschil zonder reden: een
+   * regel die nergens door wordt vastgehouden, verdwijnt bij de eerstvolgende herformulering
+   * van de prompt zonder dat iemand het merkt. Ze staan op de instructie en niet op de
+   * uitvoer, om dezelfde reden als hierboven: wat het model ervan maakt verschilt per
+   * beurt, de opdracht hoort er onvoorwaardelijk in te staan.
+   */
+
+  /** Een gesprek van `beurten` cliëntbeurten, zodat de narratieve fase te sturen is. */
+  function verloop(beurten: number): EngineInput['history'] {
+    return Array.from({ length: beurten * 2 }, (_, i) => ({
+      id: `t${i}`,
+      role: i % 2 === 0 ? ('assistant' as const) : ('client' as const),
+      content: i % 2 === 0 ? 'vraag' : 'antwoord',
+      plannedQuestionKeys: [],
+      createdAt: '2026-08-22T09:00:00Z',
+    }));
+  }
+
+  async function promptNa(beurten: number) {
+    const model = hot(['x']);
+    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
+    await engine.respond(
+      invoer({ history: verloop(beurten), lastClientUtterance: 'ik ben ontslagen' }),
+    );
+    return model.laatsteSysteem;
+  }
+
+  it('laat de cliënt na de openingsvraag uitpraten', async () => {
+    // De opening nodigt uit tot vertellen; er meteen een tweede vraag achteraan plakken
+    // maakt die uitnodiging ongedaan.
+    const model = hot(['x']);
+    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
+    await engine.respond(invoer());
+    expect(model.laatsteSysteem).toContain('Na de vraag laat u het aan de cliënt');
+    expect(model.laatsteSysteem).toContain('Geen tweede vraag');
+  });
+
+  it('oogst in de eerste beurten uit het verhaal in plaats van af te vinken', async () => {
+    const body = await promptNa(1);
+    expect(body).toContain('Oogst uit dat verhaal; ga niet afvinken');
+    // De kandidatenlijst is er wel, maar uitdrukkelijk als geheugensteun.
+    expect(body).toContain('géén vragenlijst maar een geheugensteun');
+    expect(body).toContain('hooguit één na');
+  });
+
+  it('staat toe helemaal geen vraag te stellen zolang het verhaal loopt', async () => {
+    // Zonder deze uitweg stelt het model altijd een vraag, ook midden in een verhaal.
+    const body = await promptNa(2);
+    expect(body).toContain('stel dan helemaal geen nieuwe vraag');
+    expect(body).toContain('nodig uit om verder te vertellen');
+  });
+
+  it('gaat na de narratieve fase over op gerichte vragen', async () => {
+    // Drie cliëntbeurten is de grens; daarna mag de planner sturen. Blijft de engine
+    // eindeloos oogsten, dan komen de must-haves nooit binnen.
+    const body = await promptNa(5);
+    expect(body).not.toContain('Oogst uit dat verhaal');
+    expect(body).toContain('Kies één van deze onderwerpen');
+  });
+
+  it('vraagt open waar het kan en bewaart gesloten vragen voor één ontbrekend detail', async () => {
+    const body = await promptNa(1);
+    expect(body).toContain('Stel open vragen waar dat kan');
+    expect(body).toContain('Kunt u vertellen hoe dat is gegaan?');
+    expect(body).toContain(
+      'Gesloten vragen bewaar je voor het aanvullen van één ontbrekend detail',
+    );
+  });
+
+  it('verbiedt vulwoorden als erkenning — liever niets dan nep', async () => {
+    const body = await promptNa(1);
+    expect(body).toContain('Geen vulwoorden als erkenning');
+    expect(body).toContain('Liever niets dan nep');
+    // De uitweg hoort erbij: iets specifieks erkennen mag, met de woorden van de cliënt.
+    expect(body).toContain('met de woorden van de cliënt');
+  });
+
+  it('geeft de narratieve fase een zin meer ruimte dan een gerichte vraag', async () => {
+    // Een uitnodiging om te vertellen kost een zin meer dan een gesloten vraag; met twee
+    // zinnen wordt de uitnodiging weer een vraag.
+    expect(await promptNa(1)).toContain('Maximaal 3 zinnen');
+    expect(await promptNa(5)).toContain('Maximaal 2 zinnen');
+  });
+});
+
+describe('het weekdag-vangnet', () => {
+  /**
+   * Gemeten: het model rekent offsets goed uit maar weekdagnamen niet. "Afgelopen vrijdag"
+   * en "vorige week maandag" leverden allebei 2026-08-18 op, tegen een anker van zaterdag
+   * 22 augustus 2026 — dat is een dinsdag, en twee keer dezelfde fout is geen toeval.
+   *
+   * De rekenregels zelf staan in packages/domain/src/weekdag.test.ts. Hier gaat het om de
+   * vraag of de engine ze toepast, en of hij dat níét doet waar dat niet hoort.
+   */
+  const ANKER_NU = new Date('2026-08-22T10:00:00Z'); // zaterdag, 12:00 in Amsterdam
+
+  function datumFeitJson(waarde: string, citaat: string): string {
+    return JSON.stringify({
+      facts: [
+        {
+          key: 'summary_dismissal_date',
+          value: waarde,
+          status: 'confirmed',
+          confidence: 0.9,
+          evidenceQuote: citaat,
+        },
+      ],
+    });
+  }
+
+  async function observeer(modelWaarde: string, uitspraak: string) {
+    const correcties: { key: string; van: unknown; naar: string; uitspraak: string }[] = [];
+    const engine = createIntakeEngine({
+      hot: hot([]),
+      cold: cold([datumFeitJson(modelWaarde, uitspraak)]),
+      onWeekdayCorrection: (c) => correcties.push(c),
+    });
+    const r = await engine.observe(
+      invoer({
+        now: ANKER_NU,
+        facts: { termination_route: feit('termination_route', 'summary_dismissal') },
+        lastClientUtterance: uitspraak,
+      }),
+    );
+    return { r, correcties };
+  }
+
+  it('zet een verkeerd berekende weekdag recht', async () => {
+    const { r, correcties } = await observeer(
+      '2026-08-18',
+      'Ik ben afgelopen vrijdag op staande voet ontslagen.',
+    );
+    expect(r.factUpdates.find((f) => f.key === 'summary_dismissal_date')?.value).toBe('2026-08-21');
+    // En de correctie is zichtbaar; stil rechtzetten is niet te onderscheiden van een
+    // controle die niets doet.
+    expect(correcties).toHaveLength(1);
+    expect(correcties[0]).toMatchObject({ van: '2026-08-18', naar: '2026-08-21' });
+  });
+
+  it('laat een datum met rust als het model hem goed had', async () => {
+    const { r, correcties } = await observeer(
+      '2026-08-21',
+      'Ik ben afgelopen vrijdag op staande voet ontslagen.',
+    );
+    expect(r.factUpdates[0]?.value).toBe('2026-08-21');
+    expect(correcties).toHaveLength(0);
+  });
+
+  it('bemoeit zich niet met een uitspraak zonder weekdag', async () => {
+    // Offsets gaan goed; er een tweede berekening naast zetten zou betekenen dat twee
+    // stukken code het oneens kunnen worden over dezelfde zin.
+    const { r, correcties } = await observeer(
+      '2026-06-22',
+      'Ik ben twee maanden geleden ontslagen.',
+    );
+    expect(r.factUpdates[0]?.value).toBe('2026-06-22');
+    expect(correcties).toHaveLength(0);
+  });
+
+  it('laat een expliciete datum met een weekdagnaam erbij ongemoeid', async () => {
+    // "vrijdag 21 augustus" hoeft niet uitgerekend te worden. Een vangnet dat gaat
+    // overschrijven wat al klopt, is zelf een risico.
+    const { correcties } = await observeer('2026-08-21', 'Dat was vrijdag 21 augustus.');
+    expect(correcties).toHaveLength(0);
   });
 });

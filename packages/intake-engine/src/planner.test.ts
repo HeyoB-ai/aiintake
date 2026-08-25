@@ -93,6 +93,7 @@ describe('QuestionPlanner', () => {
         isOpening: true,
         isClosing: false,
         narrativePhase: true,
+        greeting: 'Goedemiddag',
       },
       'nl',
     );

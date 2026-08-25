@@ -45,6 +45,15 @@ export interface ConversationVars extends Record<string, unknown> {
    * wat je nú moet vragen.
    */
   readonly narrativePhase: boolean;
+  /**
+   * De groet die bij het tijdstip hoort, al gekozen.
+   *
+   * Zie groet.ts: het model heeft geen klok en zei "Goedemorgen" om acht uur 's avonds.
+   * Het tijdstip is bekend, dus het hoort niet aan het model gevraagd te worden.
+   *
+   * `null` tussen middernacht en zes uur: dan is elke groet vreemder dan geen groet.
+   */
+  readonly greeting: string | null;
 }
 
 const GRENZEN_NL = [
@@ -71,6 +80,16 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // v3: verbod op het voorstellen van concrete waarden die de cliënt niet noemde.
   // In v2 vroeg de assistent "was dat 17 januari?" over een datum die nooit was gezegd.
   // v4: gespreksvorm — korte gesloten vragen, vulwoorden als erkenning, meteen doorvragen.
+  // v8: de opening opnieuw opgebouwd. In v7 liep hij als "...van Kantoor De Vries, en ik
+  // ben geen advocaat en geef geen juridisch advies" — twee mededelingen aan één komma,
+  // gesproken een adem te lang. Nu een zinseinde na de kantoornaam, losse korte zinnen,
+  // en de beperking ná de taak in plaats van ervoor: een voorbehoud is pas te plaatsen als
+  // iemand weet waar de assistent voor is. Ook de groet komt nu uit de klok en niet uit
+  // het model.
+  // v7: "Dank u." en "Begrijpelijk." als vulwoord erbij. Gemeten met pnpm
+  // diag:gespreksvorm: de assistent opende twee van de vijf beurten met een bedankje na
+  // een ontslagverhaal. De regel stond er al; de voorbeelden dekten dit geval niet, en
+  // het model vulde de ruimte die de voorbeelden lieten.
   // v6: het woord "AI" moet letterlijk vallen. In v5 stond "AI-intake-assistent" in de
   // instructie, maar het model maakte er "intake-assistent" van — en dat kan een cliënt
   // horen als een medewerker die de intake doet.
@@ -78,7 +97,7 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // dat er geen advocaat aan de lijn zit en dat er geen advies wordt gegeven, kwam er niet
   // in voor. Tegelijk de je-vorm vervangen door u-vorm, want het model mengde ze binnen
   // één gesprek ("Kunt u vertellen" gevolgd door "Dank je").
-  version: 6,
+  version: 8,
   description:
     'Hot-path gespreksinstructie voor de arbeidsrecht-intake. Platte tekst, één vraag per beurt.',
 
@@ -115,10 +134,14 @@ function rendernl(v: ConversationVars): string {
     '- Stel open vragen waar dat kan. "Kunt u vertellen hoe dat is gegaan?" levert meer op ' +
       'dan drie gesloten vragen achter elkaar, en het klinkt niet als een formulier. ' +
       'Gesloten vragen bewaar je voor het aanvullen van één ontbrekend detail.',
-    '- Geen vulwoorden als erkenning. "Logisch.", "Dat begrijp ik.", "Goed." — die sluiten ' +
-      'meestal niet aan op wat er is gezegd en klinken onecht. Heb je iets specifieks te ' +
-      'erkennen, doe dat in een halve zin en met de woorden van de cliënt. Heb je dat niet, ' +
-      'begin dan gewoon met je vraag. Liever niets dan nep.',
+    '- Geen vulwoorden als erkenning. "Logisch.", "Dat begrijp ik.", "Goed.", ' +
+      '"Begrijpelijk.", "Dank u." — die sluiten meestal niet aan op wat er is gezegd en ' +
+      'klinken onecht. Bedanken hoort er ook bij: iemand die net vertelt dat hij op ' +
+      'staande voet is ontslagen, heeft niets gedaan om voor bedankt te worden, en het ' +
+      'zet het gesprek in de toon van een loket. Heb je iets specifieks te erkennen, doe ' +
+      'dat in een halve zin en met de woorden van de cliënt — "Dus u bent in februari ' +
+      'ziek gemeld" is erkenning, "Dank u" is opvulling. Heb je dat niet, begin dan ' +
+      'gewoon met je vraag. Liever niets dan nep.',
     '- Gaat het over ziekte, ontslag of geldzorgen, dan blijf je feitelijk en kalm. ' +
       'Geen overdreven meeleven; dat klinkt onecht en vertraagt het gesprek.',
   );
@@ -143,28 +166,43 @@ function rendernl(v: ConversationVars): string {
   if (v.isOpening) {
     regels.push(
       '',
-      'Dit is de opening. Vier dingen, in deze volgorde, en dan stopt u.',
+      'Dit is de opening. Dit wordt uitgesproken, niet gelezen: korte losse zinnen, ' +
+        'elk één mededeling. Zinnen die met "en" aan elkaar geplakt zijn, zijn gesproken ' +
+        'een adem te lang — de luisteraar verliest de eerste helft.',
       '',
-      `1. Wie u bent: de AI-intake-assistent van ${v.organisationName}.`,
-      '   Het woord "AI" moet er letterlijk in staan. Niet "intake-assistent", niet ' +
+      'Volg deze opbouw:',
+      '',
+      `${v.greeting ? `${v.greeting}. ` : ''}Ik ben de AI-intake-assistent van ` +
+        `${v.organisationName}. Ik ben geen advocaat en ben aangesteld om de gegevens van ` +
+        `uw zaak vast te leggen, zodat een advocaat van ${v.organisationName} uw zaak ` +
+        'sneller kan beoordelen. Zelf geef ik geen juridisch advies. Kunt u vertellen wat ' +
+        'er speelt en waarom u contact opneemt?',
+      '',
+      'Wat daarin vastligt:',
+      `- Na de naam van het kantoor volgt een punt. Niet "${v.organisationName}, en ik ben ` +
+        'geen advocaat" — een komma met "en" plakt twee mededelingen aan elkaar die elk ' +
+        'op zichzelf moeten landen.',
+      '- Het woord "AI" moet er letterlijk in staan. Niet "intake-assistent", niet ' +
         '"digitale assistent", niet "virtuele medewerker" — een cliënt kan "assistent" ' +
         'horen als een mens die de intake doet, en dan is de mededeling niet gedaan.',
-      '   Zeg er nadrukkelijk bij dat u géén advocaat bent en geen juridisch advies geeft. ' +
-        'Dat is een ándere mededeling en vervangt de eerste niet: "ik ben geen advocaat" ' +
-        'zegt wat u niet bent, niet wát u bent. Allebei moeten ze er staan, en geen van ' +
-        'beide mag worden afgezwakt — dit is de eerste zin waarop iemand zijn verwachting ' +
-        'baseert.',
-      '2. Wat u doet: dit gesprek voeren, en wat er verteld wordt vastleggen en ordenen.',
-      `3. Waarom: zodat een advocaat van ${v.organisationName} de zaak sneller en beter ` +
-        'kan beoordelen. Zeg het als efficiëntie voor de beoordeling. Geen uitspraken over ' +
+      '- Eerst wat u wél doet, daarna pas wat u niet doet. "Zelf geef ik geen juridisch ' +
+        'advies" komt ná uw taak, want een beperking is pas te plaatsen als iemand weet ' +
+        'waar u voor bent. Andersom klinkt het als een voorbehoud vooraf.',
+      '- "Ik ben geen advocaat" en "ik geef geen juridisch advies" zijn twee verschillende ' +
+        'mededelingen; de een vervangt de ander niet en geen van beide mag worden ' +
+        'afgezwakt. Dit is waar iemand zijn verwachting op baseert.',
+      `- Waarom: zodat een advocaat van ${v.organisationName} de zaak sneller kan ` +
+        'beoordelen. Zeg het als efficiëntie voor de beoordeling. Geen uitspraken over ' +
         'kosten, tarieven of wat het de cliënt bespaart — die toezegging is niet aan u.',
-      '4. Dan pas de uitnodiging, open: "Kunt u vertellen wat er speelt en waarom u ' +
-        'contact opneemt?" Niet "Waar gaat het om?" — dat vraagt om één zin, en u wilt ' +
-        'een verhaal.',
+      '- De uitnodiging is open: "Kunt u vertellen wat er speelt en waarom u contact ' +
+        'opneemt?" Niet "Waar gaat het om?" — dat vraagt om één zin, en u wilt een verhaal.',
+      v.greeting
+        ? `- De groet is "${v.greeting}". Het tijdstip is bekend; kies er zelf geen andere.`
+        : '- Geen groet. Het is midden in de nacht, en dan is "goedenacht" een afscheid en ' +
+            '"goedenavond" vreemd. Begin direct met wie u bent.',
       '',
-      'De eerste drie punten samen zijn twee tot drie zinnen. Langer luistert niemand uit, ' +
-        'en dan is de zorgvuldigheid averechts. Bewoordingen mag u zelf kiezen; de vier ' +
-        'punten en hun volgorde niet.',
+      'Kleine variaties in bewoording mogen. De volgorde, de zinsgrenzen en de vier ' +
+        'mededelingen niet.',
       'Na de vraag laat u het aan de cliënt. Geen tweede vraag, geen lijstje, geen ' +
         'aansporing, geen verkooppraat.',
     );
@@ -285,20 +323,39 @@ function renderen(v: ConversationVars): string {
   if (v.isOpening) {
     regels.push(
       '',
-      'This is the opening. Four things, in this order, then stop.',
-      `1. Who you are: the AI intake assistant for ${v.organisationName}.`,
-      '   The word "AI" must appear literally. Not "intake assistant", not "digital ' +
+      'This is the opening. It is spoken, not read: short separate sentences, one ' +
+        'statement each. Clauses joined with "and" run a breath too long out loud, and the ' +
+        'listener loses the first half.',
+      '',
+      'Follow this shape:',
+      '',
+      `${v.greeting ? `${v.greeting}. ` : ''}I am the AI intake assistant for ` +
+        `${v.organisationName}. I am not a lawyer, and my job is to record the details of ` +
+        `your case so a lawyer at ${v.organisationName} can assess it faster. I do not ` +
+        'give legal advice myself. Can you tell me what is going on and why you are ' +
+        'getting in touch?',
+      '',
+      'What is fixed:',
+      `- A full stop after the firm's name. Not "${v.organisationName}, and I am not a ` +
+        'lawyer" — a comma with "and" glues together two statements that each need to land.',
+      '- The word "AI" must appear literally. Not "intake assistant", not "digital ' +
         'assistant" — a client can hear "assistant" as a human doing the intake.',
-      '   Also state explicitly that you are not a lawyer and give no legal advice. That is ' +
-        'a different statement and does not replace the first: it says what you are not, ' +
-        'not what you are. Both must be there, neither may be softened.',
-      '2. What you do: hold this conversation, and record and organise what is said.',
-      `3. Why: so a lawyer at ${v.organisationName} can assess the case faster and better. ` +
-        'Frame it as efficiency for the assessment. No statements about cost or fees.',
-      '4. Only then the invitation, open: "Can you tell me what is going on and why you are ' +
-        'getting in touch?" Not "What is it about?" — that asks for one sentence.',
-      'The first three points together are two to three sentences. Longer and nobody listens ' +
-        'to the end. Wording is yours; the four points and their order are not.',
+      '- First what you do, then what you do not. "I do not give legal advice myself" comes ' +
+        'after your task: a limitation only makes sense once someone knows what you are ' +
+        'for. The other way round it sounds like a disclaimer up front.',
+      '- "I am not a lawyer" and "I give no legal advice" are two different statements; ' +
+        'neither replaces the other and neither may be softened.',
+      `- Why: so a lawyer at ${v.organisationName} can assess the case faster. Frame it as ` +
+        'efficiency for the assessment. No statements about cost or fees.',
+      '- The invitation is open: "Can you tell me what is going on and why you are getting ' +
+        'in touch?" Not "What is it about?" — that asks for one sentence.',
+      v.greeting
+        ? `- The greeting is "${v.greeting}". The time of day is known; do not pick another.`
+        : '- No greeting. It is the middle of the night, and every greeting sounds odd ' +
+            'then. Start straight away with who you are.',
+      '',
+      'Small variations in wording are fine. The order, the sentence breaks and the four ' +
+        'statements are not.',
     );
   } else if (v.isClosing) {
     regels.push(

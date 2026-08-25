@@ -21,9 +21,15 @@ import { IntakeSession } from '../src/intake-session';
  * Dit meet dus hoeveel de assistent uit een gegeven hoeveelheid woorden haalt, en niet
  * hoeveel woorden hij losmaakt. Precies de vraag die ertoe doet, valt erbuiten.
  *
- * Gemeten uitkomst: 2,8 feiten per beurt zonder narratieve fase tegen 2,6 met. Dat is
- * geen bevestiging en geen weerlegging — het is een meting die de vraag niet raakt. Wat
- * wél verschilde: nul vulwoorden tegen één.
+ * Gemeten uitkomst (v7): 2,8 feiten per beurt, met én zonder narratieve fase. Dat is geen
+ * bevestiging en geen weerlegging — het is een meting die de vraag niet raakt.
+ *
+ * Wat er wél uit kwam, en dat was de opbrengst van deze run: de vulwoordteller stond op
+ * een woordenlijst van zes uitdrukkingen en meldde nul, terwijl er "Dank u.", "Begrepen."
+ * en "Dat is duidelijk." in het transcript stonden. Nu telt hij volgens de regel uit de
+ * prompt — een korte aanloopzin die geen inhoudswoord deelt met wat de cliënt zojuist zei
+ * — en noemt hij wat hij vindt, zodat een nul te controleren is in plaats van te
+ * geloven. Dat leverde v7 op: bedanken staat nu expliciet in de verboden lijst.
  *
  * Om de aanname echt te toetsen zou de cliënt op de vraagstijl moeten reageren, en dan
  * meet je de bereidwilligheid van het cliëntmodel. Het eerlijke oordeel komt uit een
@@ -53,6 +59,8 @@ const CLIENT = [
 interface Ronde {
   beurt: number;
   vraag: string;
+  /** Wat de cliënt zei vóór deze beurt; nodig om erkenning van vulwoord te onderscheiden. */
+  clientZei: string;
   nieuweFeiten: string[];
   totaal: number;
 }
@@ -98,13 +106,123 @@ async function voerGesprek(label: string, narrativeTurns: number): Promise<Ronde
     const nieuw = r.factUpdates.map((f) => f.key).filter((k) => !gezien.has(k));
     for (const k of nieuw) gezien.add(k);
 
-    rondes.push({ beurt: i + 1, vraag: antwoord.trim(), nieuweFeiten: nieuw, totaal: gezien.size });
+    rondes.push({
+      beurt: i + 1,
+      vraag: antwoord.trim(),
+      clientZei: zin,
+      nieuweFeiten: nieuw,
+      totaal: gezien.size,
+    });
   }
   return rondes;
 }
 
-/** Vulwoorden die als erkenning worden gebruikt zonder ergens op te slaan. */
-const VULWOORDEN = ['logisch', 'dat begrijp ik', 'goed.', 'begrijpelijk', 'helder.', 'duidelijk.'];
+/*
+ * Een vulwoord herkennen aan de regel, niet aan een woordenlijst.
+ *
+ * Hier stond een lijst van zes uitdrukkingen. Die telde nul vulwoorden in een gesprek waar
+ * "Dank u.", "Begrepen.", "Dat is duidelijk." en "Dat helpt." gewoon in stonden — de
+ * meting las schoon omdat haar vocabulaire te klein was. De lijst uitbreiden tot hij
+ * matcht met wat ik toevallig zag, is die fout herhalen met meer woorden.
+ *
+ * De prompt zegt wat de regel is: erkennen mag, maar dan specifiek en **met de woorden van
+ * de cliënt**. Dus: een korte zin vóór de vraag die geen enkel inhoudswoord deelt met wat
+ * de cliënt zojuist zei, is een vulwoord. Dat is de regel zelf, en hij vangt ook
+ * formuleringen die niemand heeft voorzien.
+ */
+const STOPWOORDEN = new Set([
+  'de',
+  'het',
+  'een',
+  'en',
+  'of',
+  'maar',
+  'dat',
+  'die',
+  'dit',
+  'deze',
+  'ik',
+  'u',
+  'uw',
+  'mijn',
+  'me',
+  'mij',
+  'is',
+  'was',
+  'ben',
+  'bent',
+  'zijn',
+  'heb',
+  'heeft',
+  'had',
+  'hebben',
+  'er',
+  'ook',
+  'niet',
+  'geen',
+  'wel',
+  'te',
+  'van',
+  'voor',
+  'met',
+  'op',
+  'in',
+  'aan',
+  'bij',
+  'naar',
+  'om',
+  'over',
+  'als',
+  'dan',
+  'nog',
+  'toen',
+  'wat',
+  'wie',
+  'waar',
+  'hoe',
+  'waarom',
+  'kunt',
+  'kan',
+  'zou',
+  'moet',
+  'wil',
+  'ja',
+  'nee',
+  'even',
+  'heel',
+]);
+
+function inhoudswoorden(tekst: string): Set<string> {
+  return new Set(
+    tekst
+      .toLowerCase()
+      .replace(/[^a-zà-ü\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !STOPWOORDEN.has(w)),
+  );
+}
+
+/**
+ * De aanloopzin vóór de eerste vraag, als die er is.
+ *
+ * Alleen korte zinnen tellen: een volledige zin die iets naspreekt is inhoud, geen
+ * opvulling.
+ */
+function aanloopzin(beurt: string): string | null {
+  const eerste = beurt.split(/(?<=[.!?])\s+/)[0]?.trim() ?? '';
+  if (eerste === '' || eerste.includes('?')) return null;
+  if (eerste.split(/\s+/).length > 6) return null;
+  return eerste;
+}
+
+function isVulwoord(ronde: Ronde): boolean {
+  const aanloop = aanloopzin(ronde.vraag);
+  if (aanloop === null) return false;
+  const gedeeld = inhoudswoorden(aanloop);
+  const vanClient = inhoudswoorden(ronde.clientZei);
+  for (const w of gedeeld) if (vanClient.has(w)) return false;
+  return true;
+}
 /** Een vraag die met een werkwoord opent, vraagt om ja of nee. */
 const GESLOTEN = /^(is|was|heeft|bent|had|klopt|zijn|kunt u bevestigen|deed)/i;
 
@@ -118,12 +236,17 @@ function rapport(label: string, rondes: readonly Ronde[]): void {
     );
   }
   const totaal = rondes.at(-1)?.totaal ?? 0;
-  const vulwoord = rondes.filter((r) => VULWOORDEN.some((v) => r.vraag.toLowerCase().includes(v)));
+  const vulwoord = rondes.filter(isVulwoord);
   const open = rondes.filter((r) => r.vraag.includes('?') && !GESLOTEN.test(r.vraag));
   console.log(
     `  ${totaal} feiten / ${rondes.length} beurten = ${(totaal / rondes.length).toFixed(1)} per beurt` +
       ` · vulwoorden ${vulwoord.length} · open vragen ${open.length}/${rondes.length}`,
   );
+  // De gevonden vulwoorden erbij, zodat een cijfer van nul te controleren is en niet
+  // alleen te geloven.
+  for (const r of vulwoord) {
+    console.log(`    beurt ${r.beurt} opent met "${aanloopzin(r.vraag)}"`);
+  }
 }
 
 // Zonder narratieve fase eerst: dat is het gedrag van vóór v4, meteen de kandidatenlijst

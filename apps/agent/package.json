@@ -18,7 +18,9 @@
     "dev:live": "tsx --env-file=../../.env live/server.ts",
     "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts",
     "diag:gespreksvorm": "tsx --env-file=../../.env bakeoff/gespreksvorm-diagnose.ts",
+    "diag:stilte": "tsx --env-file=../../.env bakeoff/stilte-diagnose.ts",
     "diag:tikken": "tsx --env-file=../../.env bakeoff/tikken-diagnose.ts",
+    "diag:afsluiten": "tsx --env-file=../../.env bakeoff/afsluiten-diagnose.ts",
     "zichtbaarheid": "node live/zichtbaarheid.mjs"
   },
   "dependencies": {

@@ -1,0 +1,107 @@
+<meta charset="utf-8" />
+<title>Anam — blijft hun stem stil?</title>
+<video id="v" autoplay playsinline muted></video>
+<script type="module">
+  import { createClient } from '/sdk.js';
+
+  /**
+   * Eén sessie openen, niets zeggen, en luisteren of er tóch geluid uit komt.
+   *
+   * Bij passthrough leveren wij de audio. Alles wat Anam uit zichzelf produceert — een
+   * begroeting, een antwoord van hun LLM — is een fout, geen feature: het is een tweede
+   * stem in een gesprek dat maar één stem hoort te hebben.
+   *
+   * Meten gebeurt op de binnenkomende WebRTC-audiotrack met een AnalyserNode. Het element
+   * staat op `muted` zodat de meting niet van de speakers afhangt.
+   */
+  window.meet = async (token, seconden) => {
+    const client = createClient(token, { disableInputAudio: true });
+
+    const gebeurtenissen = [];
+    for (const naam of Object.keys(client.constructor?.EventName ?? {})) void naam;
+    for (const ev of ['MESSAGE_HISTORY_UPDATED', 'MESSAGE_STREAM_EVENT_RECEIVED']) {
+      try {
+        client.addListener(ev, (p) => gebeurtenissen.push({ ev, p: JSON.stringify(p).slice(0, 200) }));
+      } catch {
+        /* niet elke SDK-versie kent elke naam */
+      }
+    }
+
+    // `stream()` geeft de MediaStreams terug; `streamToVideoElement()` geeft void en zet
+    // `srcObject` pas later, en dan meet je een leeg element. Hier is de audiotrack het
+    // hele onderwerp, dus we vragen hem rechtstreeks op.
+    const streams = await client.stream();
+    const audio = streams.flatMap((s) => s.getAudioTracks());
+    if (audio.length === 0) throw new Error('geen audiotrack in de stream');
+    const video = streams.find((s) => s.getVideoTracks().length > 0);
+    if (video) document.getElementById('v').srcObject = video;
+
+    // De audiotrack los analyseren; het videoelement is gedempt.
+    const ctx = new AudioContext();
+    const bron = ctx.createMediaStreamSource(new MediaStream(audio));
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    bron.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+
+    let piek = 0;
+    const luideMonsters = [];
+    const t0 = performance.now();
+    await new Promise((klaar) => {
+      const tik = () => {
+        analyser.getFloatTimeDomainData(buf);
+        let som = 0;
+        for (let i = 0; i < buf.length; i += 1) som += buf[i] * buf[i];
+        const rms = Math.sqrt(som / buf.length);
+        if (rms > piek) piek = rms;
+        // Dezelfde drempel als de ruispoort in de livepagina: hieronder is stilte.
+        if (rms > 0.01) luideMonsters.push(Math.round(performance.now() - t0));
+        if (performance.now() - t0 > seconden * 1000) return klaar();
+        setTimeout(tik, 50);
+      };
+      tik();
+    });
+
+    // Tegenproef in dezelfde sessie: stil zijn is pas een resultaat als de avatar ónze
+    // audio wél doorgeeft. Anders is "stil" niet te onderscheiden van "kapot".
+    let piekEigen = 0;
+    try {
+      const invoer = await client.createAgentAudioInputStream({
+        encoding: 'pcm_s16le',
+        sampleRate: 16000,
+        channels: 1,
+      });
+      const n = 16000 * 2;
+      const pcm = new Int16Array(n);
+      for (let i = 0; i < n; i += 1) pcm[i] = Math.round(Math.sin((2 * Math.PI * 180 * i) / 16000) * 9000);
+      for (let o = 0; o < n; o += 3200) invoer.sendAudioChunk(pcm.slice(o, o + 3200).buffer);
+      invoer.endSequence();
+
+      const tEind = performance.now() + 6000;
+      while (performance.now() < tEind) {
+        analyser.getFloatTimeDomainData(buf);
+        let s2 = 0;
+        for (let i = 0; i < buf.length; i += 1) s2 += buf[i] * buf[i];
+        piekEigen = Math.max(piekEigen, Math.sqrt(s2 / buf.length));
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } catch (e) {
+      gebeurtenissen.push({ ev: 'passthrough-fout', p: String(e).slice(0, 200) });
+    }
+
+    // Netjes afsluiten en dat afwachten: hun gelijktijdigheidslimiet telt sessies die
+    // blijven hangen gewoon mee, en dan mislukt de vólgende arm om de verkeerde reden.
+    try {
+      await client.stopStreaming();
+    } catch {
+      /* al gesloten */
+    }
+    await ctx.close().catch(() => undefined);
+    return {
+      piek: Number(piek.toFixed(4)),
+      piekEigen: Number(piekEigen.toFixed(4)),
+      luideMonsters,
+      gebeurtenissen,
+    };
+  };
+</script>

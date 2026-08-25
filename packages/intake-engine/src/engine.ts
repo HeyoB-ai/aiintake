@@ -10,8 +10,17 @@ import {
   type CaseFactMap,
   type FactCatalog,
   type FactDefinition,
+  resolveWeekdag,
+  vindWeekdagVerwijzing,
 } from '@intake/domain';
-import { PROMPTS, practiceAreaLabel, render, type RenderedPrompt } from '@intake/prompts';
+import {
+  dagdeelGroet,
+  datumAnker,
+  PROMPTS,
+  practiceAreaLabel,
+  render,
+  type RenderedPrompt,
+} from '@intake/prompts';
 
 /**
  * Doorgegeven, zodat een aanroeper de sleutel en versie voor `llm_calls` kan vastleggen
@@ -85,6 +94,18 @@ export interface EngineDeps {
    * afwerken.
    */
   readonly narrativeTurns?: number;
+  /**
+   * Een datum die het vangnet heeft rechtgezet.
+   *
+   * Zichtbaar maken en niet stil corrigeren: een correctie die nergens landt, is niet te
+   * onderscheiden van een controle die niets doet. Gaat naar de HUD en naar `llm_calls`.
+   */
+  readonly onWeekdayCorrection?: (correctie: {
+    key: string;
+    van: unknown;
+    naar: string;
+    uitspraak: string;
+  }) => void;
 }
 
 /** Hoeveel beurten er minimaal tussen twee overbruggingszinnen zitten. */
@@ -160,6 +181,9 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
           isOpening,
           isClosing,
           narrativePhase,
+          // De klok zit al in `input.now`; de groet hoort daaruit te volgen en niet uit
+          // het model, dat er geen heeft en "Goedemorgen" om acht uur 's avonds koos.
+          greeting: dagdeelGroet(input.now, input.language, input.organization.timeZone),
           ...(somFout && !somFout.correct
             ? { arithmeticWarning: describeClaim(somFout, input.language) }
             : {}),
@@ -216,7 +240,9 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
           knownFacts: Object.entries(input.facts)
             .filter(([, v]) => v?.status === 'confirmed')
             .map(([k, v]) => ({ key: k, value: String(v?.value ?? '') })),
-          todayIso: input.now.toISOString().slice(0, 10),
+          // Het anker in de zone van het kantoor, met weekdag erbij. `toISOString()`
+          // stond hier eerder en gaf de UTC-datum: 's nachts een dag mis.
+          anker: datumAnker(input.now, input.language, input.organization.timeZone),
         },
         input.language,
       );
@@ -231,10 +257,80 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         gezocht,
       );
 
+      /*
+       * Tweede ronde over dezelfde beurt, voor wat er nét is vrijgekomen.
+       *
+       * De conditionele categorieën worden bepaald met de feiten van vóór deze beurt. Zegt
+       * de cliënt alles in één adem — "ik ben afgelopen vrijdag op staande voet ontslagen" —
+       * dan stelt deze extractie `termination_route` vast, maar `summary_dismissal_date`
+       * stond niet in de zoeklijst omdat die route toen nog niet bekend wás. En omdat het
+       * transcript alleen de beurten sinds de vorige extractie bevat, is die vrijdag daarna
+       * weg: hij wordt nooit meer gezocht.
+       *
+       * Gemeten: in één beurt kwam de ontslagdatum er niet uit, in twee beurten wel. Dat is
+       * geen tekortkoming van het model maar van onze volgorde.
+       *
+       * Eén extra ronde, niet in een lus. Twee ronden dekken "conditie en waarde in dezelfde
+       * adem"; een categorie die pas door een feit uit ronde twee vrijkomt is zeldzaam
+       * genoeg om de volgende beurt af te wachten, en een lus zou de kosten van het koude
+       * pad onbegrensd maken.
+       */
+      // `FactUpdate` draagt geen `llmCallId`; die vult de opslag later. Voor het opnieuw
+      // wegen van de conditionele categorieën doen alleen sleutel, waarde en status ertoe.
+      const naEersteRonde: CaseFactMap = {
+        ...input.facts,
+        ...Object.fromEntries(
+          updates.map((f) => [f.key, { ...f, llmCallId: null } as CaseFactMap[string]]),
+        ),
+      };
+      const nieuwVrijgekomen = gezochteFeiten(catalog, naEersteRonde).filter(
+        (f) => !gezocht.some((g) => g.key === f.key),
+      );
+
+      let alleUpdates = updates;
+      let alleGeweigerd = rejected;
+      if (nieuwVrijgekomen.length > 0) {
+        const tweede = render(
+          PROMPTS.extraction,
+          {
+            transcript,
+            wantedFacts: nieuwVrijgekomen.map((f) => ({
+              key: f.key,
+              label: f.label[input.language],
+              valueType: f.valueType,
+              ...(f.enumValues ? { enumValues: f.enumValues } : {}),
+            })),
+            knownFacts: Object.entries(naEersteRonde)
+              .filter(([, v]) => v?.status === 'confirmed')
+              .map(([k, v]) => ({ key: k, value: String(v?.value ?? '') })),
+            anker: datumAnker(input.now, input.language, input.organization.timeZone),
+          },
+          input.language,
+        );
+        deps.onPrompt?.(tweede);
+        const extra = await extraheer(
+          deps.cold,
+          tweede.body,
+          transcript,
+          clientOnly,
+          catalog,
+          nieuwVrijgekomen,
+        );
+        alleUpdates = [...updates, ...extra.updates];
+        alleGeweigerd = [...rejected, ...extra.rejected];
+      }
+
+      const gecorrigeerd = corrigeerWeekdagen(
+        alleUpdates,
+        datumAnker(input.now, input.language, input.organization.timeZone),
+        input.language,
+        deps.onWeekdayCorrection,
+      );
+
       return {
-        ...beoordeel(input, updates, catalog),
-        factUpdates: updates,
-        rejectedFacts: rejected,
+        ...beoordeel(input, gecorrigeerd, catalog),
+        factUpdates: gecorrigeerd,
+        rejectedFacts: alleGeweigerd,
         ...(error ? { extractionError: error } : {}),
       };
     },
@@ -533,6 +629,42 @@ function nieuweBeurten(input: EngineInput): { transcript: string; clientOnly: st
  * De categorie is de grove, stabiele filter: die hangt af van wat het gesprek ís, en niet
  * van wat er zojuist is gezegd.
  */
+/**
+ * Zet datums recht die uit een weekdagverwijzing komen.
+ *
+ * Het model rekent offsets goed uit ("twee maanden geleden") maar weekdagnamen niet:
+ * gemeten gaf "afgelopen vrijdag" en "vorige week maandag" allebei dezelfde verkeerde
+ * datum. Zie packages/domain/src/weekdag.ts voor de meting.
+ *
+ * Alleen datumvelden, alleen als er werkelijk een weekdag in het citaat staat, en alleen
+ * als het vangnet iets ánders uitrekent. Staat er een expliciete datum bij ("vrijdag 21
+ * augustus"), dan geeft `vindWeekdagVerwijzing` null terug en gebeurt er niets — een
+ * vangnet dat gaat overschrijven wat al klopt, is zelf een risico.
+ */
+function corrigeerWeekdagen(
+  updates: readonly FactUpdate[],
+  anker: { iso: string; weekdagIndex: 1 | 2 | 3 | 4 | 5 | 6 | 7 },
+  language: 'nl' | 'en',
+  melden?: (c: { key: string; van: unknown; naar: string; uitspraak: string }) => void,
+): readonly FactUpdate[] {
+  return updates.map((update) => {
+    if (update.valueType !== 'date' || update.status === 'unknown') return update;
+    const verwijzing = vindWeekdagVerwijzing(update.evidenceQuote, language);
+    if (!verwijzing) return update;
+
+    const juist = resolveWeekdag(anker.iso, anker.weekdagIndex, verwijzing);
+    if (String(update.value) === juist) return update;
+
+    melden?.({
+      key: update.key,
+      van: update.value,
+      naar: juist,
+      uitspraak: verwijzing.gevonden,
+    });
+    return { ...update, value: juist };
+  });
+}
+
 function gezochteFeiten(catalog: FactCatalog, facts: CaseFactMap): readonly FactDefinition[] {
   const relevanteCategorieen = new Set(
     catalog.categories.filter((c) => evaluate(c.relevantWhen, facts)).map((c) => c.key),
@@ -540,7 +672,20 @@ function gezochteFeiten(catalog: FactCatalog, facts: CaseFactMap): readonly Fact
   return catalog.facts.filter((f) => {
     if (!relevanteCategorieen.has(f.category)) return false;
     const bestaand = facts[f.key];
-    return !bestaand || bestaand.status === 'contradicted';
+    if (!bestaand) return true;
+    /*
+     * `unknown` betekent niet "we hebben het al", maar "het is niet vastgesteld".
+     *
+     * Hier stond `return !bestaand || bestaand.status === 'contradicted'`, en daarmee viel
+     * een feit met status `unknown` uit de zoeklijst. Gevolg, gemeten: de assistent vraagt
+     * "sinds wanneer bent u ziek?", de cliënt zegt "dat weet ik niet precies", `sick_since`
+     * wordt vastgelegd als unknown — en als de cliënt het zich twee beurten later herinnert
+     * en "begin juli" zegt, kijkt de extractie er niet meer naar. Het antwoord valt stil op
+     * de grond, en niemand ziet dat het er was.
+     *
+     * `confirmed` en `inferred` zijn vastgesteld; `unknown` en `contradicted` niet.
+     */
+    return bestaand.status === 'contradicted' || bestaand.status === 'unknown';
   });
 }
 
