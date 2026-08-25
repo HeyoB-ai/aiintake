@@ -49,6 +49,13 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Een import die niet in de package.json van het package zelf staat, resolvet op een
+      # ontwikkelmachine via een node_modules boven de repo en op de buildmachine niet. Die
+      # fout is per constructie onzichtbaar op de plek waar hij gemaakt wordt; hij hoort
+      # hier te vallen en niet in een deploy.
+      - name: Fantoomafhankelijkheden
+        run: pnpm deps:check
+
       # De volledige migratiereeks tegen een LEGE database. Zonder deze stap vind je
       # volgordefouten pas in de volgende verse omgeving — meestal die van de klant.
       # Een `create function ... language sql` resolvet zijn referenties al bij CREATE,
