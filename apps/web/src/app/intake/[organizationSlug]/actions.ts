@@ -68,6 +68,31 @@ export async function startIntake(
     return { ok: false, fout: 'Zonder microfoon kan het gesprek niet worden gevoerd.' };
   }
 
+  /*
+   * Alles wat kan weigeren, weigert vóór de eerste schrijfactie.
+   *
+   * Deze controle stond onderaan, ná `create_public_intake` en ná `issueAgentSession`. Bij
+   * een ontbrekende `NEXT_PUBLIC_AGENT_WS_URL` liet elke mislukte poging dus een intake én
+   * een sessie achter, en op dat foutpad werd niets teruggedraaid. Drie van zulke rijen
+   * plus een gesprek dat zijn `ended_at` nooit kreeg, en `maxConcurrentSessions` (5) zit
+   * vol — waarna niemand meer een gesprek kan starten en de melding over gelijktijdige
+   * sessies gaat, niet over de configuratie die de oorzaak was.
+   *
+   * De regel die dat voorkomt is niet "draai terug bij een fout" maar "schrijf pas als er
+   * niets meer kan weigeren". Daarom wordt de URL hier ook meteen ontleed: `new URL()` op
+   * een onzinnige waarde gooit, en dat hoort te gebeuren voordat er een sessie is en niet
+   * erna.
+   */
+  const basis = process.env['NEXT_PUBLIC_AGENT_WS_URL'];
+  if (!basis) return { ok: false, fout: 'De gespreksdienst is niet geconfigureerd.' };
+
+  let wsBasis: URL;
+  try {
+    wsBasis = new URL(basis);
+  } catch {
+    return { ok: false, fout: 'De gespreksdienst is niet geconfigureerd.' };
+  }
+
   const kop = await headers();
 
   /*
@@ -135,10 +160,8 @@ export async function startIntake(
     prewarmedAt: new Date().toISOString(),
   });
 
-  const basis = process.env['NEXT_PUBLIC_AGENT_WS_URL'];
-  if (!basis) return { ok: false, fout: 'De gespreksdienst is niet geconfigureerd.' };
-
-  const url = new URL(basis);
+  // Hier valt niets meer te weigeren: de basis-URL is bovenaan al ontleed.
+  const url = new URL(wsBasis);
   url.searchParams.set('intake', rij.intake_id);
   url.searchParams.set('token', sessie.sessionToken);
 
