@@ -344,34 +344,49 @@ wss.on('connection', (ws, verzoek) => {
  * portabel voor één commando te zetten is en dan in .env belandt — waar hij ook voor de
  * echte server zou gelden.
  */
-async function magVerbinden(url: string): Promise<{ ok: true } | { ok: false; reden: string }> {
-  if (process.argv.includes('--zonder-token')) return { ok: true };
+/**
+ * De eigen namen eerst, de NEXT_PUBLIC_-namen als terugval.
+ *
+ * Lokaal deelt dit harnas één .env met de web-app, en daar heten ze NEXT_PUBLIC_*. Op
+ * Railway staat de web-app er niet en volgt iemand apps/agent/.env.example, waar
+ * SUPABASE_URL en SUPABASE_PUBLISHABLE_KEY staan. Las dit alleen de NEXT_PUBLIC_-namen,
+ * dan weigert de worker daar elke verbinding met "de worker kan niet verifiëren" — een
+ * melding die naar het sessietoken wijst terwijl het de configuratie is.
+ */
+function supabaseBereik(): { url: string; anon: string } | null {
+  const url = process.env['SUPABASE_URL'] ?? process.env['NEXT_PUBLIC_SUPABASE_URL'];
+  const anon =
+    process.env['SUPABASE_PUBLISHABLE_KEY'] ?? process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'];
+  return url && anon ? { url, anon } : null;
+}
+
+/** Het sessietoken en de intake uit de verbindings-URL, zodra de sessie geldig bleek. */
+export interface Sessiebewijs {
+  readonly token: string;
+  readonly intakeId: string;
+}
+
+type Toegang = { ok: true; bewijs: Sessiebewijs | null } | { ok: false; reden: string };
+
+async function magVerbinden(url: string): Promise<Toegang> {
+  // Zonder verificatie is er ook geen sessie om af te sluiten; het harnas draait dan
+  // buiten de database om.
+  if (process.argv.includes('--zonder-token')) return { ok: true, bewijs: null };
 
   const params = new URL(url, 'http://x').searchParams;
   const token = params.get('token');
   const intake = params.get('intake');
   if (!token || !intake) return { ok: false, reden: 'geen sessietoken meegegeven' };
 
-  /*
-   * De eigen namen eerst, de NEXT_PUBLIC_-namen als terugval.
-   *
-   * Lokaal deelt dit harnas één .env met de web-app, en daar heten ze NEXT_PUBLIC_*. Op
-   * Railway staat de web-app er niet en volgt iemand apps/agent/.env.example, waar
-   * SUPABASE_URL en SUPABASE_PUBLISHABLE_KEY staan. Las dit alleen de NEXT_PUBLIC_-namen,
-   * dan weigert de worker daar elke verbinding met "de worker kan niet verifiëren" — een
-   * melding die naar het sessietoken wijst terwijl het de configuratie is.
-   */
-  const supabaseUrl = process.env['SUPABASE_URL'] ?? process.env['NEXT_PUBLIC_SUPABASE_URL'];
-  const anon =
-    process.env['SUPABASE_PUBLISHABLE_KEY'] ?? process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'];
-  if (!supabaseUrl || !anon) return { ok: false, reden: 'de worker kan niet verifiëren' };
+  const bereik = supabaseBereik();
+  if (!bereik) return { ok: false, reden: 'de worker kan niet verifiëren' };
 
   try {
-    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/agent_verify_session`, {
+    const res = await fetch(`${bereik.url}/rest/v1/rpc/agent_verify_session`, {
       method: 'POST',
       headers: {
-        apikey: anon,
-        Authorization: `Bearer ${anon}`,
+        apikey: bereik.anon,
+        Authorization: `Bearer ${bereik.anon}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ p_session_token: token, p_intake_id: intake }),
@@ -381,13 +396,76 @@ async function magVerbinden(url: string): Promise<{ ok: true } | { ok: false; re
     if (!Array.isArray(rijen) || rijen.length === 0) {
       return { ok: false, reden: 'sessietoken geweigerd' };
     }
-    return { ok: true };
+    return { ok: true, bewijs: { token, intakeId: intake } };
   } catch {
     return { ok: false, reden: 'de verificatie kon niet worden uitgevoerd' };
   }
 }
 
+/**
+ * De sessie afsluiten in de database.
+ *
+ * ## Waarom dit hier moest komen
+ *
+ * `agent_end_session` bestond al, en `AgentRpc.endSession` in @intake/db-core roept hem
+ * netjes aan — maar die code hangt aan `src/main.ts`, en dat bestand luistert nergens op.
+ * De worker die in productie draait is dit bestand, oorspronkelijk het ontwikkelharnas, en
+ * dat had nooit een databasekant. Gevolg: `ended_at` werd nooit geschreven. Niet één pad
+ * dat brak, maar een pad dat er niet was. Zie docs/deploy.md, "Wat nog niet klopt".
+ *
+ * Het effect was niet cosmetisch. `issue_agent_session` telt de gelijktijdige sessies als
+ * `ended_at is null`, dus elk afgerond gesprek bleef meetellen tot `maxConcurrentSessions`
+ * vol zat en niemand meer kon beginnen.
+ *
+ * ## De vertaling van route naar reden
+ *
+ * `end_reason` kent vijf waarden: completed, client_left, timeout, error, budget. De vier
+ * routes hier passen daar niet één-op-één op, en dat is beter zichtbaar dan weggemoffeld:
+ * 'server' is een herstart of deploy en dus geen fout van het gesprek, maar er is geen
+ * betere emmer. Wie hierop rapporteert moet dat weten.
+ *
+ * ## Waarom de seconden de socketduur zijn
+ *
+ * Niet de spreektijd, en ook niet de avatarminuten. Dit is wat deze worker kan meten
+ * zonder aan te nemen: van open tot dicht. Bij een sessie die nooit verder kwam dan het
+ * toestemmingsscherm staat er dus een kort getal, en dat klopt.
+ */
+async function schrijfSessieEinde(
+  bewijs: Sessiebewijs,
+  reden: 'completed' | 'client_left' | 'timeout' | 'error',
+  secondenOpen: number,
+): Promise<void> {
+  const bereik = supabaseBereik();
+  if (!bereik) return;
+
+  try {
+    const res = await fetch(`${bereik.url}/rest/v1/rpc/agent_end_session`, {
+      method: 'POST',
+      headers: {
+        apikey: bereik.anon,
+        Authorization: `Bearer ${bereik.anon}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_session_token: bewijs.token,
+        p_intake_id: bewijs.intakeId,
+        p_end_reason: reden,
+        p_billed_seconds: secondenOpen,
+      }),
+    });
+    if (!res.ok) {
+      // Luid loggen en niet gooien: het afsluiten van de avatarsessie en de socket mag
+      // hier niet van afhangen. Maar stil blijven zou betekenen dat een rij op null blijft
+      // staan zonder dat iemand het weet, en dat is precies hoe dit is ontstaan.
+      console.log(`    ended_at NIET geschreven: HTTP ${res.status} ${await res.text()}`);
+    }
+  } catch (fout) {
+    console.log(`    ended_at NIET geschreven: ${String(fout)}`);
+  }
+}
+
 async function verbinding(ws: WebSocket, verzoekUrl: string) {
+  const geopendOp = Date.now();
   const toegang = await magVerbinden(verzoekUrl);
   if (!toegang.ok) {
     console.log(`  verbinding geweigerd: ${toegang.reden}`);
@@ -440,6 +518,14 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     stopknop: 'Stop-knop in de pagina',
   };
 
+  /** Zie schrijfSessieEinde: vier routes op vier van de vijf toegestane redenen. */
+  const routeReden = {
+    tab: 'client_left',
+    server: 'error',
+    klok: 'timeout',
+    stopknop: 'completed',
+  } as const;
+
   async function beeindig(route: Route, detail = ''): Promise<void> {
     if (afgesloten) return;
     afgesloten = true;
@@ -462,6 +548,22 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     // De browser laten weten waaróm, want anders staat er een dood beeld zonder uitleg.
     // Dit mag falen; de sessie sluiten mag daar niet van afhangen.
     stuur({ type: 'stop', reden });
+
+    /*
+     * Eerst de database, dan de rest.
+     *
+     * Niet omdat het dringender is, maar omdat het token na `agent_end_session` wordt
+     * ingetrokken en er daarna dus niets meer te schrijven valt. Zou dit onderaan staan en
+     * er ging iets mis bij het sluiten van de avatarsessie, dan bleef `ended_at` op null —
+     * en precies dát is het gedrag dat de dienst platlegde.
+     */
+    if (toegang.ok && toegang.bewijs) {
+      await schrijfSessieEinde(
+        toegang.bewijs,
+        routeReden[route],
+        Math.round((Date.now() - geopendOp) / 1000),
+      );
+    }
 
     if (anamSessionId && avatarProviderVoorSessies) {
       const ok = await avatarProviderVoorSessies.stopSession(anamSessionId);
@@ -529,6 +631,19 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
         // reden dat de browser dit meteen na het verbinden stuurt.
         anamSessionId = bericht.sessionId;
         console.log(`  avatarsessie ${bericht.sessionId.slice(0, 8)} gestart`);
+        return;
+      }
+      if (bericht.type === 'stop') {
+        /*
+         * Een bewuste stop is iets anders dan een weggeklikte tab.
+         *
+         * Allebei komen ze uiteindelijk aan als een gesloten socket, en dan is er geen
+         * verschil meer te zien. Daarom meldt de pagina het vóór het sluiten: dit gesprek
+         * is afgerond ('completed'), niet afgebroken ('client_left'). Zonder dit bericht
+         * bestond de route 'stopknop' hieronder wel, maar bereikte niemand hem — en dan
+         * suggereert het log een onderscheid dat niet gemaakt wordt.
+         */
+        void beeindig('stopknop');
         return;
       }
       if (bericht.type !== 'start') return;

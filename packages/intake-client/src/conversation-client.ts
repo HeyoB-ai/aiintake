@@ -458,6 +458,19 @@ export class ConversationClient {
     if (this.gestopt) return;
     this.gestopt = true;
 
+    /*
+     * De server vertellen dat dit een bewuste stop is, vóór het sluiten van de socket.
+     *
+     * Een dichte socket ziet er aan de serverkant hetzelfde uit of de cliënt nu op Stop
+     * drukte of zijn tab wegveegde, en die twee horen niet als dezelfde `end_reason` in
+     * `sessions` te belanden. Best effort: wordt de pagina afgebroken, dan haalt dit het
+     * misschien niet meer, en dan valt het terug op de route die de server zelf ziet.
+     *
+     * De reden gaat niet mee. Die is voor de mens die het log leest; de server kent het
+     * vaste rijtje dat de database accepteert en hoort dat niet van een cliënt te krijgen.
+     */
+    this.stuur({ type: 'stop' });
+
     this.stopGeluid();
     if (this.anam) {
       void Promise.resolve(this.anam.stopStreaming()).catch(() => undefined);
