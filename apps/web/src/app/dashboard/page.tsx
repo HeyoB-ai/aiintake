@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { formatCompleteness, URGENCY_STYLES } from '@intake/ui';
 import type { IntakeStatus, UrgencyLevel } from '@intake/domain';
 import { requireUser } from '@/lib/auth';
@@ -24,6 +25,12 @@ interface IntakeRow {
   completeness: number | null;
   status: IntakeStatus;
   assigned_to: string | null;
+}
+
+/** Naam van de behandelaar, apart opgehaald; RLS beslist of hij zichtbaar is. */
+interface Behandelaar {
+  full_name: string | null;
+  email: string;
 }
 
 const STATUS_LABEL: Record<IntakeStatus, string> = {
@@ -55,6 +62,8 @@ export default async function DashboardPage() {
   // de applicatielaag ligt, en dat is precies de verwarring die je niet wilt.
   const { data, error } = await supabase
     .from('intakes')
+    // Eén letterlijke string, geen concatenatie: de typeparser van supabase-js leest
+    // alleen een literal en levert anders `GenericStringError` op.
     .select(
       'id, created_at, client_name, subject, practice_area, urgency_level, completeness, status, assigned_to',
     )
@@ -62,6 +71,27 @@ export default async function DashboardPage() {
     .limit(100);
 
   const intakes = (data ?? []) as IntakeRow[];
+
+  /*
+   * De namen van de behandelaars in één extra query.
+   *
+   * Een ingebedde select koppelt de query aan de naam van een foreign-keyconstraint en
+   * levert een type dat tussen object en array zweeft. Eén query op de gevonden id's is
+   * voorspelbaarder — en RLS bepaalt hier net zo goed wie zichtbaar is.
+   */
+  const behandelaarIds = [
+    ...new Set(intakes.map((i) => i.assigned_to).filter((v): v is string => v !== null)),
+  ];
+  const behandelaars = new Map<string, Behandelaar>();
+  if (behandelaarIds.length > 0) {
+    const { data: rijen } = await supabase
+      .from('users')
+      .select('id, full_name, email')
+      .in('id', behandelaarIds);
+    for (const u of (rijen ?? []) as (Behandelaar & { id: string })[]) {
+      behandelaars.set(u.id, { full_name: u.full_name, email: u.email });
+    }
+  }
 
   const counts = {
     nieuw: intakes.filter((i) => i.status === 'NEW' || i.status === 'IN_PROGRESS').length,
@@ -100,7 +130,7 @@ export default async function DashboardPage() {
           body="Zodra een cliënt de intakepagina van uw kantoor doorloopt, verschijnt de intake hier."
         />
       ) : (
-        <IntakeTable rows={intakes} />
+        <IntakeTable rows={intakes} behandelaars={behandelaars} />
       )}
     </div>
   );
@@ -123,7 +153,13 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
   );
 }
 
-function IntakeTable({ rows }: { rows: IntakeRow[] }) {
+function IntakeTable({
+  rows,
+  behandelaars,
+}: {
+  rows: IntakeRow[];
+  behandelaars: Map<string, Behandelaar>;
+}) {
   return (
     <div
       className="overflow-x-auto rounded-lg border"
@@ -139,17 +175,48 @@ function IntakeTable({ rows }: { rows: IntakeRow[] }) {
             <Th>Urgentie</Th>
             <Th>Volledigheid</Th>
             <Th>Status</Th>
+            <Th>Toegewezen aan</Th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr
               key={row.id}
-              className="border-b last:border-0"
+              className="border-b last:border-0 transition-colors hover:bg-[var(--ink-050)]"
               style={{ borderColor: 'var(--border)' }}
             >
-              <Td>{new Date(row.created_at).toLocaleDateString('nl-NL')}</Td>
-              <Td>{row.client_name ?? '—'}</Td>
+              {/*
+               * De link zit op de eerste cel en niet op de rij.
+               *
+               * Een `onClick` op de `<tr>` werkt niet met het toetsenbord en niet met
+               * openen-in-nieuw-tabblad, en dat laatste is precies wat iemand doet die
+               * drie dossiers naast elkaar wil leggen. De hele cel is klikbaar, de rest
+               * van de rij licht mee op.
+               *
+               * `prefetch={false}`: Next haalt een gelinkte pagina op zodra de muis erover
+               * gaat, en deze pagina schrijft `intake.viewed` in het auditlog. Met prefetch
+               * zou langs de lijst bewegen tientallen inzagen registreren die nooit hebben
+               * plaatsgevonden — en een auditlog dat te veel meldt is net zo onbruikbaar
+               * als een dat te weinig meldt.
+               */}
+              <Td>
+                <Link
+                  href={`/dashboard/intakes/${row.id}`}
+                  prefetch={false}
+                  className="block underline-offset-2 hover:underline"
+                >
+                  {new Date(row.created_at).toLocaleDateString('nl-NL')}
+                </Link>
+              </Td>
+              <Td>
+                <Link
+                  href={`/dashboard/intakes/${row.id}`}
+                  prefetch={false}
+                  className="block font-medium underline-offset-2 hover:underline"
+                >
+                  {row.client_name ?? 'Naam niet vastgelegd'}
+                </Link>
+              </Td>
               <Td>{row.subject ?? '—'}</Td>
               <Td>{row.practice_area === 'employment' ? 'Arbeidsrecht' : row.practice_area}</Td>
               <Td>
@@ -172,6 +239,13 @@ function IntakeTable({ rows }: { rows: IntakeRow[] }) {
               </Td>
               <Td>{formatCompleteness(row.completeness)}</Td>
               <Td>{STATUS_LABEL[row.status]}</Td>
+              <Td>
+                {(() => {
+                  const b = row.assigned_to ? behandelaars.get(row.assigned_to) : undefined;
+                  if (!b) return <span style={{ color: 'var(--muted)' }}>Niet toegewezen</span>;
+                  return b.full_name ?? b.email;
+                })()}
+              </Td>
             </tr>
           ))}
         </tbody>

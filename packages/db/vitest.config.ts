@@ -1,6 +1,17 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
-export const ISOLATION_SUITE = 'src/__tests__/tenant-isolation.test.ts';
+/*
+ * Een patroon en niet één bestandsnaam.
+ *
+ * Hier stond `src/__tests__/tenant-isolation.test.ts`. Een tweede isolatietest erbij
+ * zetten had daardoor twee stille gevolgen tegelijk: hij draaide niet mee met
+ * `pnpm test:isolation`, én hij belandde wél in `pnpm test` — waar geen testdatabase is,
+ * dus sloeg hij zichzelf over. Groen op beide plekken, gemeten werd er niets.
+ *
+ * Elk bestand dat op `.isolation.` eindigt of in `__tests__` staat en de database nodig
+ * heeft, hoort hier binnen te vallen. Vandaar een glob.
+ */
+export const ISOLATION_SUITE = 'src/__tests__/{tenant-isolation,dashboard-detail}.test.ts';
 
 export default defineConfig({
   test: {
