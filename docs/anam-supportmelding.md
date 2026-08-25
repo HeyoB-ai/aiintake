@@ -79,6 +79,64 @@ passthrough is deprioritised.
    mode from an EU client? We would like to know whether our ~800 ms is normal or whether
    we have something misconfigured.
 
+## A2. Audible clicks in the returned audio
+
+Separate from latency, and the more serious of the two for us: **the audio coming back from
+the avatar has audible clicks.** They are there in every turn, in every session.
+
+**What we have ruled out on our side.**
+
+- **Not persona-dependent.** Present with a stock persona (Anika) and with our own persona
+  (avatar Mia, `llmId: CUSTOMER_CLIENT_V1`), identically.
+- **The audio we send is clean.** We run a click detector — outliers in the second
+  difference `x[n] - 2x[n-1] + x[n-2]`, thresholded against a per-25 ms local median so it
+  does not fire on fricatives — over the PCM immediately before it enters
+  `sendAudioChunk()`. Same detector on the returned track. Source measures 2.8-4.2
+  events/s; that is our baseline, and the returned audio is measured against it.
+- **Not a chunk-boundary artifact of ours.** Chunk boundaries in the source PCM are
+  continuous (first sample -5, largest step 16 within the first 5 ms), and there are no
+  odd-length buffers.
+- **Not our leading-silence trimming.** Disabling it changes nothing.
+
+**Sample rate experiment.** We deliver 16 kHz because Cartesia's streaming WebSocket only
+emits 16 kHz. Since you accept 24 kHz, we tested whether a resampling step on your side
+explains it. Three arms, one variable each, two full runs:
+
+arm run 1 run 2
+A 16 kHz (our current path) 2.87 /s 2.48 /s
+B 24 kHz, we upsample from the
+_identical_ 16 kHz source 1.91 /s 1.59 /s
+C 24 kHz native from Cartesia REST 1.98 /s 2.43 /s
+
+Arm B uses windowed-sinc interpolation, not linear, and measures identical to arm A on the
+source side (18 vs 18, 21 vs 22 events) — so the upsampling itself introduces nothing.
+
+**What that tells us.** Delivering 24 kHz gives a reproducible reduction of roughly one
+third, but **the clicks do not go away**. So the 16 kHz to 24 kHz conversion is a
+contributing factor at most, not the cause.
+
+**Caveats we want to be explicit about.** The returned audio is measured after WebRTC, so
+Opus adds its own artifacts; only the differences between arms — which share that path —
+are meaningful. And the detector is deliberately conservative: a click that falls inside a
+fricative is not separable from the fricative itself, so these counts are a lower bound.
+
+**Our questions**
+
+5. **Is this known?** Do you see clicks in agent-audio passthrough with 16 kHz
+   `pcm_s16le` input, and is there a recommended input format that avoids them?
+6. **What does your pipeline do with the input audio?** Specifically: what internal sample
+   rate does the engine run at, and what resampler is applied to 16 kHz input?
+7. **Can chunks be delivered faster than realtime**, or does the engine expect
+   realtime-paced input? If it expects realtime and we over-deliver, would that produce
+   exactly this kind of artifact?
+8. **What is `enableAudioPassthrough` for?** Our audio comes through fine with that field
+   set to `false`. We also cannot set it: `POST /v1/personas` with `true` returns 201 with
+   the field on `false`, `PUT` returns 200 and changes nothing, `PATCH` returns 405.
+9. Relatedly — `personaConfig` accepts `avatarId` and `voiceId` alongside `personaId` with
+   HTTP 200 and then ignores them. That cost us an evening: we saw a different face and a
+   Spanish greeting than we had configured. **Would you consider rejecting fields that are
+   not applied?** A 400 there would have saved the entire investigation.
+
 ## B. Data protection — questions for the DPA
 
 We are building for Dutch law firms. Intake conversations in employment law routinely

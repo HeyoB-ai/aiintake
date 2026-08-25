@@ -33,7 +33,7 @@ const ZIN = 'Goedemiddag, ik ben de digitale intake-assistent.';
 const aan = process.env['ANAM_DIAGNOSE'] === '1';
 const heeftKeys = Boolean(
   process.env['ANAM_API_KEY'] &&
-  (process.env['ANAM_AVATAR_ID'] || process.env['ANAM_PERSONA_ID']) &&
+  process.env['ANAM_PERSONA_ID'] &&
   process.env['CARTESIA_API_KEY'] &&
   process.env['CARTESIA_VOICE_ID'],
 );
@@ -176,9 +176,8 @@ describe('diagnose Anam-harnas', () => {
         apiKey: process.env['ANAM_API_KEY']!,
         // Avatar wint boven persona; zie AnamOptions. Beide mogen leeg zijn zolang er
         // maar één is ingevuld.
-        ...(process.env['ANAM_AVATAR_ID'] ? { avatarId: process.env['ANAM_AVATAR_ID'] } : {}),
-        ...(process.env['ANAM_PERSONA_ID'] ? { personaId: process.env['ANAM_PERSONA_ID'] } : {}),
-        ...(process.env['ANAM_VOICE_ID'] ? { voiceId: process.env['ANAM_VOICE_ID'] } : {}),
+        // Alleen de persona: avatarId en voiceId worden door hun API genegeerd.
+        personaId: process.env['ANAM_PERSONA_ID']!,
       });
       const sessionToken = await provider.issueSessionToken();
 
