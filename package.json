@@ -35,6 +35,8 @@
     "diag:afsluiten": "pnpm --filter @intake/agent diag:afsluiten",
     "zichtbaarheid": "pnpm --filter @intake/agent zichtbaarheid",
     "preview": "pnpm --filter @intake/ui preview",
+    "diag:bey-calls": "pnpm --filter @intake/agent diag:bey-calls",
+    "demo:user": "node --env-file=.env scripts/demo-user.mjs",
     "layout:check": "pnpm --filter @intake/web layout:check",
     "cert:lan": "node scripts/lan-cert.mjs",
     "dev:https": "node scripts/dev-https.mjs",

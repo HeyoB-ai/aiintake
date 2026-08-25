@@ -274,6 +274,172 @@ export function buildSeed(now = new Date()) {
     },
   ];
 
+  /*
+   * Het gesprek zelf, voor intake 1 en 2.
+   *
+   * Zonder transcript is de detailpagina niet te beoordelen: dan zie je feiten zonder de
+   * woorden waaruit ze komen, en juist die herleidbaarheid is wat een advocaat nodig heeft
+   * om binnen een paar minuten te kunnen besluiten.
+   *
+   * Twee van de vijf, niet alle vijf. Een dossier zonder transcript is een echte toestand —
+   * een intake die net begonnen is heeft er nog geen — en de pagina hoort dat netjes te
+   * tonen in plaats van leeg te blijven. Met vijf gevulde dossiers zou dat pad nooit
+   * bekeken worden.
+   */
+  const bericht = (n, i, role, content, extra = {}) => ({
+    // Vaste id's, zodat de seed idempotent is: opnieuw draaien hoort niets te verdubbelen.
+    id: `40000000-0000-4000-a000-${String(n).padStart(6, '0')}${String(i).padStart(6, '0')}`,
+    organization_id: ORG_ID,
+    intake_id: intakeId(n),
+    turn_index: i,
+    role,
+    content,
+    created_at: hoursAgo(n * 9 - i * 0.02, now),
+    ...extra,
+  });
+
+  const messages = [
+    bericht(
+      1,
+      0,
+      'assistant',
+      'Goedemiddag. Ik ben de AI-intake-assistent van Van Dijk Arbeidsrecht. Ik ben geen ' +
+        'advocaat en ben aangesteld om de gegevens van uw zaak vast te leggen, zodat een ' +
+        'advocaat van Van Dijk Arbeidsrecht uw zaak sneller kan beoordelen. Zelf geef ik ' +
+        'geen juridisch advies. Kunt u vertellen wat er speelt en waarom u contact opneemt?',
+    ),
+    bericht(
+      1,
+      1,
+      'client',
+      'Mijn werkgever heeft me een vaststellingsovereenkomst gestuurd. Ik moet vrijdag ' +
+        'tekenen, zeggen ze, anders vervalt het aanbod.',
+    ),
+    bericht(1, 2, 'assistant', 'Kunt u vertellen hoe dat gesprek met uw werkgever is gegaan?'),
+    bericht(
+      1,
+      3,
+      'client',
+      'Er was al een tijd gedoe over mijn functioneren. Ik verdien 3800 euro bruto en ik ' +
+        'heb een vast contract. Ik heb nog niets getekend.',
+    ),
+    // Een afgebroken beurt: de cliënt onderbrak de assistent. `intended_content` bewaart
+    // wat er zou zijn gezegd, en dat is precies het verschil dat een advocaat moet kunnen
+    // zien wanneer een antwoord raar aansluit op de vraag.
+    bericht(1, 4, 'assistant', 'Heeft u eerder een waarschuwing', {
+      intended_content: 'Heeft u eerder een waarschuwing of een verbetertraject gehad?',
+      interrupted_at_char: 28,
+      spoken_ms: 1400,
+    }),
+    bericht(1, 5, 'client', 'Nee, nooit iets op papier gehad.'),
+
+    bericht(
+      2,
+      0,
+      'assistant',
+      'Goedemorgen. Ik ben de AI-intake-assistent van Van Dijk Arbeidsrecht. Ik ben geen ' +
+        'advocaat en ben aangesteld om de gegevens van uw zaak vast te leggen, zodat een ' +
+        'advocaat van Van Dijk Arbeidsrecht uw zaak sneller kan beoordelen. Zelf geef ik ' +
+        'geen juridisch advies. Kunt u vertellen wat er speelt en waarom u contact opneemt?',
+    ),
+    bericht(
+      2,
+      1,
+      'client',
+      'Ik ben op staande voet ontslagen. Ze zeggen dat ik geld heb weggenomen uit de kas, ' +
+        'maar dat is niet waar.',
+    ),
+    bericht(2, 2, 'assistant', 'Wanneer heeft u dat te horen gekregen?'),
+    bericht(2, 3, 'client', 'Afgelopen vrijdag, mondeling. Daarna kreeg ik een brief.'),
+    bericht(2, 4, 'system', 'beurt overgeslagen — geen cliëntinhoud; hij blijft wachten'),
+    bericht(2, 5, 'client', 'Ik zit sinds die dag ook ziek thuis, ik slaap er niet van.'),
+  ];
+
+  /**
+   * De samenvatting, met een bronverwijzing per bewering.
+   *
+   * `not_established` is geen restje maar de kern van het product: wat er níét staat, is
+   * wat de advocaat als eerste moet vragen. `grounding_ok` legt vast dat elke bewering aan
+   * een beurt hangt.
+   */
+  const summaries = [
+    {
+      id: '20000000-0000-4000-a000-000000000001',
+      organization_id: ORG_ID,
+      intake_id: intakeId(1),
+      sections: {
+        situatie:
+          'Cliënt heeft een vaststellingsovereenkomst ontvangen met een tekendeadline. ' +
+          'Er speelde eerder een discussie over functioneren.',
+        dienstverband: 'Vast contract, 3800 euro bruto per maand.',
+        stand_van_zaken: 'Nog niets getekend.',
+        bronnen: { situatie: 'turn-1', dienstverband: 'turn-3', stand_van_zaken: 'turn-3' },
+      },
+      not_established: [
+        'Datum van indiensttreding',
+        'Hoogte van de aangeboden beëindigingsvergoeding',
+        'Of er een concurrentiebeding in het contract staat',
+      ],
+      grounding_ok: true,
+      ungrounded_claims: [],
+      created_at: hoursAgo(9, now),
+    },
+    {
+      id: '20000000-0000-4000-a000-000000000002',
+      organization_id: ORG_ID,
+      intake_id: intakeId(2),
+      sections: {
+        situatie:
+          'Cliënt is op staande voet ontslagen wegens een gestelde kasopname, en betwist ' +
+          'die grond.',
+        gezondheid: 'Cliënt meldt zich sinds de ontslagdatum ziek.',
+        bronnen: { situatie: 'turn-1', gezondheid: 'turn-5' },
+      },
+      not_established: [
+        'Of er een schriftelijke ontslagbrief met dringende reden is ontvangen',
+        'Datum van indiensttreding',
+        'Of het UWV al is ingeschakeld',
+      ],
+      grounding_ok: true,
+      ungrounded_claims: [],
+      created_at: hoursAgo(18, now),
+    },
+  ];
+
+  /**
+   * Documenten, met twee verschillende analysestatussen.
+   *
+   * `analysis_status` is betekenisvol: de pagina hoort geen feiten uit een document te
+   * tonen zolang de analyse loopt. Met alleen voltooide documenten in de seed zou dat pad
+   * nooit bekeken worden.
+   */
+  const documents = [
+    {
+      id: '30000000-0000-4000-a000-000000000001',
+      organization_id: ORG_ID,
+      intake_id: intakeId(1),
+      filename: 'Vaststellingsovereenkomst.pdf',
+      mime_type: 'application/pdf',
+      storage_path: `${ORG_ID}/${intakeId(1)}/vso.pdf`,
+      size_bytes: 318000,
+      uploaded_by_role: 'client',
+      analysis_status: 'completed',
+      uploaded_at: hoursAgo(8.8, now),
+    },
+    {
+      id: '30000000-0000-4000-a000-000000000002',
+      organization_id: ORG_ID,
+      intake_id: intakeId(2),
+      filename: 'Ontslagbrief.pdf',
+      mime_type: 'application/pdf',
+      storage_path: `${ORG_ID}/${intakeId(2)}/ontslagbrief.pdf`,
+      size_bytes: 121400,
+      uploaded_by_role: 'client',
+      analysis_status: 'processing',
+      uploaded_at: hoursAgo(17.5, now),
+    },
+  ];
+
   // Volgorde is niet vrij: foreign keys lopen van intakes naar organizations, en van
   // case_facts en risk_flags naar intakes.
   // `json` benoemt de jsonb-kolommen. Nodig voor het Postgres-transport: daar moet ook
@@ -290,5 +456,8 @@ export function buildSeed(now = new Date()) {
     { table: 'intakes', rows: intakes, conflict: 'id', json: [] },
     { table: 'case_facts', rows: case_facts, conflict: 'intake_id,key', json: ['value'] },
     { table: 'risk_flags', rows: risk_flags, conflict: 'intake_id,rule_key', json: [] },
+    { table: 'messages', rows: messages, conflict: 'id', json: [] },
+    { table: 'summaries', rows: summaries, conflict: 'id', json: ['sections'] },
+    { table: 'documents', rows: documents, conflict: 'id', json: [] },
   ];
 }

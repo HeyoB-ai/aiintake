@@ -95,6 +95,35 @@ cc34c2eb-7894-4530-8801-ec67460c5506
 3. Is there anything account-side (plan, quota, region) that has to be enabled before
    LiveKit sessions will start?
 
+## A2. We also tried `/v1/calls`, and ruled it out
+
+Your site documents `POST /v1/calls` with `avatar_id`, `livekit_url`, `livekit_token` and
+`language`. We tried it, in case `/v1/session` was the older path. Three things came out,
+and we mention them so you do not have to ask:
+
+1. **`/v1/calls` does not take `avatar_id`.** It returns 422 for a missing `agent_id`. An
+   agent (`POST /v1/agent`) requires `name`, `avatar_id` and `system_prompt` — that is your
+   conversational stack. We do our own STT, LLM and TTS and use the avatar for rendering
+   only, so an agent is not what we need.
+
+2. **With an agent created, `/v1/calls` returns 403:** _"Programmatic call creation via API
+   is only available from Growth Plan onwards."_ So that route is closed on our plan
+   regardless. If the documented `/v1/calls` shape is in fact the supported path for
+   avatar-only rendering, please say so — then this is a plan question and not a bug.
+
+3. **`/v1/session` accepts `livekit_url`/`livekit_token` and `url`/`token` alike**; both
+   give the same 400 on an invalid token, so they appear to be aliases.
+
+**Which leaves the report in section A unchanged.** `/v1/session` returns 201, the session
+appears in `GET /v1/session`, the avatar participant joins our room — and never publishes a
+video track. Status stays `to_start`. Ten sessions on our account are in that state.
+
+**One question about `language`.** It is an enum on the agent that includes `nl`, and
+`/v1/session` neither accepts nor needs it. We read that as: language configures your speech
+pipeline, and is irrelevant when we supply the audio ourselves. Please confirm — if a
+session-level language is required for correct rendering even in passthrough, that would
+explain a great deal.
+
 ## B. There is no way to end a session, and that is a production problem too
 
 We could not find any way to stop or delete a session:

@@ -715,3 +715,190 @@ te meten en hoort een vraag aan hen te zijn.
 kwaliteitswinst die verder niets kost — geen latency, geen extra stap. Hij zit alleen
 achter een leverancierslimiet. Vraag aan Cartesia: honoreert de WebSocket `sample_rate`,
 en zo nee, hoe komen we dan aan een hogere rate zonder de streaming op te geven.
+
+## 13. Leverancierconfiguratie die geaccepteerd wordt en genegeerd
+
+**Waargenomen.** Anams `POST /v1/auth/session-token` antwoordt HTTP 200 op een
+`personaConfig` waarin `avatarId` en `voiceId` staan, en gebruikt vervolgens alleen de
+`personaId`. Gevolg: het gezicht in beeld was een ander dan het ingestelde, en de sessie
+begon met een Spaanse begroeting uit hun eigen TTS. Hetzelfde geldt voor
+`enableAudioPassthrough: true` bij `POST /v1/personas` — 201, en het veld staat daarna op
+`false`. Een `PUT` die dat wil rechtzetten geeft 200 en verandert niets.
+
+**Waarom het pijn doet.** Bij een normale API is een geslaagde call bewijs dat de instelling
+is aangekomen. Hier niet. De fout valt daardoor pas ver van zijn oorzaak: niet bij het
+configureren, maar in de browser van de cliënt — en bij audio hóór je hem alleen, er is geen
+foutmelding die iemand kan lezen. Dit is dezelfde vorm als de Flux-claim in ADR-0009 en als
+`personaConfig.id` destijds: een bewering die met de symptomen klopte en niet met de oorzaak.
+
+**Wat we ertegen doen.** Configuratie bij een leverancier geldt pas als gezet nadat hij is
+**teruggelezen**, en gedrag pas als bewezen nadat het is **gemeten**. Concreet:
+
+- `assertStilBijPassthrough()` haalt de persona bij elke serverstart op en weigert te
+  starten als `llmId` niet `CUSTOMER_CLIENT_V1` is;
+- `pnpm --filter @intake/agent diag:stilte` opent een sessie, zegt niets, en meet of er
+  toch geluid uit komt — met de tegenproef in dezelfde sessie, want "stil" is niets waard
+  als onze eigen audio er ook niet doorkomt;
+- `pnpm --filter @intake/agent anam:persona` leest na het aanmaken terug en faalt als het
+  resultaat afwijkt van wat er gestuurd is.
+
+**Openstaand bij hun support.** Waar dient `enableAudioPassthrough` voor, als onze audio met
+`CUSTOMER_CLIENT_V1` doorkomt terwijl die vlag `false` staat? En: waarom accepteert de API
+velden die hij weggooit, in plaats van 400 te geven?
+
+## 14. Tikken in de audio van de avatar — oorzaak nog niet gevonden
+
+**Waargenomen.** De audio die uit Anam terugkomt heeft hoorbare tikken, in elke beurt en in
+elke sessie. Bij een stock-persona en bij onze eigen persona gelijk, dus het zit in hun
+audioverwerking en niet in de configuratie.
+
+**Wat is uitgesloten.** De audio die wij versturen is schoon tot en met de laatste stap voor
+`sendAudioChunk()`; chunkgrenzen zijn continu; het wegsnijden van de aanloopstilte
+uitzetten verandert niets.
+
+**Het samplerate-experiment.** Wij leveren 16 kHz omdat Cartesia's WebSocket niets anders
+geeft (risico 12); Anam neemt 24 kHz aan. Drie armen, twee volledige runs, tikken per
+seconde in de teruggekomen audio:
+
+| arm                                       | run 1 | run 2 |
+| ----------------------------------------- | ----- | ----- |
+| A · 16 kHz, de huidige weg                | 2,87  | 2,48  |
+| B · 24 kHz, wij schalen zelf op vanaf A   | 1,91  | 1,59  |
+| C · 24 kHz rechtstreeks van Cartesia REST | 1,98  | 2,43  |
+
+A en B delen exact dezelfde bron en meten aan de bronkant gelijk (18 tegen 18, 21 tegen 22),
+dus ons opschalen voegt zelf niets toe. De reductie van ongeveer een derde in arm B is in
+beide runs dezelfde kant op. C is een andere generatie audio en gedraagt zich grillig.
+
+**Conclusie.** Zelf 24 kHz leveren scheelt reproduceerbaar ongeveer een derde, maar **de
+tikken verdwijnen niet**. De resamplingstap is hooguit een bijdrage, niet de oorzaak. Het
+blijft dus een openstaande vraag bij hun support (deel A2 van de melding).
+
+**Waarom dit nog niet in productie zit.** `upsamplePcm16` werkt op één afgesloten buffer.
+Per chunk aanroepen in een streamende keten zet op elke chunkgrens een randeffect neer — je
+zou tikken toevoegen op precies de plekken die je onderzoekt. Een streamende variant met
+overlap is te bouwen, maar een derde minder tikken die er nog steeds zijn, weegt niet op
+tegen een nieuwe verwerkingsstap in het hot path zolang de oorzaak niet bekend is.
+
+**Wat het meetgereedschap wel en niet kan.** De teruggekomen audio is door Opus heen, dus
+alleen verschillen tússen armen zeggen iets. En de detector is bewust conservatief: een tik
+die midden in een sisklank valt is niet te scheiden van de sisklank zelf — gemeten steekt
+zo'n tik daar 12,2× boven de lokale mediaan uit terwijl schone samples er al 14,6× halen.
+De getallen zijn dus een ondergrens. Dat staat vastgelegd in een test, zodat een volgende
+versie de drempel niet stilletjes kan verlagen om gevoeliger te lijken.
+
+## 15. Relatieve tijdsaanduidingen werden datums die niemand heeft verteld
+
+**Waargenomen.** De extractieprompt kreeg `Vandaag is <ISO>` en verder niets. Drie dingen
+gingen daardoor mis, allemaal met een verkeerd of ontbrekend feit in `case_facts` als
+gevolg — dus niet cosmetisch.
+
+**1. Het was de UTC-datum.** De worker draait op UTC. Tussen middernacht en twee uur
+'s nachts (zomertijd) is dat een dag eerder dan in Nederland: een cliënt die om half één
+"gisteren" zegt, kreeg eergisteren. De zone is nu een organisatie-instelling
+(`organizations.time_zone`) en niet een constante in de code — een Belgisch of Duits kantoor
+zit toevallig in dezelfde zone, maar het is een eigenschap van het kantoor.
+
+**2. Er stond geen weekdag bij, en het model rekent die fout uit.** Gemeten tegen een vast
+anker (zaterdag 22 augustus 2026), zes uitdrukkingen door de echte extractie:
+
+| uitspraak            | verwacht   | model          |
+| -------------------- | ---------- | -------------- |
+| gisteren             | 2026-08-21 | 2026-08-21     |
+| eergisteren          | 2026-08-20 | 2026-08-20     |
+| drie weken geleden   | 2026-08-01 | 2026-08-01     |
+| twee maanden geleden | 2026-06-22 | 2026-06-22     |
+| afgelopen vrijdag    | 2026-08-21 | **2026-08-18** |
+| vorige week maandag  | 2026-08-10 | **2026-08-18** |
+
+Zuivere offsets gaan goed; zodra er een weekdagnaam bij komt, gaat het mis — en twee keer
+dezelfde verkeerde datum is geen toeval. Er staat nu een deterministisch vangnet omheen
+(`packages/domain/src/weekdag.ts`), dezelfde vorm als de rekensom-backstop: de vrijdag vóór
+zaterdag de 22e is de 21e, ongeacht wat een model ervan vindt. Na het vangnet: zes van zes.
+Correcties worden gemeld en niet stil doorgevoerd.
+
+**3. Vaagheid moest een gok worden.** "Ergens in het voorjaar" is geen datum. De prompt
+schrijft nu voor: geen gok, maar status `unknown` met de letterlijke uitspraak in
+`evidenceQuote`. Een gegokte datum is in het dossier niet van een vastgestelde te
+onderscheiden, en daar wordt een vervaltermijn op gerekend.
+
+## 16. Twee stille paden waarlangs een verteld feit verdween
+
+Gevonden tijdens het bovenstaande, en ernstiger dan de aanleiding.
+
+**Een feit met status `unknown` werd nooit meer gezocht.** `gezochteFeiten` sloeg elk feit
+over dat al in de map stond, ongeacht status. Maar `unknown` betekent juist _niet
+vastgesteld_. Gevolg: de assistent vraagt "sinds wanneer bent u ziek?", de cliënt zegt "dat
+weet ik niet precies", `sick_since` wordt vastgelegd als unknown — en als de cliënt het zich
+twee beurten later herinnert, kijkt de extractie er niet meer naar. Het antwoord viel stil
+op de grond en niemand zag dat het er was geweest.
+
+**Een feit dat in dezelfde adem viel als de conditie die het ontsluit.**
+`summary_dismissal_date` is pas relevant als `termination_route` op `summary_dismissal`
+staat. Beide vallen in "ik ben afgelopen vrijdag op staande voet ontslagen", maar de
+conditionele categorieën werden gewogen met de feiten van vóór de beurt. De datum stond dus
+niet in de zoeklijst, en omdat het transcript alleen de nieuwe beurten bevat, was die
+vrijdag daarna weg. Gemeten: in één beurt kwam de datum er niet uit, in twee beurten wel.
+
+De engine doet nu één tweede extractieronde over hetzelfde transcript voor wat er net is
+vrijgekomen. Eén ronde, geen lus: twee ronden dekken "conditie en waarde in dezelfde adem",
+en een lus zou de kosten van het koude pad onbegrensd maken.
+
+**Wat deze twee gemeen hebben.** Geen van beide gaf een foutmelding. Een feit dat niet wordt
+gezocht ziet er precies zo uit als een feit dat de cliënt nooit heeft genoemd — en dat is
+waarom ze pas boven kwamen toen er een test op relatieve datums werd gezet.
+
+## 17. De publieke intakeroute is een uitgavenknop op internet
+
+Zodra `/intake/[organizationSlug]` publiek staat, kan iedereen die de URL kent een gesprek
+starten dat vanaf de eerste seconde geld kost: avatarminuten, STT, TTS en twee modellen. Er
+is geen inlog voor, en dat is het hele punt van de route — een cliënt van het kantoor heeft
+geen account.
+
+**Wat er al staat, in tegenstelling tot wat de build-spec doet vermoeden.** De rate limiting
+bestaat wél en zit in de database, niet in de applicatie: `app.check_and_bump_rate_limit`
+staat vijf pogingen per uur toe per (organisatie, IP-hash), en `create_public_intake` weigert
+daarbuiten. `issue_agent_session` telt daarbovenop de lopende sessies per kantoor
+(`maxConcurrentSessions`, standaard 5) en begrenst de tokenduur (`maxSessionMinutes`,
+standaard 25). De bovengrens per kantoor is daarmee ongeveer **vijf gesprekken tegelijk**, dus
+in het slechtste geval zo'n 300 avatarminuten per uur. Dat is een bedrag, geen ramp — maar het
+is wel het bedrag dat een aanvaller kan aanzetten en niet kan afzetten.
+
+**Wat er niet staat: de bot-check.** Een headless browser kan de twee vinkjes zetten en
+starten. De IP-limiet remt dat, maar iemand met een proxypool loopt er omheen: de limiet is
+per adres, niet per persoon. Dit is de maatregel die nog moet komen voordat de route echt
+open gaat, en het is ook de enige die het verschil ziet tussen "vijf pogingen van dezelfde
+bezoeker" en "vijf pogingen van vijf apparaten".
+
+**Twee gaten die er tot vandaag in zaten en nu dicht zijn.**
+
+Het adres kwam uit `x-forwarded-for`, en het eerste element daarvan is geen adres maar een
+bewering: elke bezoeker mag die header meesturen. De rate limiting was daarmee te omzeilen
+door bij elke poging iets anders te verzinnen — de enige rem op de kosten stond dus open. De
+web-app leest nu eerst de header die de rand zelf schrijft (`x-nf-client-connection-ip` bij
+Netlify) en waarschuwt in de logs als die ontbreekt, in plaats van stil terug te vallen op
+iets vervalsbaars. Zie `apps/web/src/lib/client-ip.ts`.
+
+De hash was een kale SHA-256 van het adres. Er zijn 4,3 miljard IPv4-adressen; die tabel is in
+een middag terug te rekenen, en dan is de "hash" alsnog een persoonsgegeven — precies wat §14
+verbiedt. `INTAKE_IP_HASH_PEPPER` stond al in de envvalidatie mét deze omschrijving, maar werd
+nergens gebruikt. Dat gebeurt nu wel, en zonder peper weigert de functie in plaats van stil
+een kale hash te maken.
+
+**Wat nog open staat.**
+
+- De 25 minuten zijn een tokenduur, geen mediastop. Verloopt het token, dan falen de RPC's,
+  maar de audio- en videoverbinding blijft staan tot de inactiviteitsklok afgaat of de
+  bezoeker weggaat. Een bezoeker die blijft praten, blijft kosten maken.
+- De inactiviteitsklok (90 s, na 30 s respijt) sluit een stille bezoeker af. Een bot die
+  geluid afspeelt houdt hem eindeloos aan de praat.
+- `maxConcurrentSessions` telt sessies met `ended_at is null`. Sluit een sessie niet netjes
+  af — worker herstart, container weg — dan blijft die teller staan en is het kantoor op vijf
+  vastgelopen sessies onbereikbaar. Faalt veilig voor de kosten, onveilig voor de dienst.
+- Er is geen dagplafond. Vijf tegelijk, de klok rond, is binnen de regels.
+
+**Wat dit praktisch betekent voor de eerste publieke deploy.** Zet `maxSessionMinutes` en
+`maxConcurrentSessions` per kantoor laag zolang de bot-check er niet is, en zet bij de
+avatarvendor een hard prepaid saldo in plaats van automatisch bijladen. De Cartesia-402 uit
+risico 13 is hier het precedent: een leverancierslimiet komt binnen als een sessie die direct
+sluit, en niet als een rekening waar iemand op tijd naar kijkt.
