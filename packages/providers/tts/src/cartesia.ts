@@ -126,7 +126,23 @@ export class CartesiaTtsStream implements TtsStream {
         socket.removeEventListener('error', onError);
         resolve();
       };
-      const onError = () => reject(new Error('Cartesia: verbinding mislukt'));
+      /*
+       * De reden erbij, niet alleen "mislukt".
+       *
+       * Een WebSocket-`error` draagt geen HTTP-status: bij een mislukte handshake krijg je
+       * een leeg event. "Cartesia: verbinding mislukt" is dan alles wat er in het log komt,
+       * en dat kan van alles betekenen — verkeerde sleutel, netwerk, of iets heel anders.
+       *
+       * Het was in de praktijk `402 Model credits limit reached`, en die melding zoeken
+       * kostte een omweg langs de afsluitlogica omdat het symptoom eruitzag als een
+       * verbinding die zomaar dichtviel. Daarom vragen we het bij een fout alsnog na op
+       * hun REST-endpoint: dat geeft wél een status en een tekst.
+       */
+      const onError = () => {
+        void this.diagnose().then((reden) =>
+          reject(new Error(`Cartesia: verbinding mislukt${reden ? ` — ${reden}` : ''}`)),
+        );
+      };
       socket.addEventListener('open', onOpen, { once: true });
       socket.addEventListener('error', onError, { once: true });
     });
@@ -134,6 +150,53 @@ export class CartesiaTtsStream implements TtsStream {
     socket.addEventListener('message', (event) => this.onMessage(String(event.data)));
     socket.addEventListener('error', () => this.emit('error', new Error('Cartesia: socketfout')));
     this.newContext();
+  }
+
+  /**
+   * Waarom weigerde hij? Vraagt het na langs de REST-kant, die wél een status geeft.
+   *
+   * Bewust een minimale aanvraag en een korte timeout: dit draait op het moment dat er al
+   * iets mis is, en het mag de foutmelding niet ophouden. Lukt het niet, dan blijft de
+   * melding zoals hij was — een diagnose die zelf faalt hoort geen nieuwe fout te worden.
+   */
+  private async diagnose(): Promise<string | null> {
+    const kop = {
+      'X-API-Key': this.config.apiKey,
+      'Cartesia-Version': API_VERSION,
+      'Content-Type': 'application/json',
+    };
+    try {
+      // Eerst een stem ophalen. Die is verplicht in het syntheseverzoek en de configuratie
+      // van deze klasse draagt hem niet — hij gaat per beurt mee. Deze aanroep zegt
+      // meteen iets: 401 hier betekent dat de sleutel het probleem is.
+      const stemmen = await fetch('https://api.cartesia.ai/voices', {
+        headers: kop,
+        signal: AbortSignal.timeout(4_000),
+      });
+      if (!stemmen.ok) {
+        return `hun API weigert ook de stemmenlijst: HTTP ${stemmen.status}`;
+      }
+      const lijst = (await stemmen.json()) as { data?: { id?: string }[] };
+      const stem = lijst.data?.[0]?.id;
+      if (!stem) return 'hun API gaf geen stemmen terug';
+
+      const res = await fetch('https://api.cartesia.ai/tts/bytes', {
+        method: 'POST',
+        headers: kop,
+        body: JSON.stringify({
+          model_id: this.config.model,
+          transcript: '.',
+          voice: { mode: 'id', id: stem },
+          language: 'en',
+          output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: 16_000 },
+        }),
+        signal: AbortSignal.timeout(4_000),
+      });
+      if (res.ok) return 'de WebSocket weigerde maar hun REST-API antwoordt wel';
+      return `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`;
+    } catch {
+      return null;
+    }
   }
 
   /** Elke beurt een eigen context, zodat annuleren precies deze beurt raakt. */

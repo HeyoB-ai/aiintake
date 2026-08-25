@@ -1,5 +1,5 @@
 {
-  "name": "@intake/provider-tts",
+  "name": "@intake/audio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
-  },
-  "dependencies": {
-    "@intake/domain": "workspace:*",
-    "@intake/audio": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

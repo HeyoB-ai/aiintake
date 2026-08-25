@@ -1,0 +1,93 @@
+<meta charset="utf-8" />
+<title>Anam — tikken bij 16 versus 24 kHz</title>
+<video id="v" autoplay playsinline muted></video>
+<script type="module">
+  import { createClient } from '/sdk.js';
+  import { teltTikken } from '/tikken.js';
+
+  /**
+   * Eén arm: audio met een gegeven samplerate naar Anam sturen en opnemen wat terugkomt.
+   *
+   * De opname gebeurt op de binnenkomende WebRTC-audiotrack, niet op de speakers. Het
+   * videoelement staat gedempt zodat er niets van de uitvoerkant afhangt.
+   *
+   * **Voorbehoud dat bij elk cijfer hoort:** deze weg loopt door WebRTC en dus door Opus.
+   * Dat voegt eigen artefacten toe. Absolute aantallen zeggen daarom weinig; het verschil
+   * tussen armen die allemaal dezelfde opnameweg delen, zegt wel iets.
+   */
+  window.meet = async (token, pcmBase64, sampleRate, seconden) => {
+    const client = createClient(token, { disableInputAudio: true });
+    const streams = await client.stream();
+    const audio = streams.flatMap((s) => s.getAudioTracks());
+    if (audio.length === 0) throw new Error('geen audiotrack terug van Anam');
+    const video = streams.find((s) => s.getVideoTracks().length > 0);
+    if (video) document.getElementById('v').srcObject = video;
+
+    // Opnemen begint vóór het versturen; anders mist het begin van de beurt, en juist daar
+    // zit de aanloop waar een tik zou kunnen vallen.
+    const ctx = new AudioContext();
+    const bron = ctx.createMediaStreamSource(new MediaStream(audio));
+    const knoop = ctx.createScriptProcessor(4096, 1, 1);
+    const stukken = [];
+    knoop.onaudioprocess = (e) => stukken.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    bron.connect(knoop);
+    // Naar een stille bestemming: een ScriptProcessor loopt niet zonder afvoer, maar we
+    // willen hem niet horen.
+    const stil = ctx.createGain();
+    stil.gain.value = 0;
+    knoop.connect(stil);
+    stil.connect(ctx.destination);
+
+    const ruw = Uint8Array.from(atob(pcmBase64), (c) => c.charCodeAt(0));
+    const invoer = await client.createAgentAudioInputStream({
+      encoding: 'pcm_s16le',
+      sampleRate,
+      channels: 1,
+    });
+
+    // Op realtime tempo aanleveren, voor elke arm gelijk. Sneller vullen zou de
+    // bufferbezetting per samplerate verschillend maken, en dan verandert er twee dingen
+    // tegelijk in plaats van één.
+    const bytesPerChunk = Math.round(sampleRate * 0.1) * 2;
+    for (let o = 0; o < ruw.length; o += bytesPerChunk) {
+      const stuk = ruw.slice(o, Math.min(o + bytesPerChunk, ruw.length));
+      invoer.sendAudioChunk(stuk.buffer.slice(stuk.byteOffset, stuk.byteOffset + stuk.byteLength));
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    invoer.endSequence();
+
+    await new Promise((r) => setTimeout(r, seconden * 1000));
+
+    knoop.onaudioprocess = null;
+    try {
+      bron.disconnect();
+      knoop.disconnect();
+      stil.disconnect();
+    } catch {
+      /* al los */
+    }
+
+    const totaal = stukken.reduce((n, s) => n + s.length, 0);
+    const opname = new Float32Array(totaal);
+    let o = 0;
+    for (const s of stukken) {
+      opname.set(s, o);
+      o += s.length;
+    }
+    const meting = teltTikken(opname, ctx.sampleRate);
+
+    // Niveau erbij, zodat "nul tikken" niet stilzwijgend "nul audio" kan betekenen.
+    let piek = 0;
+    for (let i = 0; i < opname.length; i += 1) piek = Math.max(piek, Math.abs(opname[i]));
+
+    try {
+      await client.stopStreaming();
+    } catch {
+      /* al gesloten */
+    }
+    const opnameRate = ctx.sampleRate;
+    await ctx.close().catch(() => undefined);
+
+    return { ...meting, piek: Number(piek.toFixed(4)), opnameRate };
+  };
+</script>

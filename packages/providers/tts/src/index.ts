@@ -10,3 +10,11 @@ export * from './contract';
 export * from './cartesia';
 export * from './fake';
 export * from './sentence-flush';
+/*
+ * Doorgegeven vanuit @intake/audio.
+ *
+ * De rekenregels zijn verhuisd zodat de browser-cliënt ze kan gebruiken zonder dit pakket
+ * — en daarmee `ws` en de Cartesia-adapter — mee te bundelen. Deze regel blijft staan zodat
+ * bestaande aanroepers niets hoeven te wijzigen.
+ */
+export * from '@intake/audio';
