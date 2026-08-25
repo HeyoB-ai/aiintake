@@ -170,6 +170,9 @@ module.exports = {
           // page/layout/route/middleware aan, niemand importeert ze.
           'apps/[^/]+/src/app/.*',
           'apps/[^/]+/src/middleware\\.ts$',
+          // De UI-etalage: entrypoints die gedraaid worden, niet geïmporteerd.
+          'packages/[^/]+/preview/.*',
+          'apps/[^/]+/scripts/.*',
         ],
       },
       to: {},
@@ -192,9 +195,28 @@ module.exports = {
           // De praatpagina: een lokaal server-startpunt plus een HTML-pagina.
           // Niemand importeert die; hij wordt gedraaid.
           'apps/[^/]+/live/.*',
+          // vitest.setup.ts en broertjes: testondersteuning, geen productiecode.
+          '(^|/)[\\w.-]+\\.setup\\.(ts|js|cjs|mjs)$',
+          // De UI-etalage: een los harnas om de componenten te bekijken. Draait met
+          // pnpm preview, en zit bewust niet in apps/web omdat de voorbeelddata een
+          // urgentiesignaal bevat — dat mag een cliënt nooit te zien krijgen.
+          'packages/[^/]+/preview/.*',
+          // Controlescripts naast een app: die draaien met de hand tegen een draaiende
+          // server en worden nergens geïmporteerd.
+          'apps/[^/]+/scripts/.*',
         ],
       },
-      to: { dependencyTypes: ['npm-dev'] },
+      /*
+       * Een peerDependency die óók als devDependency staat, is geen overtreding.
+       *
+       * Zo hoort een bibliotheek react te declareren: als peer, zodat de app hem levert en
+       * er niet twee kopieën in de bundel komen, én als dev, zodat typecheck en tests hier
+       * kunnen draaien. Dependency-cruiser ziet dan `npm-dev` en sloeg alarm.
+       *
+       * `dependencyTypesNot` maakt de uitzondering precies zo smal als hij hoort te zijn:
+       * alleen pakketten die het package.json zélf als peer declareert.
+       */
+      to: { dependencyTypes: ['npm-dev'], dependencyTypesNot: ['npm-peer'] },
     },
   ],
   options: {

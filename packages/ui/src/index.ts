@@ -1,51 +1,26 @@
-import type { UrgencyLevel } from '@intake/domain';
-
 /**
- * Gedeelde presentatielogica. Componenten volgen in Fase 3 (dashboard) en Fase 1
- * (gespreksscherm); wat hier staat, zijn de regels die op meer dan één plek gelden.
- */
-
-export const URGENCY_STYLES: Record<
-  UrgencyLevel,
-  { fg: string; bg: string; label: { nl: string; en: string } }
-> = {
-  LOW: {
-    fg: 'var(--urgency-low)',
-    bg: 'var(--urgency-low-bg)',
-    label: { nl: 'Laag', en: 'Low' },
-  },
-  MEDIUM: {
-    fg: 'var(--urgency-medium)',
-    bg: 'var(--urgency-medium-bg)',
-    label: { nl: 'Midden', en: 'Medium' },
-  },
-  HIGH: {
-    fg: 'var(--urgency-high)',
-    bg: 'var(--urgency-high-bg)',
-    label: { nl: 'Hoog', en: 'High' },
-  },
-  CRITICAL: {
-    fg: 'var(--urgency-critical)',
-    bg: 'var(--urgency-critical-bg)',
-    label: { nl: 'Kritiek', en: 'Critical' },
-  },
-};
-
-/**
- * Urgentie wordt nóóit als vaststelling gepresenteerd.
+ * De ingang van het UI-pakket.
  *
- * Het systeem signaleert een mogelijke termijn; of die termijn juridisch klopt, is
- * een oordeel dat alleen een jurist mag vellen. Deze functie is de enige toegestane
- * manier om een urgentieniveau in tekst om te zetten.
+ * Alleen doorgeefluik: de regels staan in urgency.ts, de thema's in themes.ts en de
+ * componenten in components/. Zo kan een component uit urgency.ts putten zonder een
+ * cyclus met deze ingang te maken.
  */
-export function urgencyCaption(level: UrgencyLevel, language: 'nl' | 'en'): string {
-  const name = URGENCY_STYLES[level].label[language];
-  return language === 'nl'
-    ? `${name} — mogelijk urgente termijn, menselijke beoordeling vereist`
-    : `${name} — possibly urgent deadline, human review required`;
-}
+export * from './urgency';
 
-export function formatCompleteness(value: number | null): string {
-  if (value === null) return '—';
-  return `${Math.round(value * 100)}%`;
-}
+export * from './themes';
+export * from './types';
+export { VideoWindow, type VideoWindowProps } from './components/VideoWindow';
+export { TranscriptView, type TranscriptViewProps } from './components/TranscriptView';
+export { Header, type HeaderProps } from './components/Header';
+export { ThemeSelector, type ThemeSelectorProps } from './components/ThemeSelector';
+export { ThemeProvider, useTheme } from './components/ThemeProvider';
+export { DossierSidebar, type DossierSidebarProps } from './components/DossierSidebar';
+export {
+  DocumentUploadSection,
+  raadCategorie,
+  type DocumentUploadSectionProps,
+} from './components/DocumentUploadSection';
+export {
+  DocumentViewerModal,
+  type DocumentViewerModalProps,
+} from './components/DocumentViewerModal';

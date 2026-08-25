@@ -1,0 +1,269 @@
+/*
+ * Vier thema's, als CSS-variabelen.
+ *
+ * Overgenomen uit het vormgevingsprototype. De keuze staat op `data-theme` op het
+ * root-element; zonder attribuut geldt "helder-zakelijk".
+ *
+ * ## Twee namensystemen, één waarheid
+ *
+ * tokens.css draagt de semantische namen van het product (`--bg`, `--fg`, `--border`,
+ * `--urgency-*`). Het prototype gebruikt `--app-*`. Beide laten bestaan zonder ze te
+ * koppelen zou betekenen dat het dashboard lichte kleuren houdt terwijl het gespreksscherm
+ * donker draait — twee halve thema's op één pagina.
+ *
+ * Daarom: elk thema zet alleen `--app-*`, en onderaan staat één aliasblok dat de
+ * semantische namen daaruit afleidt. Eén mapping, geen herhaling per thema.
+ *
+ * ## Urgentiekleuren per thema
+ *
+ * Die staan wél in elk blok, en dat is met opzet. De lichte urgentiekleuren uit tokens.css
+ * zijn op wit afgestemd en op een zwarte achtergrond onleesbaar. Ze afleiden uit `--app-*`
+ * zou ze bovendien aan de accentkleur koppelen, en urgentie hoort geen accent te zijn.
+ * De intentie uit tokens.css blijft overeind: ingetogen, geen knalrood, want een felle
+ * balk suggereert een oordeel en dit systeem doet geen uitspraken.
+ */
+
+/*
+ * Waar Tailwind naar klassen moet zoeken.
+ *
+ * `@source` staat hier en niet in de app, en dat is het hele punt: elke app die dit bestand
+ * importeert scant daarmee automatisch de componenten uit dit pakket. Het pad is relatief
+ * aan dít bestand, dus "." is packages/ui/src.
+ *
+ * Zonder deze regel genereert Tailwind alleen de utilities die de app zélf gebruikt.
+ * Klassen die uitsluitend in deze componenten voorkomen bestaan dan niet, en het gevolg is
+ * geen ontbrekende opmaak maar verkeerde opmaak: `flex` bestond wel (de app gebruikt het
+ * elders) en `flex-col` niet, dus de dossierzijbalk viel terug op de standaardrichting en
+ * zette volledigheid, urgentie en feiten naast elkaar. Gemeten in de geserveerde CSS:
+ * `flex-direction:column` kwam nul keer voor.
+ */
+@source ".";
+
+:root,
+[data-theme='modern-light'] {
+  --app-bg: #f8fafc;
+  --app-header-bg: rgb(255 255 255 / 92%);
+  --app-card: #ffffff;
+  --app-card-hover: #f1f5f9;
+  --app-surface: #f1f5f9;
+  --app-surface-subtle: #f8fafc;
+  --app-border: #e2e8f0;
+  --app-border-hover: #cbd5e1;
+  --app-border-strong: #94a3b8;
+  --app-text: #0f172a;
+  --app-text-muted: #475569;
+  --app-text-dim: #94a3b8;
+  --app-primary: #2563eb;
+  --app-primary-hover: #1d4ed8;
+  --app-primary-text: #ffffff;
+  --app-accent-bg: #eff6ff;
+  --app-accent-border: #bfdbfe;
+  --app-accent-text: #1d4ed8;
+  --app-badge-green-bg: #ecfdf5;
+  --app-badge-green-text: #059669;
+  --app-badge-green-border: #a7f3d0;
+  --app-badge-amber-bg: #fffbeb;
+  --app-badge-amber-text: #b45309;
+  --app-badge-amber-border: #fde68a;
+  --app-code-bg: #f1f5f9;
+  --app-shadow: 0 1px 3px 0 rgb(0 0 0 / 5%), 0 1px 2px -1px rgb(0 0 0 / 5%);
+  --app-shadow-lg: 0 10px 25px -5px rgb(15 23 42 / 8%), 0 8px 10px -6px rgb(15 23 42 / 4%);
+  --app-heading-font: var(--font-sans);
+
+  --urgency-low: #6b7684;
+  --urgency-medium: #9a6b1f;
+  --urgency-high: #a8501c;
+  --urgency-critical: #8f2222;
+  --urgency-low-bg: #f1f3f6;
+  --urgency-medium-bg: #fdf5e6;
+  --urgency-high-bg: #fdefe6;
+  --urgency-critical-bg: #fbeaea;
+
+  color-scheme: light;
+}
+
+[data-theme='minimal-slate'] {
+  --app-bg: #fafafa;
+  --app-header-bg: rgb(255 255 255 / 95%);
+  --app-card: #ffffff;
+  --app-card-hover: #f4f4f5;
+  --app-surface: #f4f4f5;
+  --app-surface-subtle: #fafafa;
+  --app-border: #e4e4e7;
+  --app-border-hover: #d4d4d8;
+  --app-border-strong: #a1a1aa;
+  --app-text: #18181b;
+  --app-text-muted: #52525b;
+  --app-text-dim: #a1a1aa;
+  --app-primary: #18181b;
+  --app-primary-hover: #27272a;
+  --app-primary-text: #ffffff;
+  --app-accent-bg: #f4f4f5;
+  --app-accent-border: #e4e4e7;
+  --app-accent-text: #18181b;
+  --app-badge-green-bg: #f0fdf4;
+  --app-badge-green-text: #16a34a;
+  --app-badge-green-border: #bbf7d0;
+  --app-badge-amber-bg: #fefce8;
+  --app-badge-amber-text: #ca8a04;
+  --app-badge-amber-border: #fef08a;
+  --app-code-bg: #f4f4f5;
+  --app-shadow: 0 1px 2px 0 rgb(0 0 0 / 4%);
+  --app-shadow-lg: 0 8px 20px -4px rgb(0 0 0 / 6%);
+  --app-heading-font: var(--font-sans);
+
+  --urgency-low: #71717a;
+  --urgency-medium: #a16207;
+  --urgency-high: #b45309;
+  --urgency-critical: #b91c1c;
+  --urgency-low-bg: #f4f4f5;
+  --urgency-medium-bg: #fefce8;
+  --urgency-high-bg: #fff7ed;
+  --urgency-critical-bg: #fef2f2;
+
+  color-scheme: light;
+}
+
+[data-theme='corporate-navy'] {
+  --app-bg: #090d16;
+  --app-header-bg: rgb(13 20 36 / 90%);
+  --app-card: #0f172a;
+  --app-card-hover: #162238;
+  --app-surface: #131d33;
+  --app-surface-subtle: #0c1322;
+  --app-border: #1e293b;
+  --app-border-hover: #334155;
+  --app-border-strong: #475569;
+  --app-text: #f1f5f9;
+  --app-text-muted: #94a3b8;
+  --app-text-dim: #64748b;
+  --app-primary: #38bdf8;
+  --app-primary-hover: #0ea5e9;
+  --app-primary-text: #090d16;
+  --app-accent-bg: rgb(56 189 248 / 12%);
+  --app-accent-border: rgb(56 189 248 / 35%);
+  --app-accent-text: #38bdf8;
+  --app-badge-green-bg: rgb(16 185 129 / 12%);
+  --app-badge-green-text: #34d399;
+  --app-badge-green-border: rgb(16 185 129 / 35%);
+  --app-badge-amber-bg: rgb(245 158 11 / 12%);
+  --app-badge-amber-text: #fbbf24;
+  --app-badge-amber-border: rgb(245 158 11 / 35%);
+  --app-code-bg: #0c1322;
+  --app-shadow: 0 4px 12px 0 rgb(0 0 0 / 30%);
+  --app-shadow-lg: 0 15px 35px -5px rgb(0 0 0 / 50%);
+  --app-heading-font: var(--font-sans);
+
+  --urgency-low: #94a3b8;
+  --urgency-medium: #d6a04a;
+  --urgency-high: #f0a06a;
+  --urgency-critical: #f08a8a;
+  --urgency-low-bg: rgb(148 163 184 / 12%);
+  --urgency-medium-bg: rgb(214 160 74 / 14%);
+  --urgency-high-bg: rgb(240 160 106 / 14%);
+  --urgency-critical-bg: rgb(240 138 138 / 14%);
+
+  color-scheme: dark;
+}
+
+[data-theme='sophisticated-dark'] {
+  --app-bg: #080808;
+  --app-header-bg: rgb(12 12 12 / 90%);
+  --app-card: #121212;
+  --app-card-hover: #181818;
+  --app-surface: #141414;
+  --app-surface-subtle: #0b0b0b;
+  --app-border: #222222;
+  --app-border-hover: #333333;
+  --app-border-strong: #444444;
+  --app-text: #f3f3f3;
+  --app-text-muted: #8c8c8c;
+  --app-text-dim: #5c5c5c;
+  --app-primary: #d4af37;
+  --app-primary-hover: #e5c158;
+  --app-primary-text: #080808;
+  --app-accent-bg: rgb(212 175 55 / 12%);
+  --app-accent-border: rgb(212 175 55 / 35%);
+  --app-accent-text: #d4af37;
+  --app-badge-green-bg: rgb(74 222 128 / 12%);
+  --app-badge-green-text: #4ade80;
+  --app-badge-green-border: rgb(74 222 128 / 35%);
+  --app-badge-amber-bg: rgb(212 175 55 / 15%);
+  --app-badge-amber-text: #f3e5ab;
+  --app-badge-amber-border: rgb(212 175 55 / 40%);
+  --app-code-bg: #0d0d0d;
+  --app-shadow: 0 4px 20px 0 rgb(0 0 0 / 60%);
+  --app-shadow-lg: 0 20px 40px -5px rgb(0 0 0 / 85%);
+  /* Het enige thema met een eigen kopfont; zie themes.ts voor de motivatie. */
+  --app-heading-font: 'Cormorant Garamond', Georgia, serif;
+
+  --urgency-low: #8c8c8c;
+  --urgency-medium: #d4af37;
+  --urgency-high: #e0975a;
+  --urgency-critical: #e07a7a;
+  --urgency-low-bg: rgb(140 140 140 / 12%);
+  --urgency-medium-bg: rgb(212 175 55 / 14%);
+  --urgency-high-bg: rgb(224 151 90 / 14%);
+  --urgency-critical-bg: rgb(224 122 122 / 14%);
+
+  color-scheme: dark;
+}
+
+/*
+ * De semantische namen uit tokens.css, afgeleid van het actieve thema.
+ *
+ * Dit blok komt ná tokens.css en overschrijft de vaste waarden daar. Zo volgen bestaande
+ * componenten — die `--bg`, `--paper`, `--border` gebruiken — automatisch het thema, en
+ * hoeft er geen enkele component twee kleursystemen te kennen.
+ */
+:root {
+  --bg: var(--app-bg);
+  --fg: var(--app-text);
+  --paper: var(--app-card);
+  --border: var(--app-border);
+  --muted: var(--app-text-muted);
+  --ink-050: var(--app-surface-subtle);
+  --ink-100: var(--app-surface);
+  --ink-200: var(--app-border);
+  --ink-500: var(--app-text-muted);
+  --ink-900: var(--app-text);
+  --accent-500: var(--app-primary);
+  --accent-600: var(--app-primary);
+  --accent-700: var(--app-primary-hover);
+  --accent-100: var(--app-accent-bg);
+}
+
+body {
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Smalle scrollbars, in de kleur van het thema. */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--app-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--app-border-hover);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.app-heading {
+  font-family: var(--app-heading-font);
+}

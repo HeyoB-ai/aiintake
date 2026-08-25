@@ -1,0 +1,25 @@
+@import 'tailwindcss';
+
+/*
+ * Waar Tailwind naar klassen moet kijken.
+ *
+ * De componenten staan in ../src en niet naast dit bestand. Zonder `@source` scant
+ * Tailwind v4 vanaf de map van de CSS en vindt hij de helft van de utility-klassen niet —
+ * de pagina rendert dan zonder opmaak en dat ziet eruit als een kapotte component.
+ */
+@source "../src";
+
+/* Zelfde volgorde als apps/web/src/app/globals.css: eerst de tokens, dan de thema's die
+   de semantische namen daaruit afleiden. */
+@import "../src/tokens.css";
+@import "../src/themes.css";
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}

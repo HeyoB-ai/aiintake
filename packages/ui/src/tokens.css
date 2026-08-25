@@ -62,8 +62,16 @@
   --muted: var(--ink-500);
 }
 
+/*
+ * Systeemvoorkeur, alléén zonder expliciet thema.
+ *
+ * De selector was `:root:not([data-theme='light'])`, en dat is fout geworden zodra
+ * themes.css thema's introduceerde die anders heten: bij `data-theme="modern-light"` matcht
+ * `:not([data-theme='light'])` gewoon, en dan zou een lichte keuze op een donker systeem
+ * alsnog donkere tokens krijgen. Nu geldt hij uitsluitend als er géén thema is gekozen.
+ */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root:not([data-theme]) {
     --paper: #171b21;
     --bg: #101318;
     --fg: #e9edf2;
