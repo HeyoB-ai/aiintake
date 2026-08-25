@@ -1,4 +1,5 @@
 import type { PromptTemplate } from './contract';
+import type { DatumAnker } from './datumanker';
 import { UNTRUSTED_PREAMBLE_NL, wrapUntrusted } from './contract';
 
 /**
@@ -31,8 +32,13 @@ export interface ExtractionVars extends Record<string, unknown> {
   }[];
   /** Wat al vaststaat; het model mag dit tegenspreken maar moet dat expliciet doen. */
   readonly knownFacts: readonly { key: string; value: string }[];
-  /** Voor het omrekenen van "volgende week vrijdag" naar een datum. */
-  readonly todayIso: string;
+  /**
+   * Het ankerpunt voor relatieve tijdsaanduidingen.
+   *
+   * Was een kale ISO-datum in UTC. Zie datumanker.ts: zonder weekdag is "afgelopen
+   * vrijdag" niet uit te rekenen, en zonder tijdzone klopt de datum 's nachts niet.
+   */
+  readonly anker: DatumAnker;
 }
 
 export const extractionPrompt: PromptTemplate<ExtractionVars> = {
@@ -42,8 +48,12 @@ export const extractionPrompt: PromptTemplate<ExtractionVars> = {
   // het opgegeven schema" terwijl dat schema nergens werd gegeven; het model leverde
   // `field` en `quote` in plaats van `key` en `evidenceQuote`, en élk feit werd geweigerd.
   // v3: expliciete regel over uitkomsten die de cliënt zelf uitrekent.
+  // v5: het datumanker. Er stond alleen `Vandaag is <ISO>` — in UTC, zonder weekdag en
+  // zonder instructie. "Afgelopen vrijdag" is zo niet om te rekenen, en het model gokte.
+  // Nu: lokale datum, weekdag, tijd en zone, plus de regel dat een onduidelijke
+  // tijdsaanduiding status "unknown" krijgt in plaats van een gok.
   // v4: een instemming is geen bron, en de assistent is geen bron.
-  version: 4,
+  version: 5,
   description:
     'Cold-path feitextractie uit het intaketranscript. Gesloten schema, citaat verplicht.',
 
@@ -97,7 +107,45 @@ export const extractionPrompt: PromptTemplate<ExtractionVars> = {
           ]),
     );
 
-    regels.push('', nl ? `Vandaag is ${vars.todayIso}.` : `Today is ${vars.todayIso}.`);
+    /*
+     * Het anker, met weekdag en zone erbij.
+     *
+     * En meteen de regel wat je doet als het niet lukt. Zonder die regel gokt het model
+     * een datum bij "ergens in het voorjaar", en een gegokte datum is in dit dossier niet
+     * van een vastgestelde te onderscheiden — dat is risico 10.
+     */
+    regels.push(
+      '',
+      ...(nl
+        ? [
+            `Vandaag is ${vars.anker.weekdag} ${vars.anker.iso}, ${vars.anker.tijd} uur ` +
+              `(${vars.anker.timeZone}).`,
+            'Reken relatieve tijdsaanduidingen hiernaar om: "afgelopen vrijdag", "twee',
+            '  maanden geleden", "vorige week dinsdag", "vanochtend". Zet de uitkomst als',
+            '  datum in het veld, niet de woorden van de cliënt.',
+            'Kun je er geen eenduidige datum van maken — "in het voorjaar", "een tijdje',
+            '  terug", "rond de feestdagen" — gok dan niet. Neem het feit op met status',
+            '  "unknown" en de letterlijke uitspraak in evidenceQuote. Een gegokte datum is',
+            '  in het dossier niet van een vastgestelde te onderscheiden.',
+            'Is een jaartal niet genoemd, ga dan uit van het meest recente verleden: "op 3',
+            '  maart" gezegd in augustus 2026 is 2026-03-03 en niet 2027-03-03. Ligt de',
+            '  uitkomst in de toekomst, dan klopt de aanname niet en is de status "unknown".',
+          ]
+        : [
+            `Today is ${vars.anker.weekdag} ${vars.anker.iso}, ${vars.anker.tijd} ` +
+              `(${vars.anker.timeZone}).`,
+            'Resolve relative time expressions against this: "last Friday", "two months',
+            '  ago", "last Tuesday", "this morning". Put the resulting date in the field,',
+            '  not the words the client used.',
+            'If you cannot derive an unambiguous date — "in the spring", "a while back" —',
+            '  do not guess. Record the fact with status "unknown" and the verbatim',
+            '  utterance in evidenceQuote. A guessed date is indistinguishable from an',
+            '  established one in the file.',
+            'If no year is stated, assume the most recent past: "on 3 March" said in August',
+            '  2026 is 2026-03-03, not 2027-03-03. If the result lands in the future, the',
+            '  assumption is wrong and the status is "unknown".',
+          ]),
+    );
 
     if (vars.knownFacts.length > 0) {
       regels.push(

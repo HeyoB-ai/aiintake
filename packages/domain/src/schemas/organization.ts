@@ -58,6 +58,20 @@ export const OrgConfigSchema = z.object({
   slug: z.string().min(2).max(60),
   name: z.string().min(1).max(200),
   defaultLanguage: LanguageSchema.default('nl'),
+  /**
+   * De tijdzone van het kantoor, als IANA-naam.
+   *
+   * Hier en niet als constante in de code. Een Belgisch of Duits kantoor zit toevallig in
+   * dezelfde zone als een Nederlands, maar dat is een eigenschap van het kantoor en geen
+   * eigenschap van het product — en zodra er één kantoor buiten die zone bij komt, is een
+   * hardgecodeerde waarde een stille fout in plaats van een instelling.
+   *
+   * Waar het op uitkomt: de groet ("goedemorgen" hangt van het lokale uur af) en, veel
+   * belangrijker, het ankerpunt waarmee de extractie "afgelopen vrijdag" naar een datum
+   * omrekent. De server draait op UTC; tussen middernacht en twee uur 's nachts scheelt
+   * dat een hele dag in `case_facts`.
+   */
+  timeZone: z.string().min(3).max(64).default('Europe/Amsterdam'),
   providerConfig: ProviderConfigSchema,
   sessionLimits: SessionLimitsSchema,
   intakeCriteria: IntakeCriteriaSchema,
