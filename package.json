@@ -35,13 +35,18 @@
     "diag:afsluiten": "pnpm --filter @intake/agent diag:afsluiten",
     "zichtbaarheid": "pnpm --filter @intake/agent zichtbaarheid",
     "preview": "pnpm --filter @intake/ui preview",
-    "layout:check": "pnpm --filter @intake/web layout:check"
+    "layout:check": "pnpm --filter @intake/web layout:check",
+    "cert:lan": "node scripts/lan-cert.mjs",
+    "dev:https": "node scripts/dev-https.mjs",
+    "dev:live:https": "pnpm --filter @intake/agent dev:live:https",
+    "cert:serve": "node scripts/cert-serve.mjs"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",
     "@types/node": "^22.10.5",
     "dependency-cruiser": "^16.9.0",
     "embedded-postgres": "18.4.0-beta.17",
+    "mkcert": "^3.2.0",
     "pg": "^8.23.0",
     "prettier": "^3.4.2",
     "supabase": "^2.6.8",

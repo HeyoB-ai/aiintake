@@ -22,7 +22,8 @@
     "anam:persona": "tsx --env-file=../../.env bakeoff/anam-persona.ts",
     "diag:tikken": "tsx --env-file=../../.env bakeoff/tikken-diagnose.ts",
     "diag:afsluiten": "tsx --env-file=../../.env bakeoff/afsluiten-diagnose.ts",
-    "zichtbaarheid": "node live/zichtbaarheid.mjs"
+    "zichtbaarheid": "node live/zichtbaarheid.mjs",
+    "dev:live:https": "tsx --env-file=../../.env live/server.ts --zonder-token --tls"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

@@ -31,3 +31,6 @@ pnpm-debug.log*
 # artefacten van metingen (bevatten timings, geen pii, maar horen niet in git)
 /measurements/
 *.tsbuildinfo
+
+# Zelfondertekende certificaten voor lokaal testen op een toestel. Bevat een privésleutel.
+.certs/
