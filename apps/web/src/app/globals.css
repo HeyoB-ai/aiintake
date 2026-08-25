@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import '@intake/ui/tokens.css';
+/* Na tokens.css: de themablokken leiden de semantische namen hierboven af. */
+@import '@intake/ui/themes.css';
 
 @theme {
   --color-ink-900: var(--ink-900);

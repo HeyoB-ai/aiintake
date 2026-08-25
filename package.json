@@ -34,7 +34,8 @@
     "diag:tikken": "pnpm --filter @intake/agent diag:tikken",
     "diag:afsluiten": "pnpm --filter @intake/agent diag:afsluiten",
     "zichtbaarheid": "pnpm --filter @intake/agent zichtbaarheid",
-    "preview": "pnpm --filter @intake/ui preview"
+    "preview": "pnpm --filter @intake/ui preview",
+    "layout:check": "pnpm --filter @intake/web layout:check"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",
