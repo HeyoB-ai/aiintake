@@ -22,6 +22,20 @@ const PublicEnvSchema = z.object({
     .refine((k) => !k.startsWith('sb_secret_'), {
       message: 'dit is een secret key; die hoort nooit in een NEXT_PUBLIC_-variabele',
     }),
+  /**
+   * Het adres van de realtime worker.
+   *
+   * Hier en niet alleen in de code die hem leest, omdat het protocol de helft van de fout
+   * is: een `https`-pagina mag geen `ws://` openen. De browser blokkeert dat als gemengde
+   * inhoud, zonder fout en zonder event — je ziet alleen een gespreksscherm dat blijft
+   * laden. Een schema dat alleen "is het een URL" toetst, laat precies die versie door.
+   */
+  NEXT_PUBLIC_AGENT_WS_URL: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith('ws://') || u.startsWith('wss://'), {
+      message: 'moet met ws:// of wss:// beginnen; een http-adres opent geen WebSocket',
+    }),
 });
 
 const ServerEnvSchema = z.object({
