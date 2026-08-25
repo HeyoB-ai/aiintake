@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieMethodsServer } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 /**
@@ -12,25 +12,27 @@ import { cookies } from 'next/headers';
 export async function createClient() {
   const cookieStore = await cookies();
 
+  // Expliciet getypeerd om dezelfde reden als in middleware.ts: niet leunen op contextuele
+  // inferentie door de signatuur van createServerClient heen.
+  const cookieMethods: CookieMethodsServer = {
+    getAll() {
+      return cookieStore.getAll();
+    },
+    setAll(cookiesToSet) {
+      try {
+        for (const { name, value, options } of cookiesToSet) {
+          cookieStore.set(name, value, options);
+        }
+      } catch {
+        // Aanroep vanuit een Server Component: de middleware ververst de sessie.
+      }
+    },
+  };
+
   return createServerClient(
     process.env['NEXT_PUBLIC_SUPABASE_URL']!,
     process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY']!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            for (const { name, value, options } of cookiesToSet) {
-              cookieStore.set(name, value, options);
-            }
-          } catch {
-            // Aanroep vanuit een Server Component: de middleware ververst de sessie.
-          }
-        },
-      },
-    },
+    { cookies: cookieMethods },
   );
 }
 

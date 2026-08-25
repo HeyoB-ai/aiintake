@@ -1,0 +1,43 @@
+# Netlify — apps/web (de control plane)
+#
+# Alleen de web-app staat hier. De worker draait op Railway: WebRTC met barge-in vraagt om
+# een langlevend proces met open sockets, en dat kan een serverless platform niet leveren.
+# Zie apps/agent/.env.example en docs/deploy.md.
+#
+# Wat hier staat is de bouw. De sleutels staan in de Netlify-UI onder
+# Site configuration > Environment variables — nooit in dit bestand, want dit bestand staat
+# in git.
+
+[build]
+  # Bouwen vanaf de hoofdmap, niet vanuit apps/web. Dit is een pnpm-workspace: de
+  # workspace-packages (@intake/ui, @intake/engine, …) worden als bron geïmporteerd en
+  # bestaan alleen als de hele boom geïnstalleerd is.
+  base = "."
+  # --prod=false expliciet: Netlify zet NODE_ENV=production, en dan slaat pnpm
+  # devDependencies over. Daar zitten tailwind, typescript en de @types in — zonder die
+  # eerste faalt de build al op globals.css, ruim voordat er iets over types wordt gezegd.
+  # Gemeten, niet aangenomen.
+  command = "pnpm install --frozen-lockfile --prod=false && pnpm --filter @intake/web build"
+  publish = "apps/web/.next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  PNPM_VERSION = "9"
+  # Netlify draait `npm install` als hij geen pnpm herkent; dit zet het expliciet.
+  NETLIFY_USE_PNPM = "true"
+
+[[plugins]]
+  # Zonder deze plugin wordt een Next-app als statische map gepubliceerd en werken de
+  # server actions niet — en de hele intakeroute is een server action.
+  package = "@netlify/plugin-nextjs"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Dubbelop met next.config.mjs, en dat is opzet: de headers in next.config gelden voor
+    # wat Next zelf serveert, deze voor alles wat Netlify serveert (statische bestanden,
+    # foutpagina's). De strengste van de twee wint niet vanzelf — ze moeten allebei kloppen.
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"

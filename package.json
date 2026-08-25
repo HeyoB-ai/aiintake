@@ -39,7 +39,8 @@
     "cert:lan": "node scripts/lan-cert.mjs",
     "dev:https": "node scripts/dev-https.mjs",
     "dev:live:https": "pnpm --filter @intake/agent dev:live:https",
-    "cert:serve": "node scripts/cert-serve.mjs"
+    "cert:serve": "node scripts/cert-serve.mjs",
+    "build:netlify": "node scripts/build-als-netlify.mjs"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

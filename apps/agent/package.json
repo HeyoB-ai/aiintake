@@ -23,7 +23,10 @@
     "diag:tikken": "tsx --env-file=../../.env bakeoff/tikken-diagnose.ts",
     "diag:afsluiten": "tsx --env-file=../../.env bakeoff/afsluiten-diagnose.ts",
     "zichtbaarheid": "node live/zichtbaarheid.mjs",
-    "dev:live:https": "tsx --env-file=../../.env live/server.ts --zonder-token --tls"
+    "dev:live:https": "tsx --env-file=../../.env live/server.ts --zonder-token --tls",
+    "//build:worker": "De realtime worker voor productie. live/server.ts is het startpunt dat echt luistert; src/main.ts doet dat nog niet. De banner geeft de bundel een werkende require(): een paar afhankelijkheden laden optionele modules met een dynamische require, en die bestaat niet in ESM.",
+    "build:worker": "esbuild live/server.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/worker.js --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
+    "start:worker": "node dist/worker.js"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",
