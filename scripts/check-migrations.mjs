@@ -139,6 +139,97 @@ async function checkApiSurface(client) {
   return ok;
 }
 
+/**
+ * Verlopen sessies mogen de limiet niet blijven vullen.
+ *
+ * ## Waarom dit hier staat en niet bij de isolatietests
+ *
+ * Die draaien tegen een echt Supabase-project en slaan zichzelf over zonder secrets. Deze
+ * controle bewaakt de reden waarom de dienst op productie stil kwam te liggen; hij hoort
+ * te draaien in elke CI-run, ook op een fork zonder sleutels. Hier is een echte Postgres
+ * met de volledige migratiereeks, en dat is alles wat nodig is.
+ *
+ * ## Wat er gebeurd was
+ *
+ * `issue_agent_session` telde `ended_at is null` zonder tijdsgrens. Sessies die nooit
+ * werden afgesloten — een crash, een deploy, een foutpad dat vóór het afsluiten stopte —
+ * telden voor altijd mee. Bij `maxConcurrentSessions: 5` waren vijf van zulke rijen genoeg
+ * om niemand meer een gesprek te laten beginnen.
+ *
+ * De test zet vijf sessies neer die ruim over hun levensduur heen zijn en vraagt dan een
+ * zesde aan. Zonder het verval faalt dat met 53400.
+ */
+async function checkSessieVerval(client) {
+  const { rows: org } = await client.query(
+    `select id, coalesce((session_limits ->> 'maxSessionMinutes')::int, 25) as minuten
+       from public.organizations order by created_at limit 1`,
+  );
+  if (org.length === 0) {
+    process.stdout.write('\n  (geen organisatie in de seed; sessieverval niet getoetst)\n');
+    return true;
+  }
+  const orgId = org[0].id;
+
+  const { rows: intake } = await client.query(
+    `select id from public.intakes where organization_id = $1 and deleted_at is null limit 1`,
+    [orgId],
+  );
+  if (intake.length === 0) {
+    process.stdout.write('\n  (geen intake in de seed; sessieverval niet getoetst)\n');
+    return true;
+  }
+  const intakeId = intake[0].id;
+
+  // Ruim voorbij maxSessionMinutes + 5, zodat de grens zelf niet het onderwerp is.
+  const oud = `now() - interval '${org[0].minuten + 60} minutes'`;
+  await client.query(
+    `insert into public.sessions (organization_id, intake_id, channel, started_at)
+     select $1, $2, 'video', ${oud} from generate_series(1, 5)`,
+    [orgId, intakeId],
+  );
+
+  const hash = 'a'.repeat(64);
+  try {
+    await client.query(
+      `select public.issue_agent_session($1::uuid, 'video', $2::text, null, null, null)`,
+      [intakeId, hash],
+    );
+  } catch (error) {
+    process.stdout.write(
+      `\n  FAIL verlopen sessies vullen de limiet nog steeds: ${error.message}\n`,
+    );
+    return false;
+  }
+
+  const { rows: open } = await client.query(
+    `select count(*)::int as n from public.sessions
+      where organization_id = $1 and ended_at is null`,
+    [orgId],
+  );
+  // De vijf oude rijen zijn dicht, de nieuwe staat open.
+  if (open[0].n !== 1) {
+    process.stdout.write(
+      `\n  FAIL na het uitgeven staan er ${open[0].n} sessies open in plaats van 1\n`,
+    );
+    return false;
+  }
+
+  const { rows: reden } = await client.query(
+    `select count(*)::int as n from public.sessions
+      where organization_id = $1 and end_reason = 'timeout' and billed_seconds is null`,
+    [orgId],
+  );
+  if (reden[0].n !== 5) {
+    process.stdout.write(
+      `\n  FAIL ${reden[0].n} van de 5 verlopen sessies kregen end_reason 'timeout'\n`,
+    );
+    return false;
+  }
+
+  process.stdout.write('\n  Sessieverval: 5 verlopen rijen opgeruimd, de zesde kon starten\n');
+  return true;
+}
+
 async function run(connectionString) {
   const client = new pg.Client({ connectionString });
   await client.connect();
@@ -223,6 +314,8 @@ async function run(connectionString) {
       );
       ok = false;
     }
+
+    ok = (await checkSessieVerval(client)) && ok;
   }
 
   await client.end();
