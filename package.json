@@ -42,7 +42,8 @@
     "dev:https": "node scripts/dev-https.mjs",
     "dev:live:https": "pnpm --filter @intake/agent dev:live:https",
     "cert:serve": "node scripts/cert-serve.mjs",
-    "build:netlify": "node scripts/build-als-netlify.mjs"
+    "build:netlify": "node scripts/build-als-netlify.mjs",
+    "deps:check": "node scripts/check-fantoom-deps.mjs"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",
