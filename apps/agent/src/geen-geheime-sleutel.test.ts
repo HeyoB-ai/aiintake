@@ -100,6 +100,8 @@ describe('de worker weigert een RLS-omzeilende sleutel', () => {
   });
 
   it('noemt de publishable key niet — die mag publiek zijn', () => {
-    expect(vindGeheimeSleutels({ SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_abcdefgh' })).toEqual([]);
+    expect(vindGeheimeSleutels({ SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_abcdefgh' })).toEqual(
+      [],
+    );
   });
 });

@@ -56,6 +56,8 @@ server.listen(POORT, '0.0.0.0', () => {
   const ip = lanAdres();
   console.log(`\n  Open op de telefoon:  http://${ip}:${POORT}\n`);
   console.log('  Daarna: Instellingen > Algemeen > VPN en apparaatbeheer > profiel > Installeer,');
-  console.log('  en dan Instellingen > Algemeen > Info > Certificaatvertrouwensinstellingen aan.\n');
+  console.log(
+    '  en dan Instellingen > Algemeen > Info > Certificaatvertrouwensinstellingen aan.\n',
+  );
   console.log('  Ctrl+C als het geïnstalleerd is — dit hoeft niet te blijven draaien.\n');
 });

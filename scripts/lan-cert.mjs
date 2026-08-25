@@ -83,7 +83,11 @@ writeFileSync(join(MAP, 'lan.pem'), cert.cert);
 writeFileSync(join(MAP, 'lan-key.pem'), cert.key);
 
 const gitignore = join(HIER, '.gitignore');
-const heeftRegel = existsSync(gitignore) && /(^|\n)\.certs\//.test(String(await import('node:fs').then((fs) => fs.readFileSync(gitignore, 'utf8'))));
+const heeftRegel =
+  existsSync(gitignore) &&
+  /(^|\n)\.certs\//.test(
+    String(await import('node:fs').then((fs) => fs.readFileSync(gitignore, 'utf8'))),
+  );
 if (!heeftRegel) {
   console.log('  LET OP: zet `.certs/` in .gitignore. Een privésleutel hoort niet in git.\n');
 }
@@ -99,7 +103,9 @@ console.log('  3. Vertrouw de CA op de iPhone:');
 console.log('       a. Draai in een tweede terminal:  pnpm cert:serve');
 console.log(`       b. Open op de telefoon:  http://${eerste}:3001`);
 console.log('       c. Safari vraagt of je een profiel wilt toestaan — sta toe.');
-console.log('       d. Instellingen > Algemeen > VPN en apparaatbeheer > het profiel > Installeer.');
+console.log(
+  '       d. Instellingen > Algemeen > VPN en apparaatbeheer > het profiel > Installeer.',
+);
 console.log('       e. Instellingen > Algemeen > Info > Certificaatvertrouwensinstellingen:');
 console.log('          zet de schakelaar bij "Legal Intake AI Lokaal Testen" AAN. Zonder');
 console.log('          deze stap vertrouwt iOS de CA nog steeds niet — dit is de stap');

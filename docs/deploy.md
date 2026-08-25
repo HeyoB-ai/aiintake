@@ -22,13 +22,13 @@ het geen optie: er lopen transcriptfragmenten over deze verbinding.
 
 ### Netlify — apps/web
 
-| Variabele | Waarde | Waarom hier |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | de Supabase-project-URL | publiek |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_…` | mag publiek zijn, geeft op zichzelf geen recht |
-| `NEXT_PUBLIC_AGENT_WS_URL` | `wss://<jouw-service>.up.railway.app` | het adres van de worker |
-| `SUPABASE_SECRET_KEY` | `sb_secret_…` | **alleen hier** |
-| `INTAKE_IP_HASH_PEPPER` | 32+ willekeurige tekens | peper voor de IP-hash van de rate limiter |
+| Variabele                              | Waarde                                | Waarom hier                                    |
+| -------------------------------------- | ------------------------------------- | ---------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | de Supabase-project-URL               | publiek                                        |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_…`                    | mag publiek zijn, geeft op zichzelf geen recht |
+| `NEXT_PUBLIC_AGENT_WS_URL`             | `wss://<jouw-service>.up.railway.app` | het adres van de worker                        |
+| `SUPABASE_SECRET_KEY`                  | `sb_secret_…`                         | **alleen hier**                                |
+| `INTAKE_IP_HASH_PEPPER`                | 32+ willekeurige tekens               | peper voor de IP-hash van de rate limiter      |
 
 `SUPABASE_SECRET_KEY` omzeilt RLS volledig. Hij zit in `apps/web` omdat daar de sessietokens
 worden uitgegeven — en nergens anders. Zet hem niet in de Railway-UI, ook niet "even om te
@@ -40,20 +40,20 @@ uit. Genereren: `node -e "console.log(require('crypto').randomBytes(32).toString
 
 ### Railway — apps/agent
 
-| Variabele | Waarde |
-|---|---|
-| `SUPABASE_URL` | de Supabase-project-URL |
-| `SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_…` |
-| `ANTHROPIC_API_KEY` | zonder model is er geen gesprek; de worker start niet |
-| `DEEPGRAM_API_KEY` | STT |
-| `DEEPGRAM_MODEL` | `nova-3` — niet `flux`, dat doet geen Nederlands |
-| `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID` | TTS |
-| `CARTESIA_MODEL` | `sonic-3` |
-| `AVATAR_PROVIDER` | `anam` (of `null` om zonder gezicht te draaien) |
-| `ANAM_API_KEY`, `ANAM_PERSONA_ID` | de eigen persona met "Disable LLM" |
-| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | transport |
-| `LLM_HOT_MODEL`, `LLM_COLD_MODEL` | standaarden staan in de code |
-| `NODE_ENV` | `production` |
+| Variabele                                              | Waarde                                                |
+| ------------------------------------------------------ | ----------------------------------------------------- |
+| `SUPABASE_URL`                                         | de Supabase-project-URL                               |
+| `SUPABASE_PUBLISHABLE_KEY`                             | `sb_publishable_…`                                    |
+| `ANTHROPIC_API_KEY`                                    | zonder model is er geen gesprek; de worker start niet |
+| `DEEPGRAM_API_KEY`                                     | STT                                                   |
+| `DEEPGRAM_MODEL`                                       | `nova-3` — niet `flux`, dat doet geen Nederlands      |
+| `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID`                | TTS                                                   |
+| `CARTESIA_MODEL`                                       | `sonic-3`                                             |
+| `AVATAR_PROVIDER`                                      | `anam` (of `null` om zonder gezicht te draaien)       |
+| `ANAM_API_KEY`, `ANAM_PERSONA_ID`                      | de eigen persona met "Disable LLM"                    |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | transport                                             |
+| `LLM_HOT_MODEL`, `LLM_COLD_MODEL`                      | standaarden staan in de code                          |
+| `NODE_ENV`                                             | `production`                                          |
 
 `PORT` zet Railway zelf. Niet overschrijven — bindt het proces op iets anders, dan komt er
 nooit verkeer binnen en meldt Railway alleen dat de healthcheck faalt.

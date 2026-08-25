@@ -38,7 +38,7 @@ Op de iPhone:
 3. Instellingen → Algemeen → **VPN en apparaatbeheer** → het gedownloade profiel →
    **Installeer** (je pincode).
 4. Instellingen → Algemeen → **Info** → **Certificaatvertrouwensinstellingen** → zet de
-   schakelaar bij *Legal Intake AI Lokaal Testen* aan.
+   schakelaar bij _Legal Intake AI Lokaal Testen_ aan.
 
 Stap 4 is de stap die overgeslagen wordt. Zonder die schakelaar staat het certificaat wel
 geïnstalleerd maar vertrouwt iOS het niet, en dan blijft Safari klagen over een onveilige

@@ -99,7 +99,7 @@ function netlifyBuildCommando(pad) {
  * Eerst, want hij kost niets en hij vangt precies de klasse fouten waar de rest van dit
  * script blind voor is.
  */
-console.log('\n  [0/2] imports tegen de package.json\'s\n');
+console.log("\n  [0/2] imports tegen de package.json's\n");
 if (meldFantomen(vindFantomen(REPO))) process.exit(1);
 console.log('        geen fantoomafhankelijkheden');
 
