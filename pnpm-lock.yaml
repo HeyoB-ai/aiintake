@@ -138,6 +138,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.47.10
         version: 2.112.3(@opentelemetry/api@1.9.1)
+      lucide-react:
+        specifier: ^0.546.0
+        version: 0.546.0(react@19.2.8)
       next:
         specifier: ^15.1.4
         version: 15.5.23(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
