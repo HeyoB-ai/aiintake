@@ -170,6 +170,13 @@
         color: var(--zacht);
         margin-top: 14px;
       }
+      /* Avatarminuten zijn de duurste post; hoe lang er betaald wordt hoort in beeld. */
+      #teller {
+        font-family: ui-monospace, monospace;
+        font-size: 12.5px;
+        color: var(--zacht);
+        margin-top: 4px;
+      }
     </style>
   </head>
   <body>
@@ -190,6 +197,7 @@
       <div id="niveau"><div></div></div>
       <div id="gesprek"></div>
       <div id="status">niet verbonden</div>
+      <div id="teller">sessie 00:00</div>
       <div id="build">pagina van __BUILD__</div>
     </main>
 
@@ -217,7 +225,23 @@
     <script type="module">
       const SR = 16000;
       const $ = (id) => document.getElementById(id);
-      const status = (t) => ($('status').textContent = t);
+      /**
+       * De statusregel, en een fout die blijft staan.
+       *
+       * `status()` wordt vaak overschreven — dat hoort ook. Maar een echte fout mag niet
+       * verdwijnen onder de melding van het sluiten dat erop volgt: dan lees je het gevolg
+       * en niet de oorzaak.
+       */
+      let fataleFout = null;
+      const status = (t) => {
+        if (fataleFout) return;
+        $('status').textContent = t;
+      };
+      const fout = (t) => {
+        fataleFout = t;
+        $('status').textContent = t;
+        $('status').style.color = '#e06c5a';
+      };
 
       let ws = null;
       let ctxIn = null;
@@ -351,10 +375,32 @@
           }
           const m = JSON.parse(e.data);
           if (m.type === 'clear') stopGeluid();
+          if (m.type === 'stop') {
+            // De server sluit af — inactiviteit, ctrl-c, of iemand die op Stop drukte in
+            // een andere tab. De reden meesturen scheelt raden.
+            stop('sessie beëindigd: ' + (m.reden ?? 'door de server'));
+            return;
+          }
           if (m.type === 'ready') {
             if (m.sampleRate) SR_UIT = m.sampleRate;
+            // Wat de server werkelijk meestuurde, zodat een controle het kan uitlezen in
+            // plaats van het uit de zichtbare gevolgen af te leiden. Het token zelf niet:
+            // alleen of het er was.
+            window.__ready = { ...m, anamToken: m.anamToken ? '(aanwezig)' : null };
+            // De fasebalk hoort er te staan zodra er een gezicht bedoeld is — ook als het
+            // daarna misgaat. Anders is "geen balk" zowel "null-provider" als "kapot".
+            if (m.avatar === 'anam') fase('sessie', 'bezig');
             // Pas starten als de server zegt dat de keten er is. De server vangt een te
             // vroege start ook af, maar twee keer voorzichtig kost hier niets.
+            // Op de PROVIDER beslissen, niet op de aanwezigheid van een token. Anders is
+            // "het token is mislukt" niet te onderscheiden van "er was geen gezicht
+            // bedoeld", en draait de pagina zonder beeld verder terwijl de server iets
+            // anders meldt. Dat kostte een avond zoeken in de frontend.
+            if (m.avatar === 'anam' && !m.anamToken) {
+              fase('sessie', null, m.avatarFout ?? 'geen sessietoken van de server');
+              status('avatar aangevraagd maar niet opgezet — het gesprek is niet gestart');
+              return;
+            }
             if (m.anamToken) {
               status('avatar verbinden…');
               startAvatar(m.anamToken)
@@ -370,6 +416,10 @@
                   status('avatar mislukt — het gesprek is niet gestart: ' + e.message);
                 });
             } else {
+              // Ook zonder gezicht loopt er een sessie. De teller hoort de duur van het
+              // gesprék te tonen, niet die van de avatar — anders staat hij op de
+              // null-provider eeuwig op 00:00.
+              startTeller();
               status('klaar — hij begint zo');
               ws.send(JSON.stringify({ type: 'start' }));
             }
@@ -417,10 +467,24 @@
               ? m.rejected.map((r) => `${r.key}: ${r.reason}`).join(' · ')
               : 'geen';
           }
-          if (m.type === 'error') status(`fout (${m.waar}): ${m.wat}`);
+          if (m.type === 'error') {
+            // Een fout blijft staan. Zonder dit overschrijft de statusregel van het
+            // sluiten hem binnen een fractie van een seconde, en dan zie je alleen het
+            // gevolg en nooit de oorzaak.
+            fout(`fout (${m.waar}): ${m.wat}`);
+          }
         };
 
-        ws.onclose = () => status('verbinding gesloten');
+        // Valt de server weg (ctrl-c), dan hoort deze kant ook op te ruimen: de server
+        // sluit de avatarsessie zelf, maar anders staat hier nog een dood beeld te draaien.
+        //
+        // Eén handler, en niet twee. Er stonden er even twee — de tweede overschreef de
+        // eerste stilzwijgend, en dan lijkt de opruiming te werken terwijl hij nooit
+        // draait.
+        ws.onclose = (e) => {
+          console.log(`[live] socket dicht: code ${e.code} clean ${e.wasClean} reden "${e.reason}"`);
+          stop('verbinding met de server weg');
+        };
 
         // Microfoon → Int16 → server. ScriptProcessor omdat het één rekensom is en een
         // AudioWorklet daar een apart modulebestand voor vraagt.
@@ -514,11 +578,57 @@
 
         await eersteFrame;
         fase('frame', 'klaar');
+
+        // Het sessie-id naar de server, want die kan hem betrouwbaar afsluiten en deze
+        // pagina niet: een tab die wordt weggeklikt krijgt geen kans meer om asynchroon
+        // werk af te maken. Gemeten blijft zo'n sessie dan 10 tot 20 seconden doorlopen.
+        const sessionId = anam.getActiveSessionId?.();
+        if (sessionId) ws?.send(JSON.stringify({ type: 'anam', sessionId }));
+        // Ook op window, zodat de controle in bakeoff/afsluiten-diagnose.ts precies de
+        // sessie volgt die deze pagina draait in plaats van er een te raden uit de lijst.
+        window.__anamSessionId = sessionId ?? null;
+        startTeller();
       }
 
-      function stop() {
+      /**
+       * De zichtbare sessieteller.
+       *
+       * Avatarminuten zijn de duurste post in dit product en tot nu toe was er geen enkele
+       * aanwijzing in beeld hoe lang er al betaald werd. Loopt vanaf het eerste frame,
+       * want dat is het moment waarop de sessie aan hun kant echt draait.
+       */
+      let tellerVanaf = null;
+      let tellerId = null;
+      function startTeller() {
+        tellerVanaf = performance.now();
+        clearInterval(tellerId);
+        tellerId = setInterval(() => {
+          const s = Math.floor((performance.now() - tellerVanaf) / 1000);
+          $('teller').textContent =
+            `sessie ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+        }, 1000);
+      }
+      function stopTeller() {
+        clearInterval(tellerId);
+        tellerId = null;
+      }
+
+      /**
+       * Afsluiten, en het mag twee keer gebeuren.
+       *
+       * De server sluit ook af, en beide kunnen tegelijk gebeuren — bij ctrl-c komt er een
+       * `stop`-bericht én valt de socket weg. Zonder deze wacht zou de tweede aanroep de
+       * SDK opnieuw aanspreken en een fout in de console zetten die niets betekent.
+       */
+      let gestopt = false;
+      function stop(reden = 'gestopt') {
+        if (gestopt) return;
+        gestopt = true;
+        stopTeller();
         stopGeluid();
         if (anam) {
+          // Ook al doet de server dit: twee keer sluiten kan geen kwaad en de browser is
+          // sneller als hij nog leeft.
           anam.stopStreaming().catch(() => {});
           anam = null;
           document.getElementById('avatar').classList.remove('aan');
@@ -528,11 +638,25 @@
         ctxUit?.close();
         $('start').disabled = false;
         $('stop').disabled = true;
-        status('gestopt');
+        status(reden);
       }
 
-      $('start').onclick = () => start().catch((e) => status('fout: ' + e.message));
-      $('stop').onclick = stop;
+      $('start').onclick = () => {
+        gestopt = false;
+        start().catch((e) => status('fout: ' + e.message));
+      };
+      $('stop').onclick = () => stop('gestopt');
+
+      /*
+       * Wegklikken, verversen, of de browser sluiten.
+       *
+       * `pagehide` is de betrouwbare van de twee — `beforeunload` wordt op mobiel en bij
+       * een teruggezette tab overgeslagen. Allebei registreren kost niets en `stop()` is
+       * toch idempotent. Dit is een vangnet: de server is de eigenlijke afsluiter, want
+       * asynchroon werk in deze handlers haalt de eindstreep niet altijd.
+       */
+      addEventListener('pagehide', () => stop('pagina weg'));
+      addEventListener('beforeunload', () => stop('pagina weg'));
     </script>
   </body>
 </html>

@@ -79,6 +79,9 @@ const ANON_CALLABLE = new Set([
   'agent_update_progress',
   'agent_set_session_providers',
   'agent_end_session',
+  // Alleen controleren, geen neveneffect: nodig op het moment dat de client de
+  // realtime-verbinding opent, wanneer er nog geen beurt en geen metriek is.
+  'agent_verify_session',
 ]);
 
 async function checkApiSurface(client) {

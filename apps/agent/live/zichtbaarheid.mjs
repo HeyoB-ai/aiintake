@@ -65,12 +65,24 @@ try {
       ),
       fasefout: document.getElementById('fasefout').textContent,
       build: document.getElementById('build').textContent,
+      // Wat de server meestuurde, niet wat de pagina ervan maakte.
+      ready: window.__ready ?? null,
+      status: document.getElementById('status')?.textContent ?? '',
     };
   });
 
   console.log(
-    `\n  ${st.build} · fasen ${st.fasen.join(' ')} ${st.fasefout ? '· ' + st.fasefout : ''}\n`,
+    `\n  ${st.build} · fasen ${st.fasen.join(' ')} ${st.fasefout ? '· ' + st.fasefout : ''}`,
   );
+  console.log(`  status: ${st.status}`);
+  console.log(
+    `  ready van de server: ${st.ready ? JSON.stringify(st.ready) : '(nooit ontvangen)'}\n`,
+  );
+
+  // Vraag één: bereikt de providerkeuze de browser? Zonder dit is elk beeldprobleem
+  // hieronder niet te onderscheiden van een pagina die denkt dat er geen avatar is.
+  eis('server meldde een provider', st.ready?.avatar != null, st.ready?.avatar ?? '(geen veld)');
+  eis('er kwam een sessietoken', st.ready?.anamToken === '(aanwezig)', st.ready?.avatarFout ?? '');
 
   eis('element heeft oppervlak', st.w > 100 && st.h > 100, `${st.w}x${st.h}`);
   eis('element is zichtbaar', st.zichtbaar, `display: ${st.display}`);

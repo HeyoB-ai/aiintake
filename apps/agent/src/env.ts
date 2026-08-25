@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertGeenGeheimeSleutel } from './geen-geheime-sleutel.js';
 
 /**
  * De env van de worker, bewust smal.
@@ -67,6 +68,16 @@ function withoutEmpty(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function readAgentEnv(source: NodeJS.ProcessEnv = process.env): AgentEnv {
+  /*
+   * Eerst de grens, dan de configuratie.
+   *
+   * Het schema hieronder weigert al een geheime sleutel op de plek van de publishable key,
+   * maar dat is één veld. Deze controle kijkt naar de hele omgeving: elke naam en elke
+   * waarde. Bij een hostingpartij komt de omgeving uit een UI en niet uit dit sjabloon, en
+   * dan is "hij staat onder een andere naam" de gewone manier waarop dit misgaat.
+   */
+  assertGeenGeheimeSleutel(source);
+
   const parsed = AgentEnvSchema.safeParse(withoutEmpty(source));
   if (!parsed.success) {
     const missing = parsed.error.issues.map((i) => i.path.join('.')).join(', ');

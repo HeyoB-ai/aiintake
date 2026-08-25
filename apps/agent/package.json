@@ -15,7 +15,7 @@
     "diag:bey": "tsx --env-file=../../.env bakeoff/bey-diagnose.ts",
     "diag:ttft": "tsx --env-file=../../.env bakeoff/ttft-diagnose.ts",
     "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts",
-    "dev:live": "tsx --env-file=../../.env live/server.ts",
+    "dev:live": "tsx --env-file=../../.env live/server.ts --zonder-token",
     "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts",
     "diag:gespreksvorm": "tsx --env-file=../../.env bakeoff/gespreksvorm-diagnose.ts",
     "diag:stilte": "tsx --env-file=../../.env bakeoff/stilte-diagnose.ts",
