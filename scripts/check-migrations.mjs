@@ -230,6 +230,80 @@ async function checkSessieVerval(client) {
   return true;
 }
 
+/**
+ * Naam en contact zijn een grens in de database, niet alleen in het formulier.
+ *
+ * Het toestemmingsscherm zet de knop op disabled zolang naam plus e-mail óf telefoon
+ * ontbreekt. Dat is een gemak voor wie invult. Zou dat de enige plek zijn, dan is de regel
+ * te omzeilen door de server action rechtstreeks aan te roepen — en dan komt er een dossier
+ * binnen zonder enige manier om de cliënt terug te bellen.
+ *
+ * Deze controle draait het echte pad: een geldige aanroep hoort te slagen, drie ongeldige
+ * horen te falen met 22023.
+ */
+async function checkContactVerplicht(client) {
+  const { rows: org } = await client.query(
+    `select slug from public.organizations where is_active and deleted_at is null
+      order by created_at limit 1`,
+  );
+  if (org.length === 0) {
+    process.stdout.write('\n  (geen organisatie in de seed; contactplicht niet getoetst)\n');
+    return true;
+  }
+  const slug = org[0].slug;
+
+  // De rate limiter telt per IP-hash; een eigen hash per poging houdt deze controle
+  // onafhankelijk van de drempel.
+  let teller = 0;
+  const roep = (naam, email, telefoon) =>
+    client.query(
+      `select public.create_public_intake(
+         $1::text, 'nl', 'video', $2::text, true, 'v1', true, 'v1', false, true, null,
+         $3::text, $4::text, $5::text)`,
+      [slug, `contactcheck-${teller++}`, naam, email, telefoon],
+    );
+
+  const gevallen = [
+    ['zonder naam', null, 'sanne@voorbeeld.nl', null],
+    ['zonder enig contactkanaal', 'Sanne de Vries', null, null],
+    ['met lege strings als contact', 'Sanne de Vries', '   ', ''],
+  ];
+
+  for (const [wat, naam, email, telefoon] of gevallen) {
+    try {
+      await roep(naam, email, telefoon);
+      process.stdout.write(`\n  FAIL create_public_intake accepteerde een intake ${wat}\n`);
+      return false;
+    } catch (error) {
+      if (error.code !== '22023') {
+        process.stdout.write(
+          `\n  FAIL intake ${wat} faalde met ${error.code} in plaats van 22023: ${error.message}\n`,
+        );
+        return false;
+      }
+    }
+  }
+
+  try {
+    await roep('Sanne de Vries', null, '0612345678');
+  } catch (error) {
+    process.stdout.write(`\n  FAIL een geldige intake werd geweigerd: ${error.message}\n`);
+    return false;
+  }
+
+  const { rows } = await client.query(
+    `select client_name, client_phone from public.intakes
+      where client_name = 'Sanne de Vries' order by created_at desc limit 1`,
+  );
+  if (rows.length === 0 || rows[0].client_phone !== '0612345678') {
+    process.stdout.write('\n  FAIL naam en telefoon zijn niet op de intake beland\n');
+    return false;
+  }
+
+  process.stdout.write('\n  Contactplicht: 3 onvolledige aanvragen geweigerd, 1 geldige door\n');
+  return true;
+}
+
 async function run(connectionString) {
   const client = new pg.Client({ connectionString });
   await client.connect();
@@ -316,6 +390,7 @@ async function run(connectionString) {
     }
 
     ok = (await checkSessieVerval(client)) && ok;
+    ok = (await checkContactVerplicht(client)) && ok;
   }
 
   await client.end();

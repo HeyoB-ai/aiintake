@@ -34,6 +34,28 @@ export interface ToestemmingUitkomst {
   readonly camera: boolean;
   /** Verkregen binnen het gebruikersgebaar; gaat ongewijzigd door naar scherm 3. */
   readonly micStream: MediaStream;
+  readonly naam: string;
+  readonly email: string;
+  readonly telefoon: string;
+}
+
+/**
+ * Naam plus minstens één manier om terug te bellen.
+ *
+ * Waarom dit niet aan het gesprek wordt overgelaten: een naam is geen feit om via spraak op
+ * te halen. Er valt niet op door te vragen, er is geen citaat dat hem staaft, en
+ * spraakherkenning is op eigennamen juist het zwakst. Een verkeerd verstane achternaam in
+ * een dossier is erger dan een lege kolom — hij ziet er ingevuld uit.
+ *
+ * Waarom hier en niet ná het gesprek: dit zijn de persoonsgegevens waarvoor op dit scherm
+ * toestemming wordt gegeven. De cliënt hoort te zien wat hij afgeeft voordat hij akkoord
+ * gaat, niet erna.
+ *
+ * Dezelfde regel staat in `create_public_intake`. Deze functie is het gemak; die is de
+ * grens.
+ */
+export function contactCompleet(naam: string, email: string, telefoon: string): boolean {
+  return naam.trim().length >= 2 && (email.trim() !== '' || telefoon.trim() !== '');
 }
 
 export interface ToestemmingProps {
@@ -100,6 +122,9 @@ export function Toestemming({
   const [toegang, setToegang] = useState<'nog-niet' | 'bezig' | 'gegeven' | 'geweigerd'>(
     'nog-niet',
   );
+  const [naam, setNaam] = useState('');
+  const [email, setEmail] = useState('');
+  const [telefoon, setTelefoon] = useState('');
   const [toegangFout, setToegangFout] = useState<string | null>(null);
   const [apparaten, setApparaten] = useState<MediaDeviceInfo[]>([]);
   const [gekozenMic, setGekozenMic] = useState<string>('');
@@ -178,7 +203,8 @@ export function Toestemming({
    * dus staat de beslissing bij de knoppen.
    */
 
-  const klaar = privacy && aiAkkoord && toegang === 'gegeven';
+  const klaar =
+    privacy && aiAkkoord && toegang === 'gegeven' && contactCompleet(naam, email, telefoon);
 
   return (
     <section className="flex flex-1 flex-col gap-5 py-4">
@@ -301,6 +327,63 @@ export function Toestemming({
         )}
       </div>
 
+      {/*
+       * De gegevens staan bóven de vinkjes, en dat is de hele reden dat ze hier staan.
+       * Wie akkoord gaat met de privacyverklaring, heeft dan al gezien welke gegevens hij
+       * afgeeft. Andersom zou het akkoord over iets abstracts gaan.
+       */}
+      <div
+        className="rounded-2xl border p-4"
+        style={{ backgroundColor: 'var(--app-card)', borderColor: 'var(--app-border)' }}
+      >
+        <h2 className="text-sm font-bold">Uw gegevens</h2>
+        <p className="mt-1 text-sm" style={{ color: 'var(--app-text-muted)' }}>
+          Zodat {organisatieNaam} u kan bereiken over uw zaak. Een e-mailadres of een telefoonnummer
+          is genoeg — allebei mag ook.
+        </p>
+
+        <div className="mt-3 space-y-3">
+          <Veld
+            label="Naam"
+            verplicht
+            waarde={naam}
+            opWijziging={setNaam}
+            type="text"
+            autoComplete="name"
+            plaatshouder="Voor- en achternaam"
+          />
+          <Veld
+            label="E-mailadres"
+            waarde={email}
+            opWijziging={setEmail}
+            type="email"
+            autoComplete="email"
+            plaatshouder="naam@voorbeeld.nl"
+          />
+          <Veld
+            label="Telefoonnummer"
+            waarde={telefoon}
+            opWijziging={setTelefoon}
+            type="tel"
+            autoComplete="tel"
+            plaatshouder="06 12345678"
+          />
+        </div>
+
+        {/*
+         * Alleen tonen zodra er iets is ingevuld. Een rode regel boven een leeg formulier
+         * leest als een fout die je al gemaakt hebt, terwijl je nog moet beginnen.
+         */}
+        {(naam !== '' || email !== '' || telefoon !== '') &&
+          !contactCompleet(naam, email, telefoon) && (
+            <p className="mt-3 text-sm" style={{ color: 'var(--app-text-muted)' }}>
+              {naam.trim().length < 2
+                ? 'Vul uw naam in.'
+                : 'Vul een e-mailadres of een telefoonnummer in.'}
+            </p>
+          )}
+      </div>
+
       {/* Twee aparte vinkjes: één akkoord voor beide zou geen van beide zijn. */}
       <div className="space-y-3">
         <Vinkje
@@ -355,6 +438,9 @@ export function Toestemming({
               aiDisclosure: aiAkkoord,
               camera: camAan,
               micStream: stream,
+              naam: naam.trim(),
+              email: email.trim(),
+              telefoon: telefoon.trim(),
             });
           }}
           className="rounded-xl px-5 py-3 text-base font-semibold shadow-sm transition-all active:scale-[0.98] disabled:opacity-50"
@@ -380,6 +466,59 @@ export function Toestemming({
         </button>
       </div>
     </section>
+  );
+}
+
+/**
+ * Eén invoerveld.
+ *
+ * `type` en `autoComplete` staan er niet voor de netheid: op een telefoon bepaalt `type`
+ * welk toetsenbord opengaat — `email` geeft een @, `tel` geeft cijfers — en `autoComplete`
+ * bepaalt of de browser het adres kan invullen dat er al is. Dit scherm wordt op een
+ * telefoon ingevuld door iemand die net heeft verteld dat hij ontslagen is; elk veld dat
+ * hij zelf moet uittypen is een reden om af te haken.
+ */
+function Veld({
+  label,
+  waarde,
+  opWijziging,
+  type,
+  autoComplete,
+  plaatshouder,
+  verplicht = false,
+}: {
+  label: string;
+  waarde: string;
+  opWijziging: (v: string) => void;
+  type: 'text' | 'email' | 'tel';
+  autoComplete: string;
+  plaatshouder: string;
+  verplicht?: boolean;
+}) {
+  return (
+    <label className="block text-sm">
+      <span style={{ color: 'var(--app-text-muted)' }}>
+        {label}
+        {verplicht && <span aria-hidden> *</span>}
+        {!verplicht && <span style={{ color: 'var(--app-text-dim)' }}> (optioneel)</span>}
+      </span>
+      <input
+        type={type}
+        value={waarde}
+        required={verplicht}
+        autoComplete={autoComplete}
+        placeholder={plaatshouder}
+        onChange={(e) => opWijziging(e.target.value)}
+        // py-3: een aanraakzone van 44 px, de ondergrens waaronder tikken op een telefoon
+        // gaat missen.
+        className="mt-1 w-full rounded-xl border px-3 py-3"
+        style={{
+          backgroundColor: 'var(--app-card)',
+          borderColor: 'var(--app-border-strong)',
+          color: 'var(--app-text)',
+        }}
+      />
+    </label>
   );
 }
 

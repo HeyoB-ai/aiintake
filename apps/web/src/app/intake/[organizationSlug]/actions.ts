@@ -17,6 +17,19 @@ import { bepaalClientIp, hashMetPeper } from '@/lib/client-ip';
  * omzeilen is door een tweede client te schrijven.
  */
 
+/**
+ * Leeg is afwezig.
+ *
+ * Een veld dat is aangeraakt en weer leeggemaakt levert `''` op. Dat zou als "ingevuld"
+ * tellen bij de controle op minstens één contactkanaal, en dan komt er een intake binnen
+ * met een leeg e-mailadres en geen telefoonnummer.
+ */
+const Optioneel = z
+  .string()
+  .trim()
+  .transform((s) => (s === '' ? undefined : s))
+  .optional();
+
 const ToestemmingSchema = z.object({
   organizationSlug: z.string().min(2).max(60),
   privacyAccepted: z.boolean(),
@@ -25,6 +38,9 @@ const ToestemmingSchema = z.object({
   microphoneConsent: z.boolean(),
   privacyPolicyVersion: z.string().min(1),
   aiDisclosureVersion: z.string().min(1),
+  clientName: z.string().trim().min(2).max(200),
+  clientEmail: Optioneel,
+  clientPhone: Optioneel,
 });
 
 export interface GesprekKlaar {
@@ -66,6 +82,9 @@ export async function startIntake(
   }
   if (!d.microphoneConsent) {
     return { ok: false, fout: 'Zonder microfoon kan het gesprek niet worden gevoerd.' };
+  }
+  if (!d.clientEmail && !d.clientPhone) {
+    return { ok: false, fout: 'Vul een e-mailadres of een telefoonnummer in.' };
   }
 
   /*
@@ -130,6 +149,12 @@ export async function startIntake(
     p_camera_consent: d.cameraConsent,
     p_microphone_consent: d.microphoneConsent,
     p_user_agent_hash: uaHash,
+    // De functie normaliseert en weigert zelf ook: naam verplicht, minstens één
+    // contactkanaal. Dat oordeel hoort in de database en niet alleen hier, zodat een
+    // tweede client er niet omheen kan.
+    p_client_name: d.clientName,
+    p_client_email: d.clientEmail ?? null,
+    p_client_phone: d.clientPhone ?? null,
   });
 
   if (error) {

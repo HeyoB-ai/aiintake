@@ -54,6 +54,15 @@ export interface CreatePublicIntakeInput {
   cameraConsent: boolean;
   microphoneConsent: boolean;
   userAgentHash?: string | null;
+  /**
+   * Naam en minstens één contactkanaal; de functie weigert zonder.
+   *
+   * Verplicht in het type en niet optioneel-met-een-standaard, zodat een aanroeper die dit
+   * vergeet hier een typefout krijgt in plaats van een 22023 uit de database.
+   */
+  clientName: string;
+  clientEmail?: string | null;
+  clientPhone?: string | null;
 }
 
 export async function createPublicIntake(
@@ -75,6 +84,9 @@ export async function createPublicIntake(
       p_camera_consent: input.cameraConsent,
       p_microphone_consent: input.microphoneConsent,
       p_user_agent_hash: input.userAgentHash ?? null,
+      p_client_name: input.clientName,
+      p_client_email: input.clientEmail ?? null,
+      p_client_phone: input.clientPhone ?? null,
     },
   );
   const row = rows[0];

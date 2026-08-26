@@ -52,6 +52,9 @@ export function IntakeFlow(props: IntakeFlowProps) {
         microphoneConsent: true,
         privacyPolicyVersion: props.privacyVersie,
         aiDisclosureVersion: props.aiVersie,
+        clientName: uitkomst.naam,
+        clientEmail: uitkomst.email,
+        clientPhone: uitkomst.telefoon,
       });
       setBezig(false);
 
