@@ -77,6 +77,28 @@ export interface TtsConfig {
  */
 export const TTS_SAMPLE_RATE = 24_000;
 
+/**
+ * `ELEVENLABS_SPEED` naar een getal, of een fout.
+ *
+ * `live/server.ts` doet `process.env as Partial<AgentEnv>` en parseert dus niet. Voor elk
+ * ander veld maakt dat niets uit — het zijn strings en het type zegt string — maar dit veld
+ * is een `number` in het schema en komt uit de omgeving als tekst. Zonder deze stap gaat
+ * `"1.1"` als JSON-string naar ElevenLabs.
+ *
+ * Dat wérkte in de proef: hun API accepteerde de string en het tempo veranderde meetbaar. Dat
+ * is precies waarom het hier expliciet staat. Iets wat toevallig werkt omdat de leverancier
+ * mild is, is geen werkende code — het is een fout die wacht op een strengere versie van hun
+ * validatie, en dan valt hij midden in een gesprek.
+ */
+function leesTempo(rauw: number | string | undefined): number | undefined {
+  if (rauw === undefined || rauw === '') return undefined;
+  const n = typeof rauw === 'number' ? rauw : Number(rauw);
+  if (!Number.isFinite(n)) {
+    throw new Error(`ELEVENLABS_SPEED is geen getal: '${String(rauw)}'. Geldig bereik: 0,7-1,2.`);
+  }
+  return n;
+}
+
 function ontbreekt(namen: string[], keuze: TtsKeuze): never {
   throw new Error(
     `mediaketen onvolledig voor TTS '${keuze}': ${namen.join(', ')}. ` +
@@ -120,6 +142,7 @@ export function ttsConfigFrom(
   stemUitOrganisatie?: string | null,
 ): TtsConfig {
   const stem = stemUitOrganisatie?.trim() || undefined;
+  const tempo = leesTempo(env.ELEVENLABS_SPEED);
 
   if (keuze === 'fake') {
     return { keuze, apiKey: '', voiceId: stem ?? 'fake', sampleRate: TTS_SAMPLE_RATE };
@@ -149,7 +172,7 @@ export function ttsConfigFrom(
     voiceId: stem ?? env.ELEVENLABS_VOICE_ID!,
     ...(env.ELEVENLABS_MODEL ? { model: env.ELEVENLABS_MODEL } : {}),
     sampleRate: TTS_SAMPLE_RATE,
-    ...(env.ELEVENLABS_SPEED !== undefined ? { speed: env.ELEVENLABS_SPEED } : {}),
+    ...(tempo !== undefined ? { speed: tempo } : {}),
   };
 }
 
