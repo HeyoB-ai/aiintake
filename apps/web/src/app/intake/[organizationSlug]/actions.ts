@@ -71,8 +71,33 @@ function hashVan(waarde: string | null): string {
 export async function startIntake(
   invoer: z.input<typeof ToestemmingSchema>,
 ): Promise<GesprekKlaar | GesprekMislukt> {
+  /*
+   * Onvoorwaardelijk, als eerste regel, en dat is de hele functie ervan.
+   *
+   * Alle takken hieronder loggen hun eigen oorzaak, dus als er een foutmelding bij de
+   * bezoeker verschijnt hoort er een regel in het functielog te staan. Gebeurt dat niet,
+   * dan zijn er twee verklaringen die er van buiten identiek uitzien: de action is nooit
+   * aangeroepen, of console-uitvoer bereikt dat log niet.
+   *
+   * Deze regel scheidt die twee. Staat hij er, dan draait de action en landt console-
+   * uitvoer — en moet de oorzaak in een van de takken zitten. Staat hij er niet bij een
+   * klik die een melding oplevert, dan is die melding niet van deze aanroep afkomstig.
+   *
+   * Geen persoonsgegevens: alleen de slug en welke velden zijn meegestuurd. Dat laatste is
+   * genoeg om een afgekeurd schema te herkennen zonder de inhoud te loggen.
+   */
+  console.log('intake: startIntake aangeroepen', {
+    org: (invoer as { organizationSlug?: unknown })?.organizationSlug,
+    velden: invoer && typeof invoer === 'object' ? Object.keys(invoer).sort() : null,
+  });
+
   const parsed = ToestemmingSchema.safeParse(invoer);
   if (!parsed.success) {
+    // Ook deze tak: hij was stil, en een afgekeurd schema is precies het geval waarin de
+    // client iets anders stuurt dan de server verwacht — na een deploy bijvoorbeeld.
+    console.error('intake: invoer afgekeurd', {
+      issues: parsed.error.issues.map((i) => ({ pad: i.path.join('.'), code: i.code })),
+    });
     return { ok: false, fout: 'De gegevens waren niet volledig. Probeer het opnieuw.' };
   }
   const d = parsed.data;
