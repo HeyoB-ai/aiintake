@@ -76,10 +76,51 @@ export class FakeTtsStream implements TtsStream {
     this.emit('done');
   }
 
+  /**
+   * Annuleren en meteen klaarstaan voor de volgende beurt.
+   *
+   * Die tweede helft ontbrak, en dat is geen detail van de fake maar een afwijking van het
+   * contract. `CartesiaTtsStream.cancel()` zet `cancelled` op true en roept daarna
+   * `newContext()` aan, die hem weer op false zet — een geannuleerde beurt maakt de stroom
+   * niet dood, hij begint een nieuwe context. Deze fake bleef geannuleerd, voorgoed.
+   *
+   * Gevolg: `say()` en `flush()` deden na een barge-in niets meer, `done` kwam nooit, en
+   * `awaitSynthesis` van de volgende beurt bleef hangen. Geen enkele test kon daardoor een
+   * afgeronde beurt ná een onderbreking controleren — precies het gedrag waar het bij
+   * barge-in om draait. De bestaande barge-in-tests keken alleen naar de ónderbroken beurt
+   * en liepen daar dus omheen.
+   *
+   * `spokenMs` blijft doorlopen: dat is de afspeelklok van de sessie en niet van de beurt.
+   */
   async cancel(): Promise<{ spokenMs: number }> {
+    const spokenMs = this.spokenMs;
     this.cancelled = true;
     this.queue = [];
-    return { spokenMs: this.spokenMs };
+    // Zoals de echte adapter: `cancel()` sluit af met een nieuwe context, en die staat
+    // weer open. Zonder deze regel bleef de fake voorgoed geannuleerd.
+    this.nieuweContext();
+    return { spokenMs };
+  }
+
+  /**
+   * Klaarstaan voor de volgende beurt.
+   *
+   * Spiegelt `CartesiaTtsStream.newContext()`. Daar zet `cancel()` eerst `cancelled` op
+   * true en roept daarna deze stap aan, die hem weer op false zet — een geannuleerde beurt
+   * maakt de stroom niet dood, hij begint een nieuwe context. Die tweede helft ontbrak
+   * hier, en dat is geen slordigheid in een fake maar een afwijking van het contract dat
+   * hij hoort na te bootsen.
+   *
+   * Gevolg van het ontbreken: `say()` en `flush()` deden na een barge-in niets meer, `done`
+   * kwam nooit, en `awaitSynthesis` van de vólgende beurt bleef hangen. Geen enkele test
+   * kon daardoor een afgeronde beurt ná een onderbreking controleren — precies het gedrag
+   * waar barge-in om draait. De bestaande barge-in-tests keken alleen naar de ónderbroken
+   * beurt en liepen er dus omheen.
+   *
+   * `spokenMs` loopt door: dat is de afspeelklok van de sessie, niet van de beurt.
+   */
+  private nieuweContext(): void {
+    this.cancelled = false;
   }
 
   async close(): Promise<void> {
