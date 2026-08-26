@@ -345,7 +345,9 @@ export class TurnLoop {
     //
     // Wat hier hoort is het segment afsluiten. Er is niets afgekapt, dus is alles wat de
     // TTS heeft geproduceerd ook gesproken.
-    this.o.avatar.endTurn?.();
+    // Geen `?.` meer: `endTurn` is verplicht in het contract, juist omdat de optionele
+    // vorm hier een stille no-op werd toen de null-provider hem `finishTurn` noemde.
+    this.o.avatar.endTurn();
     await this.completeTurn({
       content: this.sentToTts,
       interruptedAtChar: null,

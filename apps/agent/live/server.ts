@@ -180,7 +180,7 @@ function browserAvatar(inner: AvatarProvider, ws: WebSocket): AvatarProvider {
           // De browser moet weten wanneer een beurt af is: met een avatar sluit hij dan
           // de audiostroom naar hun SDK, en zonder avatar is het een no-op.
           if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'endturn' }));
-          s.endTurn?.();
+          s.endTurn();
         },
         videoTrack: () => s.videoTrack() as Promise<TrackHandle>,
         on: <E extends keyof AvatarEvents>(e: E, h: AvatarEvents[E]) => s.on(e, h),

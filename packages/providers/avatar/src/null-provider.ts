@@ -91,20 +91,45 @@ export class NullAvatarSession implements AvatarSession {
 
   async interrupt(): Promise<{ spokenMs: number }> {
     const spokenMs = Math.round(this.playedMs());
+    this.sluitBeurt();
+    return { spokenMs };
+  }
+
+  /**
+   * Het einde van een beurt die niet is onderbroken.
+   *
+   * Deze methode heette `finishTurn` en het contract heet `endTurn`. Omdat `endTurn` in het
+   * contract optioneel is, riep de lus hem aan als `avatar.endTurn?.()` — en dat was op deze
+   * klasse `undefined`. Geen fout, geen melding: de aanroep deed niets, en niemand riep
+   * `finishTurn` ooit aan.
+   *
+   * Wat daardoor niet gebeurde, na de eerste beurt van elke sessie:
+   *
+   *  - `firstFrameSent` bleef staan, dus `first_frame` vuurde nooit meer. Daarmee bleef
+   *    `totalResponseLatencyMs` — het getal waarop de Fase 1-poort rust — leeg voor elke
+   *    beurt behalve de opening.
+   *  - `playbackStartedAt` en `bufferedMs` bleven staan. Bij een barge-in in beurt 2 of
+   *    later werd `playedMs()` daardoor de tijd sinds het begin van de éérste beurt, tegen
+   *    de opgetelde audio van de hele sessie. Dat is altijd meer dan wat deze beurt aan
+   *    audio had, en `truncateToSpoken` geeft dan de volledige tekst terug.
+   *
+   * Dat laatste is precies wat de kop van dit bestand belooft te voorkomen: "zou hij
+   * teruggeven hoeveel audio er is aangeleverd, dan luidt het antwoord bij een barge-in
+   * altijd 'alles is gehoord'". Dat gebeurde, vanaf de tweede beurt, in elke sessie.
+   */
+  endTurn(): void {
+    this.sluitBeurt();
+  }
+
+  /** De boekhouding loopt per beurt: hierna begint de volgende op nul. */
+  private sluitBeurt(): void {
     if (this.speaking) {
       this.speaking = false;
       this.emit('speaking_end');
     }
-    // De boekhouding loopt per beurt: hierna begint de volgende op nul.
     this.bufferedMs = 0;
     this.playbackStartedAt = null;
     this.firstFrameSent = false;
-    return { spokenMs };
-  }
-
-  /** Markeert het einde van een beurt die niet is onderbroken. */
-  async finishTurn(): Promise<{ spokenMs: number }> {
-    return this.interrupt();
   }
 
   async videoTrack(): Promise<TrackHandle> {

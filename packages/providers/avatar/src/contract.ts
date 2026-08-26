@@ -57,13 +57,20 @@ export interface AvatarSession {
    */
   interrupt(): Promise<{ spokenMs: number }>;
   /**
-   * De assistent is uitgesproken; sluit het audiosegment af.
+   * De assistent is uitgesproken; sluit het audiosegment af en zet de beurtboekhouding op
+   * nul.
    *
-   * Optioneel, want niet elk transport kent het begrip segment. Providers die audio over
-   * een stroom aanleveren wél: zonder afsluiting blijft de leverancier wachten op audio
-   * die niet meer komt, en meldt hij nooit terug hoeveel hij heeft afgespeeld.
+   * **Verplicht, en dat was hij niet.** Als optioneel veld werd hij aangeroepen met
+   * `avatar.endTurn?.()`, en een provider die de methode onder een andere naam had — de
+   * null-provider heette hem `finishTurn` — kreeg dan een stille no-op. Geen typefout,
+   * geen melding, geen enkel signaal: de beurt werd nooit afgesloten en de boekhouding
+   * liep door over alle volgende beurten heen. Zie de toelichting in null-provider.ts voor
+   * wat dat kostte.
+   *
+   * Een provider die niets af te sluiten heeft, schrijft een lege body. Dat is één regel,
+   * en het is een zichtbare keuze in plaats van een ontbrekende.
    */
-  endTurn?(): void;
+  endTurn(): void;
   videoTrack(): Promise<TrackHandle>;
   on<E extends keyof AvatarEvents>(event: E, handler: AvatarEvents[E]): void;
   disconnect(): Promise<void>;

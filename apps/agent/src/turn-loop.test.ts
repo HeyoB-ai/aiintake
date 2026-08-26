@@ -556,3 +556,40 @@ describe('uitspraak tijdens een lopende interrupt', () => {
     expect(h.turns[0]!.assistantContent.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Het getal waarop de Fase 1-poort rust, per beurt.
+ *
+ * `totalResponseLatencyMs` wordt alleen gezet als de avatar `first_frame` meldt. De
+ * null-provider deed dat één keer per sessie, omdat de lus de beurt nooit afsloot: hij riep
+ * `avatar.endTurn?.()` aan terwijl de klasse de methode `finishTurn` noemde, en het
+ * optionele vraagteken maakte er een stille no-op van.
+ *
+ * Gevolg: alleen de openingsbeurt had een totaal. En die beurt is de enige waarvan `t0`
+ * niet een spraakeinde is maar het moment van `open()` — dus de poort werd getoetst op een
+ * andere grootheid dan alle beurten die erna komen.
+ */
+describe('latencytotaal per beurt', () => {
+  it('vult totalResponseLatencyMs ook voor de tweede en derde beurt', async () => {
+    const h = await harness(
+      (get) =>
+        async function* () {
+          get().clock.advance(120);
+          yield ZIN_1;
+          get().clock.advance(2000); // alles afgespeeld
+        },
+    );
+
+    for (const zin of ['Ik kreeg een VSO.', 'Vorige week dinsdag.', 'Nee, nog niet getekend.']) {
+      h.stt.endOfTurn(zin, h.clock.now());
+      await new Promise((r) => setImmediate(r));
+    }
+
+    expect(h.turns).toHaveLength(3);
+
+    const totalen = h.turns.map((t) => t.metrics.totalResponseLatencyMs);
+    // Geen enkele null. Vóór de reparatie was dit [120, null, null].
+    expect(totalen.every((v) => typeof v === 'number')).toBe(true);
+    expect(totalen).toEqual([120, 120, 120]);
+  });
+});
