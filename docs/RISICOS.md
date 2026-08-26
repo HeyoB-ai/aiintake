@@ -997,3 +997,62 @@ al een auditspoor, dus dit is vooral een kwestie van tonen. Daarnaast: een expli
 tegenspraakcontrole op het koude pad, die niet vraagt "wat is het feit" maar "spreekt deze
 beurt iets tegen dat al vaststaat". Beide staan nog niet in de roadmap en beide zijn
 groter dan een reparatie.
+
+## 17. De TTS spreekt niet betrouwbaar uit wat wij aanleveren
+
+**Status: open, gemeten 25 augustus 2026.** Dit raakt de belofte op het toestemmingsscherm.
+
+**Waargenomen.** Een met de hand getranscribeerde opname (`rauw.wav`, buiten onze adapter
+en buiten de avatar om) miste tekst. Verstuurd:
+
+> "Goedenavond, Heyo Beentje. Ik ben de AI-intake-assistent van Van Dijk Arbeidsrecht. Ik
+> ben geen advocaat en ben aangesteld om de gegevens van uw zaak vast te leggen."
+
+Gehoord:
+
+> "Heyo Beentje, ik ben AI intake assistent van van dijk arbeidsrecht. Ik ben arbeidsrecht
+> om de gegevens van uw zaak vast te leggen."
+
+**"Ik ben geen advocaat" viel weg.** Dat is de disclaimer waarvoor de cliënt op het
+toestemmingsscherm een apart vinkje zet. Valt hij weg, dan maken we in gesproken vorm de
+belofte niet waar die we schriftelijk hebben laten aanvinken — en de cliënt heeft geen
+manier om te weten dat er iets is overgeslagen.
+
+**Waarom duur geen bruikbare maat bleek.** De eerste opzet vergeleek de duur van drie armen.
+Twee runs later gaf REST 9520 ms en daarna 7848 ms op exact dezelfde tekst: 18 procent
+spreiding binnen één arm, groter dan het verschil tussen de armen. Een korter fragment
+bewijst dus niets. Vandaar een rondgang — synthese terug door Deepgram, en de woorden
+vergelijken.
+
+**Wat de rondgang wél laat zien** (`pnpm diag:tts-tekst`, drie armen op dezelfde tekst):
+
+| arm                        | wat er misging                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| REST, één aanroep          | **de hele eerste zin weg** — "Goedenavond, Heyo Beentje" ontbreekt volledig                                                |
+| WS, één bericht            | eerste zin verminkt; **de staart herhaald**: "…vast te leggen en ben aangesteld om de gegevens van uw zaak vast te leggen" |
+| WS, per zin (productiepad) | "Goedenavond, Heyo Beentje" → "Gooisi"; staart herhaald                                                                    |
+
+Twee foutvormen dus, en allebei bij de leverancier: **de eerste zin is onbetrouwbaar** en
+**de staart wordt herhaald**. Geen van beide hangt aan hoe wij opknippen — de arm met één
+enkel bericht heeft de herhaling ook, en REST heeft de wegval zonder enige streaming.
+
+**Wat de meting níét bevestigt.** In alle drie de armen stond de disclaimer er wél volledig
+in. De wegval uit de handmatige transcriptie is dus **intermitterend en niet structureel**.
+Dat maakt hem niet minder ernstig — een disclaimer die soms niet klinkt is nog steeds een
+disclaimer die niet klinkt — maar het is een ander probleem dan "hij ontbreekt altijd", en
+het vraagt een andere oplossing.
+
+**Wat dit niet is.** Niet de byte-uitlijning (gemeten: nul oneven chunks in twee runs, zie
+`pnpm diag:audio`). Niet het wegsnijden van aanloopstilte (die knipt op stilte, met 20 ms
+marge en 8 ms fade). Niet Anam: dit is gemeten vóór de avatar.
+
+**Wat er open staat.**
+
+- Een vraag aan Cartesia: waarom valt de eerste zin weg en waarom wordt de staart herhaald,
+  op `sonic-3` met `language: nl`? Reproduceerbaar met de tekst hierboven.
+- Zolang dat niet is opgelost, is de gesproken disclaimer niet gegarandeerd. De schriftelijke
+  staat op `/ai-disclosure` en wordt apart afgevinkt; dat is de enige waarborg die nu
+  overeind staat, en dat hoort iemand te weten die deze intake juridisch beoordeelt.
+- Een mogelijke mitigatie die nog niet is uitgewerkt: de opening niet als één synthese
+  aanbieden, zodat een wegval één korte zin kost in plaats van de disclaimer. Dat is een
+  ontwerpkeuze en geen reparatie — hij verkleint de kans, hij sluit hem niet uit.
