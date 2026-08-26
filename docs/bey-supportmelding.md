@@ -114,6 +114,39 @@ and we mention them so you do not have to ask:
 3. **`/v1/session` accepts `livekit_url`/`livekit_token` and `url`/`token` alike**; both
    give the same 400 on an invalid token, so they appear to be aliases.
 
+## A3. Can we obtain a playback position for the audio we supply?
+
+This one is not a bug report. It is the question that decides whether we can use an
+avatar that renders inside the LiveKit room at all, and we would rather ask it before
+building than discover the answer afterwards.
+
+**Why we need it.** The client can interrupt the assistant mid-sentence. When that happens
+we truncate the assistant's turn in the transcript to the part that was **actually
+audible**, and discard the rest. That is not a nicety: the transcript is the record a lawyer
+reads, and an assistant turn containing a question the client never heard makes the model —
+and the lawyer — believe that question was asked. We currently do this with our own playback
+clock, because today we render the audio ourselves.
+
+If the avatar renders our audio, that clock moves to your side.
+
+**The questions**
+
+1. **Does `bey.AvatarSession`, or the API, expose how much of the supplied audio has been
+   rendered to the viewer at a given moment** — a playback position, a consumed-bytes
+   counter, or a callback per rendered chunk?
+
+2. **On an interruption**, when we stop sending and clear the buffer: does the session
+   report how much of the already-delivered audio was played before the cut? An
+   acknowledgement carrying a position would be enough.
+
+3. **What is the fixed delay** between a chunk arriving over the DataStream and the
+   corresponding frame being visible to the viewer? If that offset is stable we can account
+   for it; if it varies per session we need to read it rather than assume it.
+
+If none of these exist today, please say so plainly — that is a usable answer. It tells us
+the transcript truncation has to stay on our side of the boundary, and that shapes the
+architecture rather than blocking it.
+
 **Which leaves the report in section A unchanged.** `/v1/session` returns 201, the session
 appears in `GET /v1/session`, the avatar participant joins our room — and never publishes a
 video track. Status stays `to_start`. Ten sessions on our account are in that state.

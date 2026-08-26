@@ -137,6 +137,45 @@ fricative is not separable from the fricative itself, so these counts are a lowe
    Spanish greeting than we had configured. **Would you consider rejecting fields that are
    not applied?** A 400 there would have saved the entire investigation.
 
+## A4. Two questions that decide whether we can keep the avatar in the loop
+
+These are not bug reports. They decide an architecture choice, and we would rather ask than
+assume.
+
+**Context.** We interrupt the assistant mid-sentence when the client starts speaking, and we
+then truncate the assistant's turn in our transcript to the part that was **actually
+audible**. That transcript is the record a lawyer reads. A turn containing a question the
+client never heard makes both the model and the lawyer believe it was asked.
+
+Today we compute that from our own delivery clock — how much audio we handed to the SDK and
+when. With ~800 ms of fixed delay on your side, that clock is systematically ahead of what
+the client heard.
+
+**1. Is there any way to learn how much of the supplied audio has been rendered?**
+
+We looked in the SDK (`@anam-ai/js-sdk@4.25.0`) before asking. `AgentAudioInputStream`
+exposes `sendAudioChunk`, `endSequence` and `getSequenceNumber`; there is no playback
+position, no rendered-bytes counter, and no callback per rendered chunk. `AgentAudioInputConfig`
+has exactly `encoding`, `sampleRate` and `channels`.
+
+Is there something equivalent we have missed — a signalling message, an event, anything that
+says "I have now rendered up to here"? An acknowledgement carrying a position on
+interruption would be enough.
+
+**2. Is the ~730 ms input buffer threshold configurable, server-side or per persona?**
+
+From the prefix tests in section A: 400 ms of audio produces no output, 800 ms does. That
+threshold is not exposed in `AgentAudioInputConfig`, so we assume it is server-side.
+
+If it is fixed, then 730 ms of buffered audio is a hard floor under everything we build, on
+top of the ~800 ms fixed delay. We would like to know that as a fact rather than infer it,
+because our total latency budget is 1200 ms p50 for the whole chain — speech end to a
+speaking face — and those two numbers alone exceed it.
+
+If either answer is "no, not available", please say so plainly. That is a usable answer: it
+tells us the avatar cannot sit inside the interruption path as we have designed it, and we
+will change the design rather than keep measuring around it.
+
 ## B. Data protection — questions for the DPA
 
 We are building for Dutch law firms. Intake conversations in employment law routinely
