@@ -602,6 +602,12 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
               'de cliënt wordt niet aangesproken',
       );
     },
+    onHervatting: (info) => {
+      console.log(
+        `  hervatting · ${info.turnCount} eerdere beurt(en) · ` +
+          (info.clientName ? `begroet "${info.clientName}"` : 'ZONDER NAAM'),
+      );
+    },
     onWanhoop: (reactie, stap) => {
       console.log(`  WANHOOP ${reactie.regelKey} (${reactie.niveau}) · ${stap}`);
       stuur({ type: 'wanhoop', regel: reactie.regelKey, niveau: reactie.niveau, stap });

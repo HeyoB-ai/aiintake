@@ -105,6 +105,8 @@ export interface EngineDeps {
     organisationName: string;
     turnCount: number;
   }) => void;
+  /** Een tweede verbinding met een lopende intake. Zie hervatting.ts. */
+  readonly onHervatting?: (info: { clientName: string | null; turnCount: number }) => void;
   readonly catalog?: FactCatalog;
   /** Waar de gerenderde prompt naartoe gaat voor `llm_calls`. Optioneel. */
   readonly onPrompt?: (prompt: RenderedPrompt) => void;
@@ -214,6 +216,14 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         : null;
 
       const isOpening = turnCount === 0 && !input.lastClientUtterance;
+      /*
+       * Een tweede verbinding met een intake die al liep.
+       *
+       * Geen nieuw veld nodig: een gewone beurt heeft altijd een cliëntuitspraak, en de
+       * lus roept `open()` alleen aan bij het begin van een sessie. Dus "geen uitspraak
+       * maar wél geschiedenis" is precies de hervatting.
+       */
+      const isHervatting = turnCount > 0 && !input.lastClientUtterance;
 
       /*
        * Melden wat er beschikbaar was op het moment dat de opening werd gebouwd.
@@ -229,6 +239,9 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
           organisationName: input.organization.name,
           turnCount,
         });
+      }
+      if (isHervatting) {
+        deps.onHervatting?.({ clientName: input.clientName ?? null, turnCount });
       }
       const isClosing = plan.shouldClose && !isOpening;
       const narrativePhase = !isClosing && turnCount <= narrativeTurns * 2;
@@ -262,6 +275,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
             ? { lawyerRequests: input.pendingLawyerRequests }
             : {}),
           isOpening,
+          isResuming: isHervatting,
           isClosing,
           narrativePhase,
           clientName: input.clientName ?? null,
@@ -308,6 +322,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         : null;
 
       return {
+        isResuming: isHervatting,
         ...(ladingBelofte ? { lading: ladingBelofte } : {}),
         intent: isClosing
           ? 'close'

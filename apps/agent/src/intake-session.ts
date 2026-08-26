@@ -1,4 +1,5 @@
 import {
+  hervattingsZin,
   kiesErkenning,
   wanhoopReactie,
   type WanhoopReactie,
@@ -19,6 +20,7 @@ import {
   type ObservationResult,
   type RenderedPrompt,
 } from '@intake/engine';
+import { dagdeelGroet } from '@intake/prompts';
 import type { LLMProvider } from '@intake/provider-llm';
 import type { ResponseSource } from './turn-loop';
 
@@ -81,6 +83,8 @@ export interface IntakeSessionOptions {
   readonly onErkenning?: (keuze: ErkenningKeuze, oordeel: LadingOordeel) => void;
   /** Het ladingoordeel liep stuk. Nooit stil. */
   readonly onLadingFout?: (fout: unknown) => void;
+  /** Een tweede verbinding met een lopende intake. Zie hervatting.ts. */
+  readonly onHervatting?: (info: { clientName: string | null; turnCount: number }) => void;
   /** Wat er bekend was toen de openingszin werd gebouwd. Zie de engine. */
   readonly onOpening?: (info: {
     clientName: string | null;
@@ -232,6 +236,7 @@ export class IntakeSession {
       ...(options.erkenningAan === false ? {} : { classify }),
       onLadingFout: (fout) => options.onLadingFout?.(fout),
       onOpening: (info) => options.onOpening?.(info),
+      onHervatting: (info) => options.onHervatting?.(info),
       ...(options.narrativeTurns !== undefined ? { narrativeTurns: options.narrativeTurns } : {}),
       onPrompt: (p) => {
         this.laatstePrompt = p;
@@ -258,6 +263,30 @@ export class IntakeSession {
          * zakelijker verloopt; een vertraagd antwoord is een gesprek dat hapert, en dat is
          * erger.
          */
+        /*
+         * De hervattingszin gaat vóór alles, en wacht op niets.
+         *
+         * Hij hangt niet aan een modeloordeel — de lus weet zelf dat dit een tweede
+         * verbinding is — dus er valt hier niets te racen. Vaste tekst, met de naam erin en
+         * verder niets: geen samenvatting en geen verwijzing naar wat er eerder is verteld.
+         * Zie hervatting.ts voor waarom dat laatste een belofte zou zijn die het systeem
+         * niet kan waarmaken.
+         */
+        if (beslissing.isResuming && !signal.aborted) {
+          const zin = hervattingsZin(
+            {
+              greeting: dagdeelGroet(
+                self.options.now?.() ?? new Date(),
+                self.options.language ?? 'nl',
+                self.options.organization.timeZone,
+              ),
+              clientName: self.options.clientName ?? null,
+            },
+            self.options.language ?? 'nl',
+          );
+          yield `${zin} `;
+        }
+
         const stroom = beslissing.speak[Symbol.asyncIterator]();
         const eersteStuk = stroom.next();
 

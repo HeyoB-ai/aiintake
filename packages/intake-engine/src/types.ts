@@ -93,6 +93,15 @@ export interface EngineDecision {
    * hoort "nee" te zijn zodra het model begint te praten. Zie de toelichting bij `respond`.
    */
   readonly lading?: Promise<LadingOordeel | null>;
+  /**
+   * Dit is de eerste beurt van een hérvatte sessie, niet van een nieuwe intake.
+   *
+   * De aanroeper zet er een vaste zin voor. Waarom die niet uit het model komt, staat in
+   * @intake/domain/hervatting.ts: het model krijgt de geschiedenis als dialoog mee, en dan
+   * is "u vertelde dat u ontslagen bent" één generatie ver — een bewering over een dossier
+   * dat op dat moment nog leeg is.
+   */
+  readonly isResuming?: boolean;
 }
 
 /** Wat het ladingmodel teruggeeft. Drie velden, verder niets. */

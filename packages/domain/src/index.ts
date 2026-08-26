@@ -6,3 +6,4 @@ export * from './affirmation';
 export * from './weekdag';
 export * from './erkenning';
 export * from './wanhoop';
+export * from './hervatting';

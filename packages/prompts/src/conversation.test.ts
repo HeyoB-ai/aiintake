@@ -61,3 +61,25 @@ describe('opening met naam', () => {
     expect(tekst).not.toContain('Sanne de Vries');
   });
 });
+
+describe('hervatting', () => {
+  const hervat = (v: Partial<ConversationVars>) =>
+    conversationPrompt.render({ ...BASIS, ...v, isOpening: false, isResuming: true }, 'nl');
+
+  it('verbiedt verwijzen naar wat er eerder is verteld', () => {
+    const tekst = hervat({ clientName: 'Sanne de Vries' });
+    expect(tekst).toContain('Niet samenvatten wat er eerder is verteld');
+    // Dit is de reden, en die hoort in de prompt te staan zodat hij niet wegbezuinigd wordt.
+    expect(tekst).toContain('nog niet vast in het dossier');
+  });
+
+  it('verbiedt de opening opnieuw voor te lezen', () => {
+    const tekst = hervat({ clientName: 'Sanne de Vries' });
+    expect(tekst).toContain('Niet opnieuw vertellen wie je bent');
+  });
+
+  it('bouwt niet óók de volledige opening', () => {
+    const tekst = hervat({ clientName: 'Sanne de Vries' });
+    expect(tekst).not.toContain('Dit is de opening');
+  });
+});

@@ -28,6 +28,14 @@ export interface ConversationVars extends Record<string, unknown> {
   /** Openstaande vragen die de advocaat live heeft ingeschoten. */
   readonly lawyerRequests?: readonly string[];
   readonly isOpening: boolean;
+  /**
+   * Een hérvatte sessie: de cliënt kwam terug in een gesprek dat al liep.
+   *
+   * De begroetingszin staat vast en wordt door de aanroeper vóór jouw tekst gezet. Wat hier
+   * telt is dat de opening níét opnieuw wordt voorgelezen en dat er niet naar de inhoud van
+   * eerdere beurten wordt verwezen.
+   */
+  readonly isResuming?: boolean;
   readonly isClosing: boolean;
   /**
    * De cliënt deed een som die niet klopt.
@@ -92,6 +100,11 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // v3: verbod op het voorstellen van concrete waarden die de cliënt niet noemde.
   // In v2 vroeg de assistent "was dat 17 januari?" over een datum die nooit was gezegd.
   // v4: gespreksvorm — korte gesloten vragen, vulwoorden als erkenning, meteen doorvragen.
+  // v10: hervatting. Komt de cliënt terug in een lopend gesprek, dan werd er niets gezegd
+  // -- de volledige opening viel weg omdat er geschiedenis was, en er kwam niets voor in de
+  // plaats. Nu een vaste zin van de aanroeper plus meteen de vraag, en een uitdrukkelijk
+  // verbod op verwijzen naar wat er eerder is verteld: dat zou een bewering zijn over een
+  // dossier dat op dat moment nog leeg is.
   // v9: de cliënt wordt bij naam begroet. Die naam staat sinds 26 augustus op de intake
   // (toestemmingsscherm) en was er dus al vóór de eerste beurt; de assistent vroeg er niet
   // naar en gebruikte hem niet. Wie net zijn baan kwijt is en tegen een scherm praat, hoort
@@ -113,7 +126,7 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // dat er geen advocaat aan de lijn zit en dat er geen advies wordt gegeven, kwam er niet
   // in voor. Tegelijk de je-vorm vervangen door u-vorm, want het model mengde ze binnen
   // één gesprek ("Kunt u vertellen" gevolgd door "Dank je").
-  version: 9,
+  version: 10,
   description:
     'Hot-path gespreksinstructie voor de arbeidsrecht-intake. Platte tekst, één vraag per beurt.',
 
@@ -176,6 +189,25 @@ function rendernl(v: ConversationVars): string {
       '',
       'Dit is al bekend. Vraag er niet opnieuw naar:',
       ...v.knownFacts.map((f) => `- ${f.label}: ${f.value}`),
+    );
+  }
+
+  if (v.isResuming) {
+    regels.push(
+      '',
+      'Dit is een hervatting: de cliënt was even weg en is terug in hetzelfde gesprek.',
+      '',
+      'De begroeting is al gezegd; die staat vast en komt niet van jou. Begin dus meteen ' +
+        'met je vraag, alsof het gesprek nooit onderbroken is geweest.',
+      '',
+      'Wat je niet doet:',
+      '- Niet opnieuw vertellen wie je bent, dat je een AI bent, of waar dit gesprek voor ' +
+        'dient. Dat is bij de start al gezegd en het twee keer horen is vervreemdend.',
+      '- Niet samenvatten wat er eerder is verteld, en er ook niet naar verwijzen. Niet ' +
+        '"u vertelde net dat...", niet "we hadden het over...". Wat er is besproken staat ' +
+        'nog niet vast in het dossier, en een verwijzing wekt de indruk dat het er wél ' +
+        'staat. Die belofte kun je niet waarmaken.',
+      '- Niet vragen hoe het gaat of hoe het was. Stel de vraag die aan de beurt is.',
     );
   }
 
@@ -340,6 +372,20 @@ function renderen(v: ConversationVars): string {
       '',
       'Already known. Do not ask again:',
       ...v.knownFacts.map((f) => `- ${f.label}: ${f.value}`),
+    );
+  }
+
+  if (v.isResuming) {
+    regels.push(
+      '',
+      'This is a resumption: the client was away and is back in the same conversation.',
+      '',
+      'The greeting has already been said and does not come from you. Start with your ' +
+        'question, as if the conversation had never been interrupted.',
+      '',
+      'Do not reintroduce yourself, do not repeat that you are an AI, and do not summarise ' +
+        'or refer to anything said earlier — none of it is recorded yet, and referring to ' +
+        'it implies that it is.',
     );
   }
 
