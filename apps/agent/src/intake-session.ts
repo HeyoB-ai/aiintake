@@ -1,4 +1,7 @@
 import {
+  kiesErkenning,
+  type ErkenningKeuze,
+  type ErkenningStand,
   EMPLOYMENT_RULES,
   EMPLOYMENT_TEMPLATE,
   type CaseFact,
@@ -9,6 +12,7 @@ import {
 import {
   createIntakeEngine,
   type ColdPathModel,
+  type LadingOordeel,
   type HotPathModel,
   type ObservationResult,
   type RenderedPrompt,
@@ -66,6 +70,22 @@ export interface IntakeSessionOptions {
   readonly onObservation?: (result: ObservationResult) => void;
   /** Doorgegeven aan de engine; nul zet de narratieve fase uit. Zie diag:gespreksvorm. */
   readonly narrativeTurns?: number;
+  /**
+   * Elke erkenningsbeslissing, ook als er niets is gezegd.
+   *
+   * Inclusief de reden om te zwijgen. Een laag die alleen meldt wanneer hij iets doet, is
+   * niet te onderscheiden van een laag die stukstaat.
+   */
+  readonly onErkenning?: (keuze: ErkenningKeuze, oordeel: LadingOordeel) => void;
+  /** Het ladingoordeel liep stuk. Nooit stil. */
+  readonly onLadingFout?: (fout: unknown) => void;
+  /**
+   * De erkenningslaag uitzetten.
+   *
+   * Bestaat zodat een diagnose de lus kan draaien zonder de tweede modelaanroep, en zodat
+   * een kantoor die er niet om vraagt hem niet krijgt. Standaard aan.
+   */
+  readonly erkenningAan?: boolean;
 }
 
 export class IntakeSession {
@@ -73,6 +93,9 @@ export class IntakeSession {
   private readonly facts: Record<string, CaseFact>;
   private readonly history: Turn[];
   private laatstePrompt: RenderedPrompt | null = null;
+  private erkenningStand: ErkenningStand = { gebruikt: [], laatsteBeurt: null };
+  private laatsteErkenning: string | null = null;
+  private laatsteOordeel: LadingOordeel | null = null;
 
   /**
    * Wat de citaatverankering deze sessie heeft geweigerd.
@@ -150,9 +173,34 @@ export class IntakeSession {
       },
     };
 
+    /*
+     * Het ladingmodel: dezelfde leverancier, hetzelfde snelle model, maar één korte
+     * aanroep zonder streaming. Er valt niets uit te spreken -- de uitvoer is een
+     * categorie, en de zin die erop volgt komt uit de vaste lijst in @intake/domain.
+     *
+     * Kort begrensd op tokens: het antwoord is drie velden. Een model dat hier gaat
+     * uitweiden, levert alleen maar iets op wat niet door het schema komt.
+     */
+    const classify = {
+      complete: async (req: { system: string; user: string }) => {
+        const stukken: string[] = [];
+        for await (const stuk of options.llm.streamText({
+          system: req.system,
+          messages: [{ role: 'user', content: req.user }],
+          model: options.hotModel,
+          maxTokens: 120,
+        })) {
+          stukken.push(stuk);
+        }
+        return stukken.join('');
+      },
+    };
+
     this.engine = createIntakeEngine({
       hot,
       cold,
+      ...(options.erkenningAan === false ? {} : { classify }),
+      onLadingFout: (fout) => options.onLadingFout?.(fout),
       ...(options.narrativeTurns !== undefined ? { narrativeTurns: options.narrativeTurns } : {}),
       onPrompt: (p) => {
         this.laatstePrompt = p;
@@ -167,12 +215,78 @@ export class IntakeSession {
       const self = this;
       return (async function* () {
         const beslissing = await self.engine.respond(self.invoer(input));
-        for await (const stuk of beslissing.speak) {
-          if (signal.aborted) return;
-          yield stuk;
+
+        /*
+         * De erkenning gaat vóór het antwoord, maar houdt het nooit op.
+         *
+         * Het ladingoordeel draait náást de generatie. Hier wordt geracet: is het oordeel
+         * er vóór het eerste fragment van het model, dan mag de erkenning erlangs. Is het
+         * er niet, dan zwijgt de assistent en begint het antwoord gewoon.
+         *
+         * Er wordt dus nooit gewacht. Een gemiste erkenning is een gesprek dat iets
+         * zakelijker verloopt; een vertraagd antwoord is een gesprek dat hapert, en dat is
+         * erger.
+         */
+        const stroom = beslissing.speak[Symbol.asyncIterator]();
+        const eersteStuk = stroom.next();
+
+        if (beslissing.lading) {
+          const winnaar = await Promise.race([
+            beslissing.lading.then((oordeel) => ({ soort: 'lading' as const, oordeel })),
+            eersteStuk.then(() => ({ soort: 'model' as const, oordeel: null })),
+          ]);
+
+          if (winnaar.soort === 'lading' && winnaar.oordeel) {
+            self.laatsteOordeel = winnaar.oordeel;
+            const keuze = kiesErkenning(
+              winnaar.oordeel.lading,
+              self.history.length,
+              self.erkenningStand,
+              self.options.language ?? 'nl',
+            );
+            self.options.onErkenning?.(keuze, winnaar.oordeel);
+            if (keuze.zin && !signal.aborted) {
+              self.erkenningStand = {
+                gebruikt: [...self.erkenningStand.gebruikt, keuze.zin],
+                laatsteBeurt: self.history.length,
+              };
+              self.laatsteErkenning = keuze.zin;
+              // Met een spatie erachter: de zinsflusher knipt op het leesteken, dus dit
+              // wordt een eigen zin en gaat als eerste naar de TTS.
+              yield `${keuze.zin} `;
+            }
+          } else {
+            // Het model was eerder. Het oordeel komt alsnog binnen en telt nog steeds voor
+            // het wanhoopspad en voor de urgentie -- alleen niet meer voor een erkenning.
+            void beslissing.lading.then((oordeel) => {
+              if (oordeel) self.laatsteOordeel = oordeel;
+            });
+          }
+        }
+
+        const eerste = await eersteStuk;
+        if (signal.aborted) return;
+        if (!eerste.done) yield eerste.value;
+
+        for (;;) {
+          const volgende = await stroom.next();
+          if (volgende.done || signal.aborted) return;
+          yield volgende.value;
         }
       })();
     };
+  }
+
+  /** De erkenning die deze beurt is uitgesproken, of `null`. */
+  lastAcknowledgement(): string | null {
+    const zin = this.laatsteErkenning;
+    this.laatsteErkenning = null;
+    return zin;
+  }
+
+  /** Het laatste ladingoordeel; voedt straks het wanhoopspad en de urgentie. */
+  lastCharge(): LadingOordeel | null {
+    return this.laatsteOordeel;
   }
 
   /**

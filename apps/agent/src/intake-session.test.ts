@@ -33,6 +33,24 @@ function vangLlm(): LLMProvider & { verzoeken: TextRequest[] } {
   return p as unknown as LLMProvider & { verzoeken: TextRequest[] };
 }
 
+/**
+ * Het laatste *gespreks*verzoek, niet het laatste verzoek.
+ *
+ * Sinds de erkenningslaag gaan er twee soorten aanroepen over dezelfde provider: de
+ * gespreksbeurt en het ladingoordeel. `verzoeken.at(-1)` was daarmee niet langer wat deze
+ * tests bedoelden — hij kon het ladingverzoek teruggeven, en dan gaan de assertions over
+ * de verkeerde prompt.
+ *
+ * Selecteren op de inhoud van de systeemprompt en niet op volgorde: de volgorde is een
+ * race en die hoort geen testuitkomst te bepalen.
+ */
+function laatsteGesprek(llm: { verzoeken: TextRequest[] }): TextRequest {
+  const gesprek = llm.verzoeken.filter((r) => !r.system.includes('"lading"'));
+  const laatste = gesprek.at(-1);
+  if (!laatste) throw new Error('geen gespreksverzoek gevangen');
+  return laatste;
+}
+
 function sessie(llm: LLMProvider) {
   return new IntakeSession({
     llm,
@@ -59,7 +77,7 @@ describe('IntakeSession — geen lege berichten naar het model', () => {
     s.recordTurn('', 'Hallo, waar gaat het om?');
     await leeg(s.responseSource(), 'Ik heb een vaststellingsovereenkomst gekregen.');
 
-    const berichten = llm.verzoeken.at(-1)!.messages;
+    const berichten = laatsteGesprek(llm).messages;
     expect(berichten.length).toBeGreaterThan(0);
     for (const m of berichten) expect(m.content.trim().length).toBeGreaterThan(0);
     // De begroeting hoort er wél in te staan; alleen de lege cliëntbeurt niet.
@@ -74,7 +92,7 @@ describe('IntakeSession — geen lege berichten naar het model', () => {
     s.recordTurn('Ik werk bij Acme.', 'Sinds wanneer?');
     await leeg(s.responseSource(), 'Sinds 2019.');
 
-    for (const m of llm.verzoeken.at(-1)!.messages) {
+    for (const m of laatsteGesprek(llm).messages) {
       expect(m.content.trim().length).toBeGreaterThan(0);
     }
   });
@@ -84,7 +102,7 @@ describe('IntakeSession — geen lege berichten naar het model', () => {
     const s = sessie(llm);
     await leeg(s.responseSource(), '');
 
-    const berichten = llm.verzoeken.at(-1)!.messages;
+    const berichten = laatsteGesprek(llm).messages;
     expect(berichten).toHaveLength(1);
     expect(berichten[0]!.role).toBe('user');
     expect(berichten[0]!.content.trim().length).toBeGreaterThan(0);

@@ -33,6 +33,7 @@ import { evaluate } from './conditions';
 import { planQuestions } from './planner';
 import { evaluateRules } from './rules';
 import type {
+  LadingOordeel,
   EngineDecision,
   EngineInput,
   FactUpdate,
@@ -83,6 +84,16 @@ export interface ColdPathModel {
 export interface EngineDeps {
   readonly hot: HotPathModel;
   readonly cold: ColdPathModel;
+  /**
+   * Het model dat de lading van één cliëntuitspraak beoordeelt.
+   *
+   * Optioneel: zonder dit draait de lus precies zoals daarvoor, zonder erkenningen. Dat is
+   * geen degradatiepad maar een keuze die een kantoor kan maken — en het houdt elke
+   * bestaande test die geen erkenning verwacht, groen om de goede reden.
+   */
+  readonly classify?: ClassifyModel;
+  /** Het ladingoordeel liep stuk. Nooit stil: zie de toelichting bij `respond`. */
+  readonly onLadingFout?: (fout: unknown) => void;
   readonly catalog?: FactCatalog;
   /** Waar de gerenderde prompt naartoe gaat voor `llm_calls`. Optioneel. */
   readonly onPrompt?: (prompt: RenderedPrompt) => void;
@@ -120,6 +131,51 @@ const FILLER_INTERVAL = 3;
  * beantwoordt de rest korter en minder volledig.
  */
 const NARRATIVE_TURNS = 3;
+
+/**
+ * Eén korte, gestructureerde aanroep. Geen streaming: er valt niets uit te spreken.
+ */
+export interface ClassifyModel {
+  complete(req: { system: string; user: string }): Promise<string>;
+}
+
+/**
+ * Het ladingoordeel ophalen en streng lezen.
+ *
+ * Alles wat niet exact aan het schema voldoet, wordt `null` — en `null` betekent zwijgen.
+ * Dat is de veilige kant: een onleesbaar antwoord mag nooit tot een erkenning leiden die
+ * niemand heeft bedoeld. Er is bewust geen reparatiepoging zoals op het koude pad; dit
+ * draait op het spraakpad en een tweede aanroep zou het antwoord ophouden.
+ */
+async function beoordeelLading(
+  deps: EngineDeps,
+  input: EngineInput,
+): Promise<LadingOordeel | null> {
+  const uitspraak = input.lastClientUtterance?.trim();
+  if (!uitspraak || !deps.classify) return null;
+
+  const prompt = render(PROMPTS.lading, { utterance: uitspraak }, input.language);
+  deps.onPrompt?.(prompt);
+
+  const rauw = await deps.classify.complete({ system: prompt.body, user: uitspraak });
+  const gelezen = parseJson(rauw);
+  if (!gelezen.ok) return null;
+
+  const o = gelezen.value as Record<string, unknown>;
+  const lading = o['lading'];
+  if (lading !== 'geen' && lading !== 'persoonlijk' && lading !== 'zwaar') return null;
+
+  return {
+    lading,
+    wanhoop: o['wanhoop'] === true,
+    // Alleen overnemen als het model een woord teruggaf. Alles anders wordt null, want
+    // een gevoel dat de cliënt niet heeft geuit mag nergens vandaan komen.
+    geuitGevoel:
+      typeof o['geuitGevoel'] === 'string' && o['geuitGevoel'].trim() !== ''
+        ? o['geuitGevoel'].trim()
+        : null,
+  };
+}
 
 export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
   const catalog = deps.catalog ?? EMPLOYMENT_CATALOG;
@@ -203,7 +259,29 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         ...(input.lastClientUtterance ? { lastClientUtterance: input.lastClientUtterance } : {}),
       });
 
+      /*
+       * De erkenning, náást de generatie en nooit ervóór.
+       *
+       * Het oordeel over de lading is een tweede modelaanroep. Die vóór de generatie zetten
+       * zou elke beurt de tijd tot het eerste woord verlengen met een hele aanroep — op een
+       * budget dat al krap is. Dus draaien ze tegelijk, en geldt één regel: de erkenning mag
+       * het antwoord nooit ophouden. Is het oordeel er vóór de eerste zin van het model, dan
+       * gaat hij ervoor; is hij er niet, dan zwijgt de assistent en gaat het gesprek gewoon
+       * door.
+       *
+       * Dat betekent dat de erkenning soms uitblijft terwijl hij had gemogen. Dat is de
+       * goede kant om fout te zitten: een gemiste erkenning is een gesprek dat iets zakelijker
+       * verloopt, een vertraagd antwoord is een gesprek dat hapert.
+       */
+      const ladingBelofte = deps.classify
+        ? beoordeelLading(deps, input).catch((fout) => {
+            deps.onLadingFout?.(fout);
+            return null;
+          })
+        : null;
+
       return {
+        ...(ladingBelofte ? { lading: ladingBelofte } : {}),
         intent: isClosing
           ? 'close'
           : isOpening

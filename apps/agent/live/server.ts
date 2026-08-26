@@ -548,6 +548,15 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     initialHistory: context?.history ?? [],
     hotModel: env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001',
     coldModel: env.LLM_COLD_MODEL ?? 'claude-haiku-4-5-20251001',
+    // Elke beslissing zichtbaar, ook het zwijgen. Een laag die alleen meldt wanneer hij
+    // iets doet, is niet te onderscheiden van een laag die stukstaat.
+    onErkenning: (keuze, oordeel) => {
+      console.log(
+        `  lading ${oordeel.lading}${oordeel.wanhoop ? ' · WANHOOP' : ''} → ` +
+          (keuze.zin ? `erkenning: "${keuze.zin}"` : `zwijgen (${keuze.reden})`),
+      );
+      stuur({ type: 'erkenning', gezegd: keuze.zin, lading: oordeel.lading });
+    },
   });
 
   let sessie: Awaited<ReturnType<typeof startEchoSession>> | null = null;

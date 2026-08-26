@@ -1,4 +1,5 @@
 import type {
+  Lading,
   CaseFactMap,
   DocumentAnalysis,
   IntakeRule,
@@ -83,6 +84,23 @@ export interface EngineDecision {
   /** Wat de planner wilde weten. Gaat mee naar messages.planned_question_keys. */
   readonly plannedQuestionKeys: readonly string[];
   readonly pacing: Pacing;
+  /**
+   * Het oordeel over de lading van de laatste cliëntuitspraak, als er een gevraagd is.
+   *
+   * Een belofte en geen waarde: hij draait náást de generatie en is bewust niet awaited
+   * door de engine. De aanroeper beslist of hij er nog op wacht — en het antwoord daarop
+   * hoort "nee" te zijn zodra het model begint te praten. Zie de toelichting bij `respond`.
+   */
+  readonly lading?: Promise<LadingOordeel | null>;
+}
+
+/** Wat het ladingmodel teruggeeft. Drie velden, verder niets. */
+export interface LadingOordeel {
+  readonly lading: Lading;
+  /** Wijst de uitspraak op uitzichtloosheid of gevaar voor de cliënt zelf? */
+  readonly wanhoop: boolean;
+  /** Een gevoel dat de cliënt zélf benoemde, letterlijk. Nooit afgeleid. */
+  readonly geuitGevoel: string | null;
 }
 
 export interface Pacing {

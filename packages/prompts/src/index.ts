@@ -12,3 +12,4 @@ export * from './extraction';
 export * from './registry';
 export * from './groet';
 export * from './datumanker';
+export * from './lading';

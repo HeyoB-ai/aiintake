@@ -1,4 +1,5 @@
 import { conversationPrompt } from './conversation';
+import { ladingPrompt } from './lading';
 import { extractionPrompt } from './extraction';
 
 /**
@@ -17,6 +18,7 @@ import { extractionPrompt } from './extraction';
 export const PROMPTS = {
   conversation: conversationPrompt,
   extraction: extractionPrompt,
+  lading: ladingPrompt,
 } as const;
 
 export type PromptName = keyof typeof PROMPTS;
