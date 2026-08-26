@@ -30,12 +30,23 @@ class ClockedTtsStream extends FakeTtsStream {
   constructor(
     private readonly clock: TestClock,
     private readonly cancelCostMs: number,
+    /**
+     * Laat het annuleren een macrotaak kosten in plaats van alleen kloktijd.
+     *
+     * Zonder dit is `cancel()` een opgeloste promise en draait de rest van `interrupt()`
+     * in dezelfde macrotaak — er kan dan per definitie geen STT-event tussen vallen, en
+     * de volgorde die deze fakes afdwingen bestaat in productie niet. Cartesia stuurt
+     * vandaag alleen een bericht en wacht nergens op; gaat hij ooit op een bevestiging
+     * wachten, dan is dit het gedrag dat telt.
+     */
+    private readonly traagAnnuleren = false,
   ) {
     super();
   }
 
   override async cancel(): Promise<{ spokenMs: number }> {
     this.clock.advance(this.cancelCostMs);
+    if (this.traagAnnuleren) await new Promise((r) => setImmediate(r));
     return super.cancel();
   }
 }
@@ -55,7 +66,7 @@ interface Harness {
 
 async function harness(
   respond: (h: () => Harness) => ResponseSource,
-  opts: { cancelCostMs?: number } = {},
+  opts: { cancelCostMs?: number; traagAnnuleren?: boolean } = {},
 ): Promise<Harness> {
   const clock = new TestClock();
 
@@ -64,7 +75,7 @@ async function harness(
 
   const ttsProvider = new FakeTtsProvider();
   await ttsProvider.open({ voiceId: 'test', language: 'nl' });
-  const tts = new ClockedTtsStream(clock, opts.cancelCostMs ?? 12);
+  const tts = new ClockedTtsStream(clock, opts.cancelCostMs ?? 12, opts.traagAnnuleren ?? false);
 
   const avatarProvider = new NullAvatarProvider(clock.now);
   const avatar = (await avatarProvider.createSession({
@@ -442,5 +453,106 @@ describe('beurt zonder inhoud van de cliënt', () => {
     expect(h.skipped).toHaveLength(1);
     expect(h.turns).toHaveLength(1);
     expect(h.turns[0]!.clientUtterance).toBe('Ik heb een vraag.');
+  });
+});
+
+/**
+ * Wat er gebeurt als de correctie binnenkomt terwijl de interrupt nog loopt.
+ *
+ * Dit is het geval waar de cliënt het meest aan hecht: hij hoort iets fout, valt de
+ * assistent in de rede, en zegt hoe het wél zit. Die uitspraak arriveert per definitie
+ * midden in de afhandeling van de onderbreking.
+ *
+ * `handleTurn` had daar geen enkel besef van. Hij zette `state` op `responding` en wiste
+ * `sentToTts`, `emittedMs` en `intended` — precies de velden waarop `interrupt()` ná zijn
+ * `await`s de truncatie berekent. `completeTurn` schreef de zojuist binnengekomen uitspraak
+ * daarna weg als de uitspraak die de ónderbroken beurt had gestart.
+ *
+ * Met de huidige fakes valt dat niet te zien: `cancel()` en `interrupt()` geven een
+ * opgeloste promise, dus er kan geen macrotaak tussen vallen. `traagAnnuleren` zet precies
+ * die aanname uit.
+ */
+describe('uitspraak tijdens een lopende interrupt', () => {
+  it('hoort bij de volgende beurt en niet bij de onderbroken beurt', async () => {
+    let laatDoor!: () => void;
+    const vastgehouden = new Promise<void>((r) => {
+      laatDoor = r;
+    });
+
+    const h = await harness(
+      (get) =>
+        async function* () {
+          get().clock.advance(300);
+          yield `${ZIN_1} `;
+          get().clock.advance(700);
+          // De beurt blijft openstaan tot de test hem loslaat, zodat de lus in
+          // `responding` blijft terwijl wij het venster construeren.
+          await vastgehouden;
+          yield ZIN_2;
+        },
+      { traagAnnuleren: true },
+    );
+
+    h.stt.endOfTurn('Ik kreeg een VSO.', h.clock.now());
+    await new Promise((r) => setImmediate(r));
+
+    // De cliënt onderbreekt. Niet awaiten: in productie is dit een los STT-event.
+    void h.loop.onClientSpeech({ speechMs: 320, text: 'nee wacht' });
+
+    // En hier komt de correctie binnen — terwijl `interrupt()` nog op de TTS wacht.
+    h.stt.endOfTurn('Nee, het was februari.', h.clock.now());
+
+    laatDoor();
+    // Ruim wachten: er zitten hier meer stappen achter elkaar dan bij een gewone beurt —
+    // de interrupt, de afronding daarvan, en dan pas de nieuwe beurt met zijn synthese.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(h.turns).toHaveLength(2);
+
+    // De onderbroken beurt houdt zijn eigen uitspraak, en zijn afkapping.
+    expect(h.turns[0]!.clientUtterance).toBe('Ik kreeg een VSO.');
+    expect(h.turns[0]!.interruptedAtChar).not.toBeNull();
+    expect(ZIN_1.startsWith(h.turns[0]!.assistantContent)).toBe(true);
+
+    // En de correctie staat als eigen beurt in het transcript. Zou dit 'Ik kreeg een VSO.'
+    // teruggeven, dan was de correctie van de cliënt uit het dossier verdwenen terwijl de
+    // foute bewering met een kloppend citaat bleef staan. Zie RISICOS.md risico 16.
+    expect(h.turns[1]!.clientUtterance).toBe('Nee, het was februari.');
+  });
+
+  it('kapt de onderbroken beurt niet af op de velden van de nieuwe', async () => {
+    let laatDoor!: () => void;
+    const vastgehouden = new Promise<void>((r) => {
+      laatDoor = r;
+    });
+
+    const h = await harness(
+      (get) =>
+        async function* () {
+          get().clock.advance(300);
+          yield `${ZIN_1} `;
+          get().clock.advance(700);
+          await vastgehouden;
+          yield ZIN_2;
+        },
+      { traagAnnuleren: true },
+    );
+
+    h.stt.endOfTurn('Ik kreeg een VSO.', h.clock.now());
+    await new Promise((r) => setImmediate(r));
+
+    void h.loop.onClientSpeech({ speechMs: 320, text: 'nee wacht' });
+    h.stt.endOfTurn('Nee, het was februari.', h.clock.now());
+
+    laatDoor();
+    // Ruim wachten: er zitten hier meer stappen achter elkaar dan bij een gewone beurt —
+    // de interrupt, de afronding daarvan, en dan pas de nieuwe beurt met zijn synthese.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 700 ms afgespeeld plus 12 ms annuleerkosten, net als in de kerntest hierboven. Zou
+    // `handleTurn` `emittedMs` tussentijds op nul hebben gezet, dan stond hier 0 en was
+    // het transcript van de assistent leeg — terwijl de cliënt haar wel degelijk hoorde.
+    expect(h.turns[0]!.spokenMs).toBe(712);
+    expect(h.turns[0]!.assistantContent.length).toBeGreaterThan(0);
   });
 });

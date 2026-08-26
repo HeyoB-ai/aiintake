@@ -127,6 +127,21 @@ export class TurnLoop {
   private utteranceWasCut = false;
   /** Hoe de STT de lopende beurt afsloot. */
   private endedBy: 'speech_final' | 'utterance_end' = 'speech_final';
+  /**
+   * De interrupt die op dit moment loopt, als die er is.
+   *
+   * `handleTurn` had geen enkel besef van de toestand van de lus: hij zette `state` op
+   * `responding` en wiste `sentToTts`, `emittedMs` en `intended` — precies de velden
+   * waarop `interrupt()` ná zijn `await`s de truncatie berekent. Vandaag valt dat niet op,
+   * want `tts.cancel()` en `avatar.interrupt()` sturen alleen een bericht en wachten
+   * nergens op, dus er kan geen macrotaak tussen vallen. Dat is geen eigenschap van dit
+   * bestand maar van twee andere, en de dag dat een van die twee op een bevestiging gaat
+   * wachten, verdwijnt hier een uitspraak zonder melding.
+   *
+   * Vandaar een expliciete wachtrij van één. Niet overslaan: de uitspraak die tijdens een
+   * interrupt binnenkomt, is per definitie de uitspraak waarmee de cliënt onderbrak.
+   */
+  private lopendeInterrupt: Promise<void> | null = null;
 
   constructor(private readonly o: TurnLoopOptions) {
     this.metrics = new TurnMetricsRecorder(o.now);
@@ -148,6 +163,21 @@ export class TurnLoop {
         this.state = 'idle';
         o.onTurnError?.(error);
       });
+    });
+
+    /*
+     * Een beurt die begon en eindigde zonder één woord.
+     *
+     * De STT sloeg dit stilzwijgend over. Hier is het geen fout en ook geen beurt — er
+     * valt niets te beantwoorden — maar het hoort wél zichtbaar te zijn: een kuch en een
+     * onverstane correctie leveren allebei deze melding op, en alleen de tweede is erg.
+     * Zonder deze regel zijn ze van buiten identiek aan stilte.
+     */
+    o.stt.on('empty_turn', (meta) => {
+      o.onSkippedTurn?.(
+        `beurt zonder bruikbare tekst — afgesloten door ${meta.endedBy}, ` +
+          `${meta.resultaten} resultaat/resultaten van de herkenner`,
+      );
     });
 
     o.stt.on('turn_continued', (_text, meta) => {
@@ -226,6 +256,30 @@ export class TurnLoop {
   }
 
   private async handleTurn(utterance: string, speechEndedAt?: number): Promise<void> {
+    /*
+     * Wachten tot een lopende interrupt zijn beurt heeft afgesloten.
+     *
+     * Zonder dit begint deze beurt midden in de afhandeling van de vorige, wist hij de
+     * velden waarop de truncatie rust, en schrijft `completeTurn` daarna de zojuist
+     * binnengekomen uitspraak weg als toebehorend aan de ónderbroken beurt. De uitspraak
+     * verdwijnt dan niet, maar hij komt op de verkeerde plek in het transcript te staan —
+     * en dat is bij een correctie erger dan verdwijnen.
+     */
+    if (this.lopendeInterrupt) await this.lopendeInterrupt;
+
+    /*
+     * Nog steeds aan het antwoorden? Dan is dit een onderbreking die de drempels van
+     * barge-in.ts niet haalde — te kort, of de partials kwamen nooit binnen — maar die
+     * wél een volledige uitspraak heeft opgeleverd. Precies hetzelfde geval als
+     * `turn_continued` hierboven, dus dezelfde behandeling: eerst de lopende beurt netjes
+     * afsluiten op wat er gehoord is, dan pas deze.
+     *
+     * Doorlopen zonder dit zou de lopende beurt overschrijven: `sentToTts` en `emittedMs`
+     * gaan op nul terwijl de TTS nog speelt, en dan denkt het transcript dat de assistent
+     * niets heeft gezegd.
+     */
+    if (this.state === 'responding') await this.interrupt();
+
     // t0 is het einde van de spraak, niet het binnenkomen van het event. Het verschil
     // tussen die twee ís de endpointing-latency.
     this.metrics.speechEnd(speechEndedAt);
@@ -334,6 +388,18 @@ export class TurnLoop {
    */
   private async interrupt(): Promise<void> {
     if (this.state !== 'responding') return;
+    const taak = this.voerInterruptUit();
+    this.lopendeInterrupt = taak;
+    try {
+      await taak;
+    } finally {
+      // Alleen opruimen als dit nog dezelfde interrupt is; een latere heeft het veld dan
+      // al overgenomen.
+      if (this.lopendeInterrupt === taak) this.lopendeInterrupt = null;
+    }
+  }
+
+  private async voerInterruptUit(): Promise<void> {
     this.state = 'interrupting';
     this.metrics.interruptRequested();
 
