@@ -1,5 +1,7 @@
 import {
   kiesErkenning,
+  wanhoopReactie,
+  type WanhoopReactie,
   type ErkenningKeuze,
   type ErkenningStand,
   EMPLOYMENT_RULES,
@@ -79,6 +81,28 @@ export interface IntakeSessionOptions {
   readonly onErkenning?: (keuze: ErkenningKeuze, oordeel: LadingOordeel) => void;
   /** Het ladingoordeel liep stuk. Nooit stil. */
   readonly onLadingFout?: (fout: unknown) => void;
+  /**
+   * Elke stap van het wanhoopspad: gedetecteerd, vastgelegd, of niet vastgelegd.
+   *
+   * Drie meldingen en niet één, want "de detectie ging af" en "het staat in het dossier"
+   * zijn verschillende beweringen en kunnen los van elkaar misgaan.
+   */
+  readonly onWanhoop?: (reactie: WanhoopReactie, stap: string) => void;
+  /**
+   * De agent-RPC, voor de risicovlag bij wanhoop.
+   *
+   * Optioneel: zonder verbinding met het dossier draait het gesprek door, maar dan meldt
+   * `onWanhoop` met zoveel woorden dat er niets is vastgelegd.
+   */
+  readonly rpc?: {
+    setRiskFlag(args: {
+      ruleKey: string;
+      level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+      label: string;
+      detectedBy: 'rule' | 'rule+ai';
+      sourceRef: string | null;
+    }): Promise<unknown>;
+  };
   /**
    * De erkenningslaag uitzetten.
    *
@@ -238,6 +262,26 @@ export class IntakeSession {
 
           if (winnaar.soort === 'lading' && winnaar.oordeel) {
             self.laatsteOordeel = winnaar.oordeel;
+
+            /*
+             * Het wanhoopspad gaat vóór alles, en sluit de beurt af.
+             *
+             * De vraag van de planner vervalt — niet uitgesteld tot verderop in dezelfde
+             * beurt, maar vervallen. Een erkenning met een vraag erachter is geen
+             * erkenning, en doorvragen op wanhoop door een systeem dat niet kan helpen is
+             * schadelijk.
+             *
+             * De generatie van het model wordt hier bewust weggegooid. Die is al onderweg
+             * en kost dus toch wat hij kost; hem alsnog uitspreken zou betekenen dat er een
+             * intakevraag achter de verwijzing aan komt.
+             */
+            const reactie = wanhoopReactie(winnaar.oordeel.wanhoop, self.options.language ?? 'nl');
+            if (reactie) {
+              await self.meldWanhoop(reactie);
+              if (!signal.aborted) yield reactie.tekst;
+              return;
+            }
+
             const keuze = kiesErkenning(
               winnaar.oordeel.lading,
               self.history.length,
@@ -275,6 +319,42 @@ export class IntakeSession {
         }
       })();
     };
+  }
+
+  /**
+   * De vlag in het dossier zetten, en luid zijn als dat niet lukt.
+   *
+   * Dit pad mag nooit stil falen. Gaat de detectie af en gebeurt er niets, dan hoort dat
+   * terug te komen in het log én zichtbaar te zijn — anders is "het systeem heeft het
+   * gezien" een bewering die niemand kan nakijken.
+   *
+   * Zonder RPC — het ontwikkelharnas zonder sessietoken — is er geen dossier om in te
+   * schrijven. Ook dat wordt gemeld, en met zoveel woorden dat niemand het voor een
+   * geslaagde vastlegging aanziet.
+   */
+  private async meldWanhoop(reactie: WanhoopReactie): Promise<void> {
+    this.options.onWanhoop?.(reactie, 'gedetecteerd');
+
+    if (!this.options.rpc) {
+      this.options.onWanhoop?.(reactie, 'NIET VASTGELEGD: geen verbinding met het dossier');
+      return;
+    }
+    try {
+      await this.options.rpc.setRiskFlag({
+        ruleKey: reactie.regelKey,
+        level: reactie.niveau,
+        label: reactie.label,
+        // 'rule+ai': het oordeel komt van een model, de reactie en de drempel uit code.
+        detectedBy: 'rule+ai',
+        sourceRef: null,
+      });
+      this.options.onWanhoop?.(reactie, 'vastgelegd in het dossier');
+    } catch (fout) {
+      this.options.onWanhoop?.(
+        reactie,
+        `NIET VASTGELEGD: ${fout instanceof Error ? fout.message : String(fout)}`,
+      );
+    }
   }
 
   /** De erkenning die deze beurt is uitgesproken, of `null`. */

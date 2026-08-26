@@ -167,7 +167,7 @@ async function beoordeelLading(
 
   return {
     lading,
-    wanhoop: o['wanhoop'] === true,
+    wanhoop: o['wanhoop'] === 'acuut' || o['wanhoop'] === 'geldzorgen' ? o['wanhoop'] : 'geen',
     // Alleen overnemen als het model een woord teruggaf. Alles anders wordt null, want
     // een gevoel dat de cliënt niet heeft geuit mag nergens vandaan komen.
     geuitGevoel:

@@ -46,8 +46,12 @@ export interface LadingVars extends Record<string, unknown> {
 export const ladingPrompt: PromptTemplate<LadingVars> = {
   key: 'lading.client-utterance',
   purpose: 'urgency',
+  // v2: `wanhoop` is een soort geworden in plaats van een ja/nee. Acute nood en geldzorgen
+  // vragen een andere verwijzing -- 113 tegenover Geldfit -- en een boolean dwong de
+  // aanroeper die keuze zelf te raden uit de lading. Dat oordeel hoort bij het model dat de
+  // zin leest, niet bij de code die erop reageert.
   // v1: eerste versie. Lading in drie standen plus een wanhoopssignaal, in één doorgang.
-  version: 1,
+  version: 2,
   description:
     'Beoordeelt de emotionele lading van één cliëntuitspraak. Gesloten schema, geen tekst.',
 
@@ -66,7 +70,7 @@ export const ladingPrompt: PromptTemplate<LadingVars> = {
       '',
       '{',
       '  "lading": "geen" | "persoonlijk" | "zwaar",',
-      '  "wanhoop": true | false,',
+      '  "wanhoop": "geen" | "acuut" | "geldzorgen",',
       '  "geuitGevoel": string | null',
       '}',
       '',
@@ -83,10 +87,16 @@ export const ladingPrompt: PromptTemplate<LadingVars> = {
         '  intimidatie. Ook als de cliënt het nuchter formuleert — hoe iemand iets zegt,',
         '  bepaalt niet hoe zwaar het is.',
         '',
-        'wanhoop — staat er iets in dat wijst op uitzichtloosheid of gevaar voor de persoon',
-        'zelf? Denk aan: geen geld voor eten of huur, geen uitweg zien, niet meer willen,',
-        'gedachten aan zelfdoding. Twijfel je, dan is het antwoord true. Een vals alarm kost',
-        'een zin die te voorzichtig is; een gemist signaal kost meer.',
+        'wanhoop — wijst de uitspraak op nood bij de persoon zelf?',
+        '- "geen": niets dat daarop wijst.',
+        '- "acuut": geen uitweg zien, niet meer willen, gedachten aan zelfdoding, of gevaar',
+        '  van iemand anders. Ook bij een halve zin of een terzijde.',
+        '- "geldzorgen": geen geld voor eten, huur of rekeningen; schulden die niet meer te',
+        '  overzien zijn; angst om het huis uit te moeten.',
+        '',
+        'Twijfel je tussen "geen" en een van de andere twee, kies dan de andere. Twijfel je',
+        'tussen "acuut" en "geldzorgen", kies dan "acuut". Een vals alarm kost een zin die te',
+        'voorzichtig is; een gemist signaal kost meer.',
         '',
         'geuitGevoel — heeft de cliënt zélf een gevoel benoemd? Geef dan dat woord terug,',
         'letterlijk zoals hij het zei ("boos", "bang", "opgelucht"). Heeft hij dat niet',
@@ -106,8 +116,9 @@ export const ladingPrompt: PromptTemplate<LadingVars> = {
         '- "zwaar": a blow — summary dismissal, illness, bereavement, money trouble,',
         '  intimidation. Also when stated matter-of-factly.',
         '',
-        'wanhoop — anything pointing to hopelessness or danger to the person themselves?',
-        'When in doubt, answer true.',
+        'wanhoop — "geen", "acuut" (hopelessness, self-harm, danger) or "geldzorgen"',
+        '(no money for food, rent or bills). When in doubt, do not choose "geen"; between',
+        '"acuut" and "geldzorgen", choose "acuut".',
         '',
         'geuitGevoel — did the client name a feeling themselves? Return that word verbatim,',
         'otherwise null. Never infer a feeling from the situation.',

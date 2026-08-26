@@ -1,5 +1,6 @@
 import type {
   Lading,
+  WanhoopSoort,
   CaseFactMap,
   DocumentAnalysis,
   IntakeRule,
@@ -97,8 +98,8 @@ export interface EngineDecision {
 /** Wat het ladingmodel teruggeeft. Drie velden, verder niets. */
 export interface LadingOordeel {
   readonly lading: Lading;
-  /** Wijst de uitspraak op uitzichtloosheid of gevaar voor de cliënt zelf? */
-  readonly wanhoop: boolean;
+  /** Nood bij de cliënt zelf, en van welke soort. Bepaalt de verwijzing. */
+  readonly wanhoop: WanhoopSoort;
   /** Een gevoel dat de cliënt zélf benoemde, letterlijk. Nooit afgeleid. */
   readonly geuitGevoel: string | null;
 }

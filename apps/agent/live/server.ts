@@ -557,6 +557,19 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
       );
       stuur({ type: 'erkenning', gezegd: keuze.zin, lading: oordeel.lading });
     },
+    // Zonder context is er geen dossier om in te schrijven; dat meldt onWanhoop dan zelf.
+    ...(context ? { rpc: context.rpc } : {}),
+    /*
+     * Het wanhoopspad, in drie meldingen.
+     *
+     * "De detectie ging af" en "het staat in het dossier" zijn verschillende beweringen en
+     * kunnen los van elkaar misgaan. Ze staan daarom los in het log, met de mislukking in
+     * hoofdletters -- dit is het pad waarvan jij zei dat het nooit stil mag falen.
+     */
+    onWanhoop: (reactie, stap) => {
+      console.log(`  WANHOOP ${reactie.regelKey} (${reactie.niveau}) · ${stap}`);
+      stuur({ type: 'wanhoop', regel: reactie.regelKey, niveau: reactie.niveau, stap });
+    },
   });
 
   let sessie: Awaited<ReturnType<typeof startEchoSession>> | null = null;
