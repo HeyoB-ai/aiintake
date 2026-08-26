@@ -26,6 +26,7 @@ function stroom(): {
   stuur: (bericht: unknown) => void;
   continuations: Vangst[];
   turns: { text: string; endedBy: string }[];
+  leeg: { endedBy: string; resultaten: number }[];
 } {
   const s = new DeepgramSttStream(
     {
@@ -42,11 +43,13 @@ function stroom(): {
   const turns: { text: string; endedBy: string }[] = [];
   s.on('turn_continued', (_t, meta) => continuations.push(meta as unknown as Vangst));
   s.on('end_of_turn', (text, meta) => turns.push({ text, endedBy: meta.endedBy }));
+  const leeg: { endedBy: string; resultaten: number }[] = [];
+  s.on('empty_turn', (meta) => leeg.push({ ...meta }));
 
   // `onMessage` is privé en hoort dat te blijven: het is de protocolkant, geen API. Voor
   // de test is dit het enige punt waarop je echte Deepgram-berichten kunt injecteren.
   const intern = s as unknown as { onMessage(raw: string): void };
-  return { stuur: (b) => intern.onMessage(JSON.stringify(b)), continuations, turns };
+  return { stuur: (b) => intern.onMessage(JSON.stringify(b)), continuations, turns, leeg };
 }
 
 /** Een afgesloten beurt, zodat er een "open geval" is om tegenaan te detecteren. */
@@ -269,5 +272,94 @@ describe('de vorm van de afkapdetectie', () => {
         verwacht,
       );
     }
+  });
+});
+
+/**
+ * Een beurt die begint en eindigt zonder woord.
+ *
+ * Dit verdween met een kale `return`: geen event, geen melding, geen spoor. Van buiten is
+ * dat niet te onderscheiden van "de cliënt zweeg", terwijl het ook "de cliënt zei iets en
+ * wij verstonden er geen woord van" kan zijn. Bij een correctie is dat verschil het hele
+ * verschil — zie RISICOS.md risico 16.
+ */
+describe('lege beurt', () => {
+  it('een lege speech_final sluit de beurt niet; het vangnet doet dat', () => {
+    const { stuur, turns, leeg } = stroom();
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({
+      type: 'Results',
+      is_final: true,
+      speech_final: true,
+      start: 0,
+      duration: 0.4,
+      channel: { alternatives: [{ transcript: '' }] },
+    });
+
+    // Nog niets: de lege-tekstzeef in onMessage keert terug vóór de speech_final-tak, dus
+    // deze beurt blijft openstaan. Dat is bestaand gedrag en het staat hier vastgelegd
+    // omdat het gevolg heeft: `speaking` blijft tot dat moment op true, en zolang dat zo
+    // is onderdrukt de adapter elke volgende SpeechStarted — de barge-in-trigger.
+    expect(turns).toHaveLength(0);
+    expect(leeg).toHaveLength(0);
+
+    stuur({ type: 'UtteranceEnd', last_word_end: 0.4 });
+
+    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 1 }]);
+  });
+
+  it('meldt ook wanneer het vangnet de beurt sluit', () => {
+    const { stuur, turns, leeg } = stroom();
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({ type: 'UtteranceEnd', last_word_end: 0.4 });
+
+    expect(turns).toHaveLength(0);
+    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 0 }]);
+  });
+
+  it('telt de resultaten, zodat "niets gehoord" en "niets verstaan" te scheiden zijn', () => {
+    const { stuur, leeg } = stroom();
+
+    // Drie keer een Results zonder transcript: de herkenner zag wel iets en maakte er geen
+    // woorden van. Nul zou betekenen dat er nooit een resultaat is geweest.
+    stuur({ type: 'SpeechStarted' });
+    for (let i = 0; i < 3; i += 1) {
+      stuur({ type: 'Results', is_final: false, channel: { alternatives: [{ transcript: '' }] } });
+    }
+    stuur({ type: 'UtteranceEnd', last_word_end: 0.9 });
+
+    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 3 }]);
+  });
+
+  it('meldt niets bij een beurt die wél tekst opleverde', () => {
+    const { stuur, turns, leeg } = stroom();
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({
+      type: 'Results',
+      is_final: true,
+      speech_final: true,
+      start: 0,
+      duration: 1.2,
+      channel: { alternatives: [{ transcript: 'nee, het was februari' }] },
+    });
+
+    expect(turns).toEqual([{ text: 'nee, het was februari', endedBy: 'speech_final' }]);
+    expect(leeg).toHaveLength(0);
+  });
+
+  it('telt per beurt en niet cumulatief', () => {
+    const { stuur, leeg } = stroom();
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({ type: 'Results', is_final: false, channel: { alternatives: [{ transcript: '' }] } });
+    stuur({ type: 'UtteranceEnd', last_word_end: 0.4 });
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({ type: 'UtteranceEnd', last_word_end: 1.4 });
+
+    expect(leeg.map((l) => l.resultaten)).toEqual([1, 0]);
   });
 });

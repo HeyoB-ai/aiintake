@@ -90,6 +90,8 @@ export class DeepgramSttStream implements SttStream {
   private speaking = false;
   /** Wat er sinds de laatste beurt aan finals is binnengekomen. */
   private pending = '';
+  /** Aantal `Results`-berichten in de lopende beurt; alleen om een lege beurt te duiden. */
+  private resultatenInBeurt = 0;
   /** Wandkloktijd waarop de stream openging; ankerpunt voor de streamtijdstempels. */
   private streamStartedAt = 0;
   /** Einde van het laatste woord, in seconden vanaf streamstart. */
@@ -201,6 +203,9 @@ export class DeepgramSttStream implements SttStream {
 
     if (message.type === 'Results') {
       const text = message.channel?.alternatives?.[0]?.transcript ?? '';
+      // Tellen vóór de lege-tekstzeef: een Results zonder transcript is precies het
+      // geval dat een lege beurt verklaart, en dat wil je terugzien in de melding.
+      this.resultatenInBeurt += 1;
       if (!text) return;
 
       if (message.is_final) {
@@ -230,12 +235,28 @@ export class DeepgramSttStream implements SttStream {
   private endTurn(endedBy: 'speech_final' | 'utterance_end'): void {
     const text = this.pending.trim();
     const speechEndedAt = this.streamStartedAt + this.lastWordEndSec * 1000;
+    const resultaten = this.resultatenInBeurt;
 
     this.pending = '';
     this.speaking = false;
+    this.resultatenInBeurt = 0;
 
     if (!text) {
       this.lastWordEndSec = 0;
+      /*
+       * Hier stond een kale `return`.
+       *
+       * Deepgram meldt SpeechStarted op energie en niet op taal, dus een beurt kan
+       * beginnen en eindigen zonder één woord: een kuch, een deur, of spraak die de
+       * herkenner niet kon lezen. Dat verdween spoorloos — geen event, geen melding — en
+       * van buiten is dat niet te onderscheiden van een cliënt die niets zei.
+       *
+       * Dat onderscheid doet ertoe op precies één moment: als de cliënt praat om iets
+       * recht te zetten. Verdwijnt die uitspraak hier, dan blijft de oorspronkelijke,
+       * foute bewering in het dossier staan mét een kloppend citaat. Zie RISICOS.md
+       * risico 16.
+       */
+      this.emit('empty_turn', { endedBy, resultaten });
       return;
     }
 

@@ -72,7 +72,36 @@ export interface SttEvents {
    * is. Zie RISICOS.md risico 2.
    */
   turn_continued: (text: string, meta: ContinuationMeta) => void;
+  /**
+   * De beurt sloot af zonder één bruikbaar woord.
+   *
+   * Deepgram meldt `SpeechStarted` op energie, niet op taal. Een kuch, een deur, een
+   * stoel — of spraak die de herkenner niet als woorden kon lezen — geeft een beurt die
+   * begint en eindigt met een lege `pending`.
+   *
+   * Dat gebeurde tot nu toe met een `return` en verder niets: geen event, geen melding,
+   * geen spoor. Van buiten is dat niet te onderscheiden van "de cliënt heeft niets
+   * gezegd", terwijl het ook "de cliënt heeft iets gezegd en wij verstonden er geen woord
+   * van" kan betekenen. Die twee horen niet dezelfde stilte op te leveren.
+   *
+   * Dit is dus een dataverlies-signaal, net als `turn_continued`, en geen foutmelding: de
+   * lus hoeft er niets mee te doen behalve het zichtbaar maken.
+   */
+  empty_turn: (meta: EmptyTurnMeta) => void;
   error: (error: Error) => void;
+}
+
+export interface EmptyTurnMeta {
+  /** Hoe de beurt werd afgesloten; dezelfde twee wegen als bij `end_of_turn`. */
+  readonly endedBy: 'speech_final' | 'utterance_end';
+  /**
+   * Hoeveel losse `Results`-berichten er in deze beurt zijn langsgekomen.
+   *
+   * Nul betekent: er is nooit tekst geweest, ook geen tussentijdse. Meer dan nul betekent
+   * dat de herkenner wél iets zag en het bij het afsluiten alsnog leeg was — een ander
+   * geval, en het interessantere van de twee.
+   */
+  readonly resultaten: number;
 }
 
 export interface SttStream {
