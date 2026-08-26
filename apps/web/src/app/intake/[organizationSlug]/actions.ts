@@ -155,6 +155,33 @@ export async function startIntake(
   });
 
   if (error) {
+    /*
+     * De cliënt krijgt een algemene melding; het log krijgt de oorzaak.
+     *
+     * Dit stond er niet, en dat maakte elke storing op productie blind. De action gooit
+     * niet maar geeft een foutobject terug, dus er verschijnt geen ERROR in het
+     * functielog — alleen een normale invocatie. Wat de bezoeker ziet is "Het gesprek kon
+     * niet worden gestart", en dat is één zin voor minstens zes verschillende oorzaken:
+     * een signatuur die niet meer klopt (PGRST202), een onbekende organisatie (P0002),
+     * ontbrekende toestemming of een ongeldige naam (22023), een rechtenfout (42501), de
+     * rate limiter, of een netwerkstoring.
+     *
+     * Concreet geval waarop dit is gebouwd: de drie migraties van 25 en 26 augustus stonden
+     * wel in de repo en niet op productie. De web-app stuurde veertien parameters naar een
+     * functie die er elf kende, PostgREST vond geen match, en die melding verdween hier.
+     *
+     * Geen persoonsgegevens in het log: de naam en de contactgegevens van de cliënt horen
+     * niet in een logregel die niemand opruimt. De slug van het kantoor wel — zonder die
+     * is een fout niet te plaatsen als er meerdere kantoren draaien.
+     */
+    console.error('intake: create_public_intake weigerde', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      org: d.organizationSlug,
+    });
+
     // De rate limiter is de enige fout waar de bezoeker iets aan heeft; de rest zou
     // hooguit verraden hoe het systeem in elkaar zit.
     const teVaak = error.message.includes('te veel intakepogingen');
@@ -167,7 +194,15 @@ export async function startIntake(
   }
 
   const rij = (data as { intake_id: string; organization_id: string }[] | null)?.[0];
-  if (!rij) return { ok: false, fout: 'Het gesprek kon niet worden gestart.' };
+  if (!rij) {
+    // Geen fout én geen rij: dat hoort niet te kunnen. Een eigen logregel, want deze tak
+    // wijst naar iets anders dan de tak hierboven — de functie gaf niets terug in plaats
+    // van te weigeren.
+    console.error('intake: create_public_intake gaf geen rij terug', {
+      org: d.organizationSlug,
+    });
+    return { ok: false, fout: 'Het gesprek kon niet worden gestart.' };
+  }
 
   /*
    * Het sessietoken wordt hier gemaakt en gaat rechtstreeks naar de worker.
@@ -175,12 +210,35 @@ export async function startIntake(
    * Dit is de enige plek met de secret key. De worker mag zijn eigen credential niet kunnen
    * aanmaken of verlengen — wie dat wel kan, heeft er geen aan.
    */
-  const service = createServiceRoleClient();
-  const sessie = await issueAgentSession(service, {
-    intakeId: rij.intake_id,
-    channel: 'video',
-    prewarmedAt: new Date().toISOString(),
-  });
+  /*
+   * En hier ook vangen, om een andere reden dan hierboven.
+   *
+   * Deze twee aanroepen gooien in plaats van een foutobject terug te geven. Een throw in
+   * een server action is niet blind — Netlify logt hem als ERROR — maar de bezoeker krijgt
+   * dan "An unexpected response was received from the server" van de router, in het Engels
+   * en zonder enige aanwijzing. Een ontbrekende SUPABASE_SECRET_KEY en een volle
+   * sessielimiet zien er voor hem dan hetzelfde uit als een kapotte pagina.
+   *
+   * De intake die hierboven is aangemaakt blijft staan. Dat is met opzet: er is toestemming
+   * gegeven en vastgelegd, en die vastlegging weggooien omdat de sessie daarna niet lukte
+   * zou het auditspoor onvollediger maken dan de werkelijkheid.
+   */
+  let sessie: Awaited<ReturnType<typeof issueAgentSession>>;
+  try {
+    const service = createServiceRoleClient();
+    sessie = await issueAgentSession(service, {
+      intakeId: rij.intake_id,
+      channel: 'video',
+      prewarmedAt: new Date().toISOString(),
+    });
+  } catch (fout) {
+    console.error('intake: sessie uitgeven mislukt', {
+      message: fout instanceof Error ? fout.message : String(fout),
+      intakeId: rij.intake_id,
+      org: d.organizationSlug,
+    });
+    return { ok: false, fout: 'Het gesprek kon niet worden gestart. Probeer het later opnieuw.' };
+  }
 
   // Hier valt niets meer te weigeren: de basis-URL is bovenaan al ontleed.
   const url = new URL(wsBasis);
