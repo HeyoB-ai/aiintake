@@ -108,6 +108,12 @@ voorwaarde), het template is de kantoorspecifieke laag erbovenop.
 
 ## Fase 3 — cold path en dashboard
 
+> **Blokkeert het meeste hieronder: de worker schrijft niets weg.** Zeven van de negen
+> agent-RPC's worden nergens aangeroepen (risico 15). De extractie draait, de scores worden
+> berekend, en het resultaat verdwijnt. Een dashboardpagina bouwen op kolommen die nooit
+> gevuld worden, levert een scherm op dat er af uitziet en leeg blijft. Dit hoort de eerste
+> taak van deze fase te zijn, vóór de detailpagina wordt uitgebreid.
+
 - `FactExtractor` met citaatverankering (`rejectUngroundedFacts` is getest)
 - `UrgencyDetectionService`: rule engine als bron van waarheid, AI signaleert
 - `CompletenessScorer`
@@ -132,7 +138,13 @@ voorwaarde), het template is de kantoorspecifieke laag erbovenop.
 
 - `VisualSignalProvider` in de browser (MediaPipe, 5–8 fps)
 - Pacing-integratie; typegrens richting cold path
-- Consent-UI met versienummers van beide teksten
+- Consent-UI met versienummers van beide teksten — de teksten zelf staan sinds 26 augustus
+  op `/privacy` en `/ai-disclosure`, als **concept**; ze moeten door het kantoor worden
+  vastgesteld voordat de conceptmarkering eraf mag
+- Contactgegevens achter een strengere RLS dan de rest van de rij. `client_name`,
+  `client_email` en `client_phone` vallen nu onder `intakes_select_org`, dus iedereen met
+  toegang tot het kantoor ziet ze — ook een `VIEWER`. Bewust uitgesteld tot er een tweede
+  tenant is; met één kantoor verandert het niets aan wie wat kan zien
 - Retentie-instelling per kantoor + cleanup-service
 - Conflictcheck vóór afronding
 

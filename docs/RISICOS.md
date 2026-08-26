@@ -902,3 +902,47 @@ een kale hash te maken.
 avatarvendor een hard prepaid saldo in plaats van automatisch bijladen. De Cartesia-402 uit
 risico 13 is hier het precedent: een leverancierslimiet komt binnen als een sessie die direct
 sluit, en niet als een rekening waar iemand op tijd naar kijkt.
+
+## 15. De draaiende worker is een demo die eruitziet als het product
+
+**Waargenomen.** Van de negen agent-RPC's die `@intake/db-core` aanbiedt, worden er zeven
+nergens aangeroepen:
+
+| RPC                           | aangeroepen                             |
+| ----------------------------- | --------------------------------------- |
+| `agent_verify_session`        | ja — bij het openen van de socket       |
+| `agent_end_session`           | ja — sinds 25 augustus, bij het sluiten |
+| `agent_context`               | nee                                     |
+| `agent_set_session_providers` | nee                                     |
+| `agent_append_message`        | nee                                     |
+| `agent_upsert_fact`           | nee                                     |
+| `agent_set_risk_flag`         | nee                                     |
+| `agent_record_metric`         | nee                                     |
+| `agent_log_llm_call`          | nee                                     |
+| `agent_update_progress`       | nee                                     |
+
+**Waarom het pijn doet.** Het gesprek werkt: de cliënt praat, de assistent antwoordt, de
+extractie draait, de HUD toont zes stappen. Alleen landt er niets. Na afloop staat er een rij
+in `intakes` met een status en een consentrij, en verder niets — geen transcript, geen feiten,
+geen onderwerp, geen urgentie, geen volledigheid, geen metriek. De dossierlijst toont vier
+streepjes, en dat leest als "de extractie werkt niet" terwijl de extractie prima werkt en
+alleen nergens heen schrijft.
+
+Dat is de gevaarlijkste vorm die dit project kent: van buiten niet te onderscheiden van een
+werkend product. Een demo waarin je zelf een gesprek voert, bewijst hier niets over wat er in
+het dossier belandt.
+
+**De oorzaak is één keuze, en die staat opgeschreven.** De worker die in productie draait is
+`apps/agent/live/server.ts`, oorspronkelijk het ontwikkelharnas — zie `docs/deploy.md`, "Wat
+nog niet klopt". Dat bestand had per ontwerp geen databasekant ("geen gezicht, geen LiveKit,
+geen database"). De code die het wél doet hangt aan `src/main.ts`, en dat bestand luistert
+nergens op. Elk gevolg hiervan is tot nu toe apart ontdekt: `ended_at` dat nooit werd
+geschreven (risico bij `maxConcurrentSessions` hierboven), en nu vier lege kolommen.
+
+**Wat er niet aan de hand is.** Het RPC-oppervlak zelf is af en getest: 44 isolatie-assertions
+groen, `agent_update_progress` kent al `p_client_name`, `p_subject`, `p_completeness`. Er
+hoeft niets ontworpen te worden; er moet bedraad worden.
+
+**Wat dit niet oplost.** Naam en contactgegevens komen sinds 26 augustus via het
+toestemmingsscherm binnen en lopen langs `apps/web`, niet langs de worker. Die kolom vult dus
+wél. Onderwerp, urgentie en volledigheid blijven leeg tot deze bedrading er is.
