@@ -7,5 +7,5 @@
     "types": ["node"],
     "lib": ["ES2023", "DOM"]
   },
-  "include": ["src/**/*.ts", "bakeoff/**/*.ts"]
+  "include": ["src/**/*.ts", "bakeoff/**/*.ts", "live/**/*.ts", "vitest*.config.ts"]
 }

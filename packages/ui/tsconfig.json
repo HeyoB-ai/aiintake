@@ -3,8 +3,15 @@
   "compilerOptions": {
     "lib": ["ES2023", "DOM"],
     "jsx": "react-jsx",
-    "rootDir": "./src",
+    "rootDir": ".",
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "preview/**/*.ts",
+    "preview/**/*.tsx",
+    "vitest*.config.ts",
+    "vitest.setup.ts"
+  ]
 }

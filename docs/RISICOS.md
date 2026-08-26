@@ -1321,3 +1321,73 @@ doorgegeven rate ook de juiste ís, alleen dat er geen tweede bron voor in de pl
 gekomen. Dat de sessie met de meegegeven rate rékent staat in `null-provider.test.ts`; dat de
 synthese levert wat ze belooft in `pnpm diag:tts-productieweg`. Los dekt geen van de drie de
 keten.
+
+## 20. Het startpunt van de worker kwam door geen enkele poort
+
+**Status: opgelost op 26 augustus 2026, dezelfde dag als risico 19.**
+
+**Wat er gebeurde.** De reparatie van risico 19 zette `const SAMPLE_RATE = media.tts.sampleRate`
+op moduleniveau, 28 regels bóven `const media`. Op Railway crashte de worker daardoor bij elke
+herstart:
+
+```
+var SAMPLE_RATE = media.tts.sampleRate;
+TypeError: Cannot read properties of undefined (reading 'tts')
+```
+
+In TypeScript is dat een temporal-dead-zone-fout; esbuild bundelt `const` naar `var` en dan is
+het stilletjes `undefined` in plaats van een `ReferenceError`.
+
+**Waarom dat op zichzelf al fout was.** Ook een afgeleide constante is een tweede plek waar het
+getal woont. Hij bevriest bij het laden van de module wat per sessie hoort te worden bepaald,
+en een kantoor met een andere leverancier zou hem niet meer meekrijgen — precies waar risico 19
+over ging. Er staat nu geen constante meer; wie de rate nodig heeft, vraagt hem aan de
+mediaketen van de sessie.
+
+**Waarom geen enkele poort hem zag.** Twee gaten, en ze verklaren elk een deel.
+
+_Eerste gat: `live/` stond niet in de tsconfig._ `apps/agent/tsconfig.json` had
+`include: ["src/**/*.ts", "bakeoff/**/*.ts"]`. Gemeten met `tsc --listFiles`: 1219 bestanden
+gecontroleerd, **nul** eronder in `live/`. Het startpunt van de worker is dus nooit
+getypecheckt — niet die dag, niet ooit. Zet je `live/` erin, dan meldt tsc de crash meteen, op
+de goede regel:
+
+```
+live/server.ts(80,21): error TS2448: Block-scoped variable 'media' used before its declaration.
+live/server.ts(80,21): error TS2454: Variable 'media' is used before being assigned.
+```
+
+Er stonden ook vier oudere fouten in dat bestand: `Parameters<typeof createServer>[0]` komt
+door de overloads uit op `ServerOptions` in plaats van `RequestListener`. Die stonden er
+maandenlang en niemand kon ze zien.
+
+_Tweede gat, en dat is het zwaardere: niets startte de worker ooit._ `build:worker` bundelt met
+esbuild, dat types **stript** zonder ze te controleren, en daarna draaide er niemand
+`dist/worker.js` tot Railway het deed. Een typecheck vangt een typefout; hij vangt geen
+ontbrekende omgevingsvariabele, geen import die in de bundel anders uitpakt, en geen fout die
+pas bij het uitvoeren van moduleniveau ontstaat.
+
+**En de controle die ik er de dag ervoor voor had gezet, bevestigde de fout.**
+`check-samplerate.mjs` eiste letterlijk `const SAMPLE_RATE = media.tts.sampleRate;`. Hij keek
+of de constante een afgeleide was, niet of hij er hoorde te zijn — en groen betekende dus dat
+de crash op zijn plek stond. Die eis is omgekeerd: er hoort geen constante te zijn.
+
+**Wat er nu staat.**
+
+- `live/**/*.ts` in de tsconfig, plus de negen andere bestanden die buiten beeld stonden
+  (vitest-configs, `packages/ui/preview/`). `rootDir` van `@intake/db` en `@intake/ui` naar de
+  pakketmap. Alle zestien pakketten typechecken groen.
+- `pnpm typecheck:dekking` — voor elk pakket: valt elk `.ts`-bestand binnen een `include`?
+- `pnpm worker:start-check` — start `dist/worker.js` en wacht op `/health`. Zonder de sleutels
+  meldt hij dat en laat door, zoals `db:status`.
+- Beide draaien vóór elke push. Beide zijn getoetst op de echte fout: de typecheck geeft
+  TS2448/TS2454, de startproef geeft _"DE WORKER KOMT NIET OVEREIND: het proces stopte met
+  afsluitcode 1 — TypeError: Cannot read properties of undefined (reading 'tts')"_. De
+  startproef had hem gevangen zónder de tsconfig-reparatie, want hij draait de bundel die naar
+  productie gaat.
+
+**De vorm om te onthouden.** Dit is dezelfde als `build:netlify` en `db:status`: een poort die
+een ander pad neemt dan productie, en daardoor groen wordt over iets anders dan wat er draait.
+Drie keer nu. De remedie is elke keer dezelfde geweest — laat de poort het echte pad nemen —
+en de kosten van hem niet nemen ook: een deploy die stukgaat op iets wat lokaal in seconden
+zichtbaar was.

@@ -24,5 +24,18 @@
 # eruit kwam was spraak die anderhalf keer te traag liep. Dat is niet met een typecheck te
 # vangen maar wel met een controle die kijkt of het getal ergens opnieuw wordt opgeschreven.
 
+# En de derde en vierde zijn er om dezelfde reden als de tweede, alleen een laag dieper.
+#
+# De worker crashte op Railway bij elke herstart, terwijl hier alles groen was. Twee gaten:
+# `live/` stond niet in de tsconfig van apps/agent -- het startpunt van de worker is dus nooit
+# getypecheckt -- en niets startte de bundel ooit. `build:worker` schrijft dist/worker.js weg
+# met esbuild, dat types stript zonder ze te controleren, en daarna draaide niemand dat
+# bestand tot productie het deed.
+#
+# Het tweede is het zwaardere gat: een typecheck vangt geen fout die pas bij het uitvoeren van
+# moduleniveau ontstaat. Voor die klasse bestaat maar een controle -- het ding starten.
+
 pnpm db:status || exit 1
-exec pnpm samplerate:check
+pnpm samplerate:check || exit 1
+pnpm typecheck:dekking || exit 1
+exec pnpm worker:start-check

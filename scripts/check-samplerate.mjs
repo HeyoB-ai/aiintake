@@ -62,11 +62,25 @@ eis(
 
 // ---------------------------------------------------------------- de worker
 const server = lees('apps', 'agent', 'live', 'server.ts');
+/*
+ * Hier stond: "SAMPLE_RATE moet een afgeleide van media.tts.sampleRate zijn".
+ *
+ * Die eis bevestigde de fout in plaats van hem te vangen. Een module-constante is óók een
+ * tweede plek waar dit getal woont — hij bevriest bij het laden van de module wat per sessie
+ * hoort te worden bepaald, en een kantoor met een andere leverancier krijgt hem niet mee.
+ *
+ * Bovendien crashte die vorm: de constante stond boven `const media` en draaide dus bij het
+ * importeren, voordat `media` bestond. Op Railway kwam dat eruit als "Cannot read properties
+ * of undefined (reading 'tts')", bij elke herstart.
+ *
+ * De eis is dus omgekeerd: er hoort hier géén constante te zijn.
+ */
 eis(
-  /const SAMPLE_RATE = media\.tts\.sampleRate;/.test(server),
-  'live/server.ts: SAMPLE_RATE is geen afgeleide van media.tts.sampleRate meer. Een eigen ' +
-    'getal hier betekent dat de pagina iets anders krijgt gemeld dan de TTS levert.',
-  'server.ts leidt SAMPLE_RATE af van de TTS-configuratie',
+  !/^const SAMPLE_RATE/m.test(server),
+  'live/server.ts: er staat weer een SAMPLE_RATE op moduleniveau. Ook een afgeleide is een ' +
+    'tweede plek: hij bevriest bij het laden wat per sessie hoort te worden bepaald. Vraag ' +
+    'de rate aan de mediaketen van de sessie.',
+  'server.ts heeft geen samplerate op moduleniveau',
 );
 eis(
   /sampleRate: mediaketen\.tts\.sampleRate,/.test(server),

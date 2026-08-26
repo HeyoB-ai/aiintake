@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type RequestListener } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -66,18 +66,22 @@ if (PRODUCTIE && process.argv.includes('--zonder-token')) {
   process.exit(1);
 }
 /*
- * Geen eigen getal meer.
+ * Hier stond eerst `const SAMPLE_RATE = 16_000`, en daarna `= media.tts.sampleRate`.
  *
- * Hier stond `16_000`, en drie regels verderop staat de toelichting dat twee plekken met
- * hetzelfde getal is hoe een mismatch ontstaat. Precies dat gebeurde: op 26 augustus 2026 ging
- * de TTS naar 24 kHz en deze constante bleef staan. De pagina kreeg 16000 gemeld, verklaarde
- * 24 kHz-samples als 16 kHz, en speelde alles anderhalf keer te traag af — met een lagere
- * toonhoogte erbij. Van buiten klonk dat als een stem die te langzaam praat.
+ * Allebei fout, om verschillende redenen. Het vaste getal was een tweede kopie: toen de TTS
+ * op 24 kHz ging, bleef dit op 16000 en speelde de pagina alles anderhalf keer te traag af
+ * (risico 19). De afgeleide crashte: deze regel staat bóven `const media`, dus hij draaide bij
+ * het importeren van de module voordat `media` bestond. In TypeScript is dat een
+ * temporal-dead-zone-fout; esbuild bundelt `const` naar `var` en dan is het stilletjes
+ * `undefined`, met `Cannot read properties of undefined (reading 'tts')` op Railway.
  *
- * De les was niet "zet het getal op 24000" maar "laat het geen tweede getal zijn". Dit volgt
- * nu de TTS-configuratie.
- */
-const SAMPLE_RATE = media.tts.sampleRate;
+ * De les van beide is dezelfde en die stond al in de reparatie: geen tweede plek waar dit
+ * getal woont. Een module-constante ís zo'n tweede plek, ook als hij is afgeleid — hij bevriest
+ * bij het laden wat per sessie hoort te worden bepaald, en een kantoor met een andere
+ * leverancier zou hem niet meer meekrijgen.
+ *
+ * Er is dus geen constante meer. Wie de rate nodig heeft, vraagt hem aan de mediaketen van de
+ * sessie waar hij mee bezig is.
 
 /**
  * Rechtstreeks uit process.env, en niet via `readAgentEnv()`.
@@ -294,7 +298,15 @@ const gestartOp = new Date().toLocaleTimeString('nl-NL', { timeZoneName: 'short'
  */
 const METTLS = process.argv.includes('--tls');
 
-function maakServer(afhandelaar: Parameters<typeof createServer>[0]) {
+/*
+ * `RequestListener` en niet `Parameters<typeof createServer>[0]`.
+ *
+ * `createServer` is overloaded — `(requestListener?)` en `(options, requestListener?)` — en
+ * `Parameters<>` pakt de laatste overload. Het type kwam daardoor uit op `ServerOptions`, dus
+ * elke aanroep met een echte afhandelaar was een typefout. Dat stond hier al maandenlang en
+ * viel niemand op, omdat `live/` niet in de tsconfig zat.
+ */
+function maakServer(afhandelaar: RequestListener) {
   if (!METTLS) return createServer(afhandelaar);
 
   const map = join(HIER, '..', '..', '..', '.certs');
@@ -1014,7 +1026,9 @@ process.stdin.on('data', (d) => {
 
 server.listen(POORT, () => {
   console.log(`\n  Praat met de intake:  ${METTLS ? 'https' : 'http'}://localhost:${POORT}\n`);
-  console.log(`  model ${env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001'} · ${SAMPLE_RATE} Hz`);
+  console.log(
+    `  model ${env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001'} · ${media.tts.sampleRate} Hz`,
+  );
   console.log(
     // Deze regel wordt pas bereikt als het sessietoken er echt gekomen is; zie
     // controleerAvatar() hierboven. Een melding die niet kan liegen.
