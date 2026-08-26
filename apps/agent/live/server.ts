@@ -413,9 +413,14 @@ async function magVerbinden(url: string): Promise<Toegang> {
  * dat had nooit een databasekant. Gevolg: `ended_at` werd nooit geschreven. Niet één pad
  * dat brak, maar een pad dat er niet was. Zie docs/deploy.md, "Wat nog niet klopt".
  *
- * Het effect was niet cosmetisch. `issue_agent_session` telt de gelijktijdige sessies als
- * `ended_at is null`, dus elk afgerond gesprek bleef meetellen tot `maxConcurrentSessions`
- * vol zat en niemand meer kon beginnen.
+ * Het effect was niet cosmetisch. De functie die sessies uitgeeft telt de gelijktijdige
+ * sessies als `ended_at is null`, dus elk afgerond gesprek bleef meetellen tot
+ * `maxConcurrentSessions` vol zat en niemand meer kon beginnen.
+ *
+ * Die functie wordt hier bewust niet bij naam genoemd: de statische grenscontrole in
+ * packages/db verbiedt dat woord in apps/agent, en terecht — de worker hoort zijn eigen
+ * credential niet te kunnen aanmaken. Dat het verbod ook op commentaar slaat, is geen
+ * scherpte die eraf moet: een grep die uitzonderingen kent, bewaakt niets meer.
  *
  * ## De vertaling van route naar reden
  *

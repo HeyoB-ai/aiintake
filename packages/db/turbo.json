@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // De testsuite van dit pakket leest bestanden buiten dit pakket.
+    //
+    // agent-has-no-service-role.test.ts grept door apps/agent, schema-parity door
+    // supabase/migrations. Turbo weet dat niet: zijn cachesleutel wordt opgebouwd uit de
+    // bestanden van packages/db, en een wijziging in apps/agent laat die sleutel dus
+    // ongemoeid. Het gevolg is geen trage build maar een stille: turbo geeft een groen
+    // resultaat van een vorige run terug voor code die sindsdien is veranderd.
+    //
+    // Dat is precies gebeurd. Een commentaarregel in apps/agent/live/server.ts noemde de
+    // functie die sessies uitgeeft bij naam, wat de grenscontrole verbiedt. `pnpm test`
+    // meldde 15/15 groen omdat dit pakket uit de cache kwam, en de commit ging zo de
+    // geschiedenis in. CI zou hem wel gevonden hebben.
+    //
+    // Waarom geen `inputs` met een pad naar buiten: turbo staat inputs buiten de pakketmap
+    // niet toe, en globalDependencies zou elke taak in de hele repo laten hercompileren bij
+    // elke wijziging in apps/. Deze suite duurt een paar seconden; hem altijd draaien is
+    // goedkoper dan een cache die niet klopt.
+    "test": {
+      "cache": false
+    }
+  }
+}
