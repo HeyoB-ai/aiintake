@@ -112,6 +112,8 @@ export class ConversationClient {
   private proc: ScriptProcessorNode | null = null;
   private anam: AnamClient | null = null;
   private anamInvoer: AnamAudioInput | null = null;
+  /** De aanmaak die op dit moment loopt; voorkomt twee stromen bij gelijktijdige chunks. */
+  private anamInvoerBezig: Promise<AnamAudioInput | null> | null = null;
   private bronnen: AudioBufferSourceNode[] = [];
   private volgendeStart = 0;
   private uitRate = 16_000;
@@ -405,15 +407,46 @@ export class ConversationClient {
     };
   }
 
+  /**
+   * De invoerstroom naar de avatar, hoogstens één keer aangemaakt.
+   *
+   * ## De race die hier zat
+   *
+   * `speel()` roept dit per audiochunk aan, en chunks komen in bursts binnen. De oude
+   * versie keek of `this.anamInvoer` al bestond, en zette dat veld pas ná de `await`. Twee
+   * chunks die binnen dat venster vallen zien allebei `null`, maken allebei een stroom aan,
+   * en de tweede overschrijft de eerste. De eerste chunks belanden dan in verschillende
+   * sequences bij de avatar.
+   *
+   * Dat is precies wat "onduidelijk beginnen" oplevert, en alleen aan het begin van een
+   * beurt: daar arriveren de meeste chunks in de kortste tijd. Bij de openingsbeurt is het
+   * het ergst.
+   *
+   * De reparatie is de bélofte onthouden en niet het resultaat. Wie tijdens het aanmaken
+   * binnenkomt, wacht op dezelfde promise en krijgt dezelfde stroom.
+   */
   private async zorgVoorAnamInvoer(): Promise<AnamAudioInput | null> {
     if (this.anamInvoer) return this.anamInvoer;
     if (!this.anam) return null;
-    this.anamInvoer = await this.anam.createAgentAudioInputStream({
-      encoding: 'pcm_s16le',
-      sampleRate: this.uitRate,
-      channels: 1,
-    });
-    return this.anamInvoer;
+    if (!this.anamInvoerBezig) {
+      // `Promise.resolve` omdat de SDK het object óók synchroon mag teruggeven; zo is er
+      // één type en blijft de `.then` getypeerd.
+      this.anamInvoerBezig = Promise.resolve(
+        this.anam.createAgentAudioInputStream({
+          encoding: 'pcm_s16le',
+          sampleRate: this.uitRate,
+          channels: 1,
+        }),
+      )
+        .then((stroom: AnamAudioInput) => {
+          this.anamInvoer = stroom;
+          return stroom;
+        })
+        .finally(() => {
+          this.anamInvoerBezig = null;
+        });
+    }
+    return this.anamInvoerBezig;
   }
 
   /** Barge-in: alles wat klaarstaat weggooien, niet uitspelen. */

@@ -94,6 +94,17 @@ export interface EngineDeps {
   readonly classify?: ClassifyModel;
   /** Het ladingoordeel liep stuk. Nooit stil: zie de toelichting bij `respond`. */
   readonly onLadingFout?: (fout: unknown) => void;
+  /**
+   * De openingsbeurt wordt gebouwd; dit is wat er op dat moment bekend was.
+   *
+   * Bestaat omdat een ontbrekende naam anders alleen hoorbaar is. Wie meeluistert merkt
+   * het; wie het log leest niet.
+   */
+  readonly onOpening?: (info: {
+    clientName: string | null;
+    organisationName: string;
+    turnCount: number;
+  }) => void;
   readonly catalog?: FactCatalog;
   /** Waar de gerenderde prompt naartoe gaat voor `llm_calls`. Optioneel. */
   readonly onPrompt?: (prompt: RenderedPrompt) => void;
@@ -203,6 +214,22 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         : null;
 
       const isOpening = turnCount === 0 && !input.lastClientUtterance;
+
+      /*
+       * Melden wat er beschikbaar was op het moment dat de opening werd gebouwd.
+       *
+       * Niet achteraf uit het transcript af te leiden: een opening zonder naam ziet er
+       * daar hetzelfde uit als een cliënt die geen naam heeft ingevuld. En dit is de enige
+       * beurt waarin de naam wordt gebruikt, dus als hij hier ontbreekt, ontbreekt hij het
+       * hele gesprek.
+       */
+      if (isOpening) {
+        deps.onOpening?.({
+          clientName: input.clientName ?? null,
+          organisationName: input.organization.name,
+          turnCount,
+        });
+      }
       const isClosing = plan.shouldClose && !isOpening;
       const narrativePhase = !isClosing && turnCount <= narrativeTurns * 2;
 

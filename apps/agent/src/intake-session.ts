@@ -81,6 +81,12 @@ export interface IntakeSessionOptions {
   readonly onErkenning?: (keuze: ErkenningKeuze, oordeel: LadingOordeel) => void;
   /** Het ladingoordeel liep stuk. Nooit stil. */
   readonly onLadingFout?: (fout: unknown) => void;
+  /** Wat er bekend was toen de openingszin werd gebouwd. Zie de engine. */
+  readonly onOpening?: (info: {
+    clientName: string | null;
+    organisationName: string;
+    turnCount: number;
+  }) => void;
   /**
    * Elke stap van het wanhoopspad: gedetecteerd, vastgelegd, of niet vastgelegd.
    *
@@ -225,6 +231,7 @@ export class IntakeSession {
       cold,
       ...(options.erkenningAan === false ? {} : { classify }),
       onLadingFout: (fout) => options.onLadingFout?.(fout),
+      onOpening: (info) => options.onOpening?.(info),
       ...(options.narrativeTurns !== undefined ? { narrativeTurns: options.narrativeTurns } : {}),
       onPrompt: (p) => {
         this.laatstePrompt = p;

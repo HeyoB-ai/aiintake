@@ -472,6 +472,32 @@ async function schrijfSessieEinde(
 
 async function verbinding(ws: WebSocket, verzoekUrl: string) {
   const geopendOp = Date.now();
+
+  /*
+   * De handler staat er vóór de eerste `await`, en dat is de hele reden dat hij zo is
+   * opgezet.
+   *
+   * De browser stuurt `start` zodra de socket open is. Alles wat daarna maar vóór de
+   * registratie binnenkomt, is weg: `ws` bewaart geen berichten voor een luisteraar die er
+   * nog niet is. Er zat al één netwerkronde vóór de registratie (de tokenverificatie) en ik
+   * heb daar bij agent_context een tweede aan toegevoegd. Dat venster is dus verdubbeld, en
+   * "soms begroet ze me niet" is precies hoe dat klinkt.
+   *
+   * Eén luisteraar, en een functie die verwisseld wordt zodra de sessie er staat. Zo is er
+   * geen moment zonder ontvanger en blijft er precies één handler op de socket.
+   */
+  let afhandelen: (data: unknown, isBinary: boolean) => void = (data, isBinary) => {
+    if (isBinary) return; // audio van vóór de sessie heeft geen bestemming
+    try {
+      const bericht = JSON.parse(String(data)) as { type?: string };
+      if (bericht.type === 'start') vroegStart = true;
+    } catch {
+      /* niet-JSON van de browser negeren we */
+    }
+  };
+  let vroegStart = false;
+  ws.on('message', (data, isBinary) => afhandelen(data, isBinary));
+
   const toegang = await magVerbinden(verzoekUrl);
   if (!toegang.ok) {
     console.log(`  verbinding geweigerd: ${toegang.reden}`);
@@ -566,6 +592,16 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
      * kunnen los van elkaar misgaan. Ze staan daarom los in het log, met de mislukking in
      * hoofdletters -- dit is het pad waarvan jij zei dat het nooit stil mag falen.
      */
+    onOpening: (info) => {
+      // De enige beurt waarin de naam wordt gebruikt. Ontbreekt hij hier, dan ontbreekt
+      // hij het hele gesprek -- en dat hoort niet alleen hoorbaar te zijn.
+      console.log(
+        info.clientName
+          ? `  opening gebouwd · begroet "${info.clientName}" namens ${info.organisationName}`
+          : `  opening gebouwd ZONDER NAAM · namens ${info.organisationName} · ` +
+              'de cliënt wordt niet aangesproken',
+      );
+    },
     onWanhoop: (reactie, stap) => {
       console.log(`  WANHOOP ${reactie.regelKey} (${reactie.niveau}) · ${stap}`);
       stuur({ type: 'wanhoop', regel: reactie.regelKey, niveau: reactie.niveau, stap });
@@ -696,7 +732,7 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
    * handler pas daarna gezet, dan verdween dat bericht en bleef het stil — zonder fout,
    * wat de vervelendste variant is.
    */
-  ws.on('message', (data, isBinary) => {
+  afhandelen = (data, isBinary) => {
     if (isBinary) {
       if (!sessie) return; // audio van vóór de sessie heeft geen bestemming
       const buf = data as Buffer;
@@ -744,7 +780,14 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     } catch {
       /* niet-JSON van de browser negeren we */
     }
-  });
+  };
+
+  // Een `start` die tijdens de twee netwerkrondes binnenkwam, telt alsnog. Zonder deze
+  // regel is hij opgevangen door de provisorische handler en daar blijven staan.
+  if (vroegStart) {
+    console.log('  start-bericht kwam binnen vóór de sessie; alsnog verwerkt');
+    wilStarten = true;
+  }
 
   ws.on('close', (code: number, reden: Buffer) => {
     // Niet alleen onze kant loslaten: ook de avatarsessie aan hun kant sluiten. Anders
