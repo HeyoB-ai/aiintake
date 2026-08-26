@@ -116,6 +116,9 @@ voorwaarde), het template is de kantoorspecifieke laag erbovenop.
 
 - `FactExtractor` met citaatverankering (`rejectUngroundedFacts` is getest)
 - `UrgencyDetectionService`: rule engine als bron van waarheid, AI signaleert
+- Tegenspraak zichtbaar maken: een feit dat verandert nadat het is vastgelegd, houdt zijn
+  vorige waarde en toont dat op de detailpagina. Zonder dat is een gecorrigeerd feit niet
+  van een bevestigd feit te onderscheiden — risico 16
 - `CompletenessScorer`
 - Intakedetailpagina: samenvatting, urgentie, feiten, tijdlijn, transcript, auditlog
 - Statusacties: accepteren, afwijzen, meer informatie, doorverwijzen, gesprek plannen

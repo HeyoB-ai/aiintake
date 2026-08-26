@@ -946,3 +946,54 @@ hoeft niets ontworpen te worden; er moet bedraad worden.
 **Wat dit niet oplost.** Naam en contactgegevens komen sinds 26 augustus via het
 toestemmingsscherm binnen en lopen langs `apps/web`, niet langs de worker. Die kolom vult dus
 wél. Onderwerp, urgentie en volledigheid blijven leeg tot deze bedrading er is.
+
+## 16. Een gecorrigeerd feit is niet van een bevestigd feit te onderscheiden
+
+Dit is een eigenschap van het ontwerp en niet van een storing. Hij blijft bestaan als elke
+bekende bug in de barge-in-keten is opgelost.
+
+**De vorm.** De cliënt zegt iets, de assistent verwerkt het tot een feit, en de cliënt
+grijpt in om het recht te zetten. Komt die correctie niet aan — om welke reden dan ook —
+dan behoudt het dossier de oorspronkelijke bewering **met een citaat dat klopt**. Het feit
+is verankerd in het transcript, het citaat staat er letterlijk, en de bewering is verkeerd.
+
+**Waarom dit een graad erger is dan risico 10.** Daar is een gegokte datum niet van een
+vastgestelde te onderscheiden; de verdediging is dat een gok geen citaat heeft, en
+`rejectUngroundedFacts` vangt hem daarop. Hier ís er een citaat. De cliënt heeft die woorden
+werkelijk gezegd. Elke controle die wij hebben — verankering, bekende sleutel, typevalidatie
+— geeft groen. De correctie liet geen spoor achter dat een advocaat kan zien, want er is
+geen veld voor "hier is iets weersproken".
+
+En de bewering is niet neutraal fout: het zijn juist de feiten die iemand wíl corrigeren die
+ertoe doen. Een ontslagdatum, een bedrag, een datum waarop een termijn gaat lopen. Precies
+de velden waarop een vervaltermijn wordt gerekend.
+
+**Waarom de bestaande verdediging hier niet werkt.** `truncateToSpoken` doet zijn werk goed:
+het transcript bevat alleen wat de cliënt heeft gehóórd. Dat maakt het probleem juist
+scherper — de assistentbeurt klopt, de cliëntbeurt klopt, en wat ertussen verdween is
+nergens geboekt. Wat wél werkt en al bestaat is de aanpalende detectie: `turn_continued`
+(risico 2) meldt dat een uitspraak te vroeg werd afgekapt. Dat is dezelfde klasse signaal en
+dekt een ander stuk van dezelfde weg.
+
+**Wat er sinds 26 augustus wél gemeld wordt.**
+
+- Een beurt die begint en eindigt zonder één bruikbaar woord geeft nu `empty_turn` met de
+  reden en het aantal resultaten van de herkenner. Dat verdween eerder met een kale
+  `return`: een kuch en een onverstane correctie waren van buiten allebei stilte.
+- Een uitspraak die binnenkomt terwijl een interrupt loopt, wacht die interrupt af in plaats
+  van hem te overschrijven. Zonder dat schreef `completeTurn` de correctie weg als de
+  uitspraak die de ónderbroken beurt startte — de correctie stond dan wél in het dossier,
+  op de verkeerde plek en met het verkeerde antwoord ernaast.
+
+**Wat er niet is.** Er is geen mechanisme dat een correctie herkent als correctie. Een
+cliënt die "nee, het was februari" zegt, levert een nieuwe beurt op; of het eerder
+vastgelegde feit daarmee wordt ingetrokken, hangt af van wat de extractie ervan maakt. Er is
+geen tegenspraakdetectie, geen versiegeschiedenis per feit, en geen markering op de
+detailpagina dat een feit is gewijzigd nadat het was vastgesteld.
+
+**Wat dit zou verkleinen, in volgorde van kosten.** Een feit dat verandert nadat het is
+vastgelegd, hoort zijn vorige waarde te bewaren en zichtbaar te maken — `case_facts` heeft
+al een auditspoor, dus dit is vooral een kwestie van tonen. Daarnaast: een expliciete
+tegenspraakcontrole op het koude pad, die niet vraagt "wat is het feit" maar "spreekt deze
+beurt iets tegen dat al vaststaat". Beide staan nog niet in de roadmap en beide zijn
+groter dan een reparatie.
