@@ -30,6 +30,8 @@ pnpm-debug.log*
 
 # artefacten van metingen (bevatten timings, geen pii, maar horen niet in git)
 /measurements/
+# ook wanneer een diagnose vanuit een package draait; pnpm --filter zet cwd daar
+measurements/
 *.tsbuildinfo
 
 # Zelfondertekende certificaten voor lokaal testen op een toestel. Bevat een privésleutel.

@@ -46,7 +46,8 @@
     "cert:serve": "node scripts/cert-serve.mjs",
     "build:netlify": "node scripts/build-als-netlify.mjs",
     "deps:check": "node scripts/check-fantoom-deps.mjs",
-    "prepare": "node scripts/install-hooks.mjs"
+    "prepare": "node scripts/install-hooks.mjs",
+    "diag:audio": "pnpm --filter @intake/agent diag:audio"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

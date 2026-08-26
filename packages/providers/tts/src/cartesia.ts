@@ -223,8 +223,42 @@ export class CartesiaTtsStream implements TtsStream {
     if (this.cancelled) return;
 
     if (message.type === 'chunk' && message.data) {
+      /*
+       * Uitlijning, en waarom dit er staat terwijl het probleem zich niet voordeed.
+       *
+       * Hier stond `new Int16Array(bytes.buffer, bytes.byteOffset, …)` rechtstreeks op de
+       * Buffer. Daar zitten twee aannames in die geen van beide gegarandeerd zijn:
+       *
+       *  - dat `byteOffset` even is. Node deelt Buffers uit een pool; bij een oneven offset
+       *    gooit `new Int16Array` een RangeError en is de chunk weg.
+       *  - dat `length` even is. Bij een oneven lengte viel de laatste byte onder tafel en
+       *    begon de vólgende chunk op de verkeerde bytegrens. Vanaf dat punt worden twee
+       *    helften van verschillende samples aan elkaar geplakt, en dat is ruis — geen
+       *    subtiele vervorming.
+       *
+       * Gemeten op 26 augustus met `pnpm diag:audio`, op de zin waarmee het live misging:
+       * 45 chunks, nul met een oneven lengte, nul met een oneven offset, nul bytes
+       * weggegooid. Het geval deed zich dus niet voor, en dit is géén reparatie van de
+       * onverstaanbare opening.
+       *
+       * Het blijft staan als verzekering: het hangt aan hoe de leverancier zijn chunks
+       * knipt en aan de Buffer-pool van Node, en beide kunnen morgen anders zijn. De kosten
+       * zijn één kopie per chunk; de fout die het uitsluit is onhoorbaar te debuggen.
+       */
       const bytes = Buffer.from(message.data, 'base64');
-      const ruw = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.length / 2));
+      const bruikbaar = Math.floor(bytes.length / 2) * 2;
+      const uitgelijnd = Buffer.from(bytes.subarray(0, bruikbaar));
+      const ruw = new Int16Array(uitgelijnd.buffer, uitgelijnd.byteOffset, bruikbaar / 2);
+      if (bruikbaar !== bytes.length) {
+        // Nooit stil: als dit ooit afgaat, is elke sample hierna een byte verschoven.
+        this.emit(
+          'error',
+          new Error(
+            `Cartesia: chunk met oneven aantal bytes (${bytes.length}); ` +
+              'de audio hierna kan misuitgelijnd zijn.',
+          ),
+        );
+      }
       const pcm = this.trimming && this.config.trimLeadingSilence ? this.trimLeading(ruw) : ruw;
       if (pcm.length === 0) return;
 
