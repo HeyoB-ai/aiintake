@@ -55,10 +55,13 @@ export interface CreatePublicIntakeInput {
   microphoneConsent: boolean;
   userAgentHash?: string | null;
   /**
-   * Naam en minstens één contactkanaal; de functie weigert zonder.
+   * De naam; de functie weigert zonder, of met minder dan twee tekens.
    *
    * Verplicht in het type en niet optioneel-met-een-standaard, zodat een aanroeper die dit
    * vergeet hier een typefout krijgt in plaats van een 22023 uit de database.
+   *
+   * Contactgegevens zijn wél optioneel. Een intake met alleen een naam is toegestaan; het
+   * kantoor kan de cliënt dan niet bereiken, en het toestemmingsscherm zegt dat erbij.
    */
   clientName: string;
   clientEmail?: string | null;

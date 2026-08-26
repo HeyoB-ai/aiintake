@@ -42,9 +42,9 @@ export default function PrivacyPagina() {
       <Kop>Welke gegevens u zelf opgeeft</Kop>
       <Lijst
         items={[
-          'Uw naam — nodig om uw dossier te kunnen aanleggen en u aan te spreken.',
-          'Uw e-mailadres en/of telefoonnummer — nodig om contact met u op te nemen over uw ' +
-            'zaak. Eén van beide is verplicht, allebei mag.',
+          'Uw naam — verplicht, om uw dossier te kunnen aanleggen en u aan te spreken.',
+          'Uw e-mailadres en telefoonnummer — allebei optioneel. Laat u niets achter, dan ' +
+            'kan het kantoor geen contact met u opnemen over uw zaak.',
           'Wat u tijdens het gesprek vertelt over uw situatie.',
         ]}
       />

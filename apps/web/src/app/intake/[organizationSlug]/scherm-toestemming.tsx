@@ -40,10 +40,10 @@ export interface ToestemmingUitkomst {
 }
 
 /**
- * Naam plus minstens één manier om terug te bellen.
+ * Alleen de naam is verplicht.
  *
- * Waarom dit niet aan het gesprek wordt overgelaten: een naam is geen feit om via spraak op
- * te halen. Er valt niet op door te vragen, er is geen citaat dat hem staaft, en
+ * Waarom de naam niet aan het gesprek wordt overgelaten: een naam is geen feit om via
+ * spraak op te halen. Er valt niet op door te vragen, er is geen citaat dat hem staaft, en
  * spraakherkenning is op eigennamen juist het zwakst. Een verkeerd verstane achternaam in
  * een dossier is erger dan een lege kolom — hij ziet er ingevuld uit.
  *
@@ -51,11 +51,21 @@ export interface ToestemmingUitkomst {
  * toestemming wordt gegeven. De cliënt hoort te zien wat hij afgeeft voordat hij akkoord
  * gaat, niet erna.
  *
+ * ## Waarom contact niet verplicht is
+ *
+ * Dat was het één dag lang wel: naam plus e-mail óf telefoon. De velden droegen ondertussen
+ * allebei het label "(optioneel)", en dat sprak de regel tegen. De keuze is om het scherm
+ * gelijk te geven en de eis te laten vallen, niet om het label te herschrijven.
+ *
+ * Het gevolg staat er expliciet bij, want het is geen detail: er kan een intake binnenkomen
+ * met een naam en verder niets, en dan is er geen manier om de cliënt terug te bellen. Dat
+ * is een toegestane toestand geworden.
+ *
  * Dezelfde regel staat in `create_public_intake`. Deze functie is het gemak; die is de
  * grens.
  */
-export function contactCompleet(naam: string, email: string, telefoon: string): boolean {
-  return naam.trim().length >= 2 && (email.trim() !== '' || telefoon.trim() !== '');
+export function gegevensCompleet(naam: string): boolean {
+  return naam.trim().length >= 2;
 }
 
 export interface ToestemmingProps {
@@ -203,8 +213,7 @@ export function Toestemming({
    * dus staat de beslissing bij de knoppen.
    */
 
-  const klaar =
-    privacy && aiAkkoord && toegang === 'gegeven' && contactCompleet(naam, email, telefoon);
+  const klaar = privacy && aiAkkoord && toegang === 'gegeven' && gegevensCompleet(naam);
 
   return (
     <section className="flex flex-1 flex-col gap-5 py-4">
@@ -338,8 +347,8 @@ export function Toestemming({
       >
         <h2 className="text-sm font-bold">Uw gegevens</h2>
         <p className="mt-1 text-sm" style={{ color: 'var(--app-text-muted)' }}>
-          Zodat {organisatieNaam} u kan bereiken over uw zaak. Een e-mailadres of een telefoonnummer
-          is genoeg — allebei mag ook.
+          Uw naam komt bij het dossier te staan. Laat u een e-mailadres of telefoonnummer achter,
+          dan kan {organisatieNaam} contact met u opnemen over uw zaak.
         </p>
 
         <div className="mt-3 space-y-3">
@@ -374,14 +383,25 @@ export function Toestemming({
          * Alleen tonen zodra er iets is ingevuld. Een rode regel boven een leeg formulier
          * leest als een fout die je al gemaakt hebt, terwijl je nog moet beginnen.
          */}
-        {(naam !== '' || email !== '' || telefoon !== '') &&
-          !contactCompleet(naam, email, telefoon) && (
-            <p className="mt-3 text-sm" style={{ color: 'var(--app-text-muted)' }}>
-              {naam.trim().length < 2
-                ? 'Vul uw naam in.'
-                : 'Vul een e-mailadres of een telefoonnummer in.'}
-            </p>
-          )}
+        {naam !== '' && !gegevensCompleet(naam) && (
+          <p className="mt-3 text-sm" style={{ color: 'var(--app-text-muted)' }}>
+            Vul uw naam in.
+          </p>
+        )}
+
+        {/*
+         * Geen contactgegevens is toegestaan, maar niet stilzwijgend.
+         *
+         * De cliënt hoort te weten wat het betekent voordat hij doorgaat: het kantoor kan
+         * hem dan niet bereiken. Dat is een mededeling en geen fout, dus in de gewone
+         * tekstkleur en zonder de knop te blokkeren.
+         */}
+        {gegevensCompleet(naam) && email.trim() === '' && telefoon.trim() === '' && (
+          <p className="mt-3 text-sm" style={{ color: 'var(--app-text-muted)' }}>
+            Zonder e-mailadres of telefoonnummer kan {organisatieNaam} geen contact met u opnemen. U
+            kunt wel doorgaan.
+          </p>
+        )}
       </div>
 
       {/* Twee aparte vinkjes: één akkoord voor beide zou geen van beide zijn. */}

@@ -83,9 +83,6 @@ export async function startIntake(
   if (!d.microphoneConsent) {
     return { ok: false, fout: 'Zonder microfoon kan het gesprek niet worden gevoerd.' };
   }
-  if (!d.clientEmail && !d.clientPhone) {
-    return { ok: false, fout: 'Vul een e-mailadres of een telefoonnummer in.' };
-  }
 
   /*
    * Alles wat kan weigeren, weigert vóór de eerste schrijfactie.

@@ -231,15 +231,16 @@ async function checkSessieVerval(client) {
 }
 
 /**
- * Naam en contact zijn een grens in de database, niet alleen in het formulier.
+ * De naam is een grens in de database, niet alleen in het formulier.
  *
- * Het toestemmingsscherm zet de knop op disabled zolang naam plus e-mail óf telefoon
- * ontbreekt. Dat is een gemak voor wie invult. Zou dat de enige plek zijn, dan is de regel
- * te omzeilen door de server action rechtstreeks aan te roepen — en dan komt er een dossier
- * binnen zonder enige manier om de cliënt terug te bellen.
+ * Het toestemmingsscherm zet de knop op disabled zolang er geen naam staat. Dat is een
+ * gemak voor wie invult. Zou dat de enige plek zijn, dan is de regel te omzeilen door de
+ * server action rechtstreeks aan te roepen.
  *
- * Deze controle draait het echte pad: een geldige aanroep hoort te slagen, drie ongeldige
- * horen te falen met 22023.
+ * Contactgegevens zijn géén eis, en dat wordt hier ook getoetst — een aanvraag met alleen
+ * een naam hoort te slagen. Die eis heeft één dag bestaan en is vervallen omdat het scherm
+ * de velden als optioneel presenteerde; deze controle houdt vast dat hij niet terugsluipt
+ * zonder dat het scherm meeverandert.
  */
 async function checkContactVerplicht(client) {
   const { rows: org } = await client.query(
@@ -263,13 +264,14 @@ async function checkContactVerplicht(client) {
       [slug, `contactcheck-${teller++}`, naam, email, telefoon],
     );
 
-  const gevallen = [
+  const geweigerd = [
     ['zonder naam', null, 'sanne@voorbeeld.nl', null],
-    ['zonder enig contactkanaal', 'Sanne de Vries', null, null],
-    ['met lege strings als contact', 'Sanne de Vries', '   ', ''],
+    ['met alleen witruimte als naam', '   ', null, '0612345678'],
+    ['met een naam van één teken', 'S', null, '0612345678'],
+    ['met een onzinnig e-mailadres', 'Sanne de Vries', 'sanne-apenstaartje', null],
   ];
 
-  for (const [wat, naam, email, telefoon] of gevallen) {
+  for (const [wat, naam, email, telefoon] of geweigerd) {
     try {
       await roep(naam, email, telefoon);
       process.stdout.write(`\n  FAIL create_public_intake accepteerde een intake ${wat}\n`);
@@ -284,23 +286,54 @@ async function checkContactVerplicht(client) {
     }
   }
 
+  // Alleen een naam, geen contact. Dit hoort te slagen; het is de hele reden dat de eis
+  // op e-mail-óf-telefoon is vervallen.
   try {
-    await roep('Sanne de Vries', null, '0612345678');
+    await roep('Ada zonder Contact', null, null);
   } catch (error) {
-    process.stdout.write(`\n  FAIL een geldige intake werd geweigerd: ${error.message}\n`);
+    process.stdout.write(
+      `\n  FAIL een intake met alleen een naam werd geweigerd: ${error.message}\n`,
+    );
+    return false;
+  }
+
+  try {
+    await roep('Sanne de Vries', '  SANNE@Voorbeeld.NL ', '0612345678');
+  } catch (error) {
+    process.stdout.write(`\n  FAIL een volledige intake werd geweigerd: ${error.message}\n`);
     return false;
   }
 
   const { rows } = await client.query(
-    `select client_name, client_phone from public.intakes
+    `select client_name, client_email, client_phone from public.intakes
       where client_name = 'Sanne de Vries' order by created_at desc limit 1`,
   );
-  if (rows.length === 0 || rows[0].client_phone !== '0612345678') {
+  const r = rows[0];
+  if (!r || r.client_phone !== '0612345678') {
     process.stdout.write('\n  FAIL naam en telefoon zijn niet op de intake beland\n');
     return false;
   }
+  // Genormaliseerd: getrimd en kleingeletterd, zodat twee keer hetzelfde adres in een
+  // export ook twee keer hetzelfde is.
+  if (r.client_email !== 'sanne@voorbeeld.nl') {
+    process.stdout.write(`\n  FAIL e-mailadres niet genormaliseerd: "${r.client_email}"\n`);
+    return false;
+  }
 
-  process.stdout.write('\n  Contactplicht: 3 onvolledige aanvragen geweigerd, 1 geldige door\n');
+  const { rows: leeg } = await client.query(
+    `select client_email, client_phone from public.intakes
+      where client_name = 'Ada zonder Contact' limit 1`,
+  );
+  // Lege invoer hoort als null in de kolom te staan en niet als lege string: in een export
+  // is dat verschil niet te zien, en "niets opgegeven" moet leesbaar blijven.
+  if (!leeg[0] || leeg[0].client_email !== null || leeg[0].client_phone !== null) {
+    process.stdout.write('\n  FAIL ontbrekend contact staat niet als null in de kolom\n');
+    return false;
+  }
+
+  process.stdout.write(
+    '\n  Naamplicht: 4 ongeldige aanvragen geweigerd, alleen-naam toegestaan, contact genormaliseerd\n',
+  );
   return true;
 }
 
