@@ -1,4 +1,6 @@
+import { AanloopSnijder, base64NaarPcm } from './aanloopstilte';
 import type { TextToSpeechProvider, TtsEvents, TtsOptions, TtsStream } from './contract';
+import { SpreektempoWacht } from './spreektempo';
 
 /**
  * Cartesia Sonic over WebSocket.
@@ -31,56 +33,6 @@ export interface CartesiaOptions {
   readonly trimLeadingSilence?: boolean;
 }
 
-/**
- * Aanloopstilte wegsnijden.
- *
- * Cartesia zet vóór het eerste woord stilte, en die is niet vast: dezelfde zin leverde in
- * drie achtereenvolgende syntheses 548, 107 en 227 ms op. Het is dus gegenereerde prosodie
- * en geen padding die met een parameter uit te zetten is — de API accepteert onbekende
- * velden bovendien stilzwijgend, dus er valt ook niets aan af te lezen.
- *
- * In productie gaat die stilte gewoon naar de avatar en wacht de cliënt hem uit. Dat is
- * geen meetartefact maar ervaren vertraging, en het is de grootste post die volledig in
- * ons eigen deel van de keten zit.
- *
- * **Alleen vóór het eerste geluid, nooit ertussen.** Stilte binnen een beurt is prosodie:
- * de pauze tussen twee zinnen, de adem voor een bijzin. Die wegsnijden zou van de
- * assistent een ratelaar maken, en het zou dataverlies zijn van dezelfde soort als
- * risico 2 — alleen dan aan de uitgaande kant.
- */
-const AUDIBLE_THRESHOLD = 0.003;
-/**
- * Wat we vóór het eerste hoorbare sample laten staan.
- *
- * Een medeklinker begint zacht en loopt op. Precies op het eerste sample boven de drempel
- * snijden knipt die aanzet eraf en levert een harde inzet op die klinkt als een fout.
- */
-const KEEP_LEAD_MS = 20;
-/**
- * Fade-in over het snijpunt.
- *
- * Gemeten is het snijpunt schoon — de bewaarde aanloop van 20 ms landt in near-silence en
- * de grootste sprong in de eerste vijf milliseconde was 16 op een schaal van 32767. Toch
- * staat deze fade er: hij kost niets, en hij neemt de hele klasse "sprong in de golfvorm"
- * weg in plaats van hem per geval te moeten meten. Bij een andere stem of een hardere
- * inzet kan die sprong wél groot zijn.
- */
-const FADE_IN_MS = 8;
-/**
- * Bovengrens aan wat er weg mag.
- *
- * Zou er ooit een beurt binnenkomen die veel langer stil blijft, dan is er iets anders aan
- * de hand dan prosodie, en dan hoort dat zichtbaar te worden in plaats van weggesneden.
- */
-const MAX_TRIM_MS = 2000;
-
-/** Lineaire fade over de eerste `samples`, zodat het snijpunt geen sprong wordt. */
-function fadeIn(pcm: Int16Array, samples: number): Int16Array {
-  const n = Math.min(samples, pcm.length);
-  for (let i = 0; i < n; i += 1) pcm[i] = Math.round(pcm[i]! * (i / n));
-  return pcm;
-}
-
 export class CartesiaTtsStream implements TtsStream {
   private readonly handlers = new Map<string, Function[]>();
   private socket: WebSocket | null = null;
@@ -89,34 +41,44 @@ export class CartesiaTtsStream implements TtsStream {
   private emittedMs = 0;
   private cancelled = false;
   private turn = 0;
-  /** Zoeken we nog naar het eerste hoorbare sample van deze beurt? */
-  private trimming = true;
-  /** Hoeveel aanloopstilte deze beurt is weggesneden. */
-  private trimmedMs = 0;
+  private readonly snijder: AanloopSnijder;
+  private readonly tempo = new SpreektempoWacht('Cartesia');
 
   constructor(
     private readonly config: Required<CartesiaOptions>,
     private readonly voiceOptions: TtsOptions,
-  ) {}
+  ) {
+    this.snijder = new AanloopSnijder(config.sampleRate, config.trimLeadingSilence);
+  }
 
   async connect(): Promise<void> {
-    // Gemeten valstrik: over de WEBSOCKET negeert Cartesia `sample_rate` en levert hij
-    // altijd 16 kHz. Dezelfde zin gaf via REST 2,37 s op zowel 16000 als 24000 — het
-    // aantal samples schaalde daar netjes mee — maar via de WebSocket bleef het aantal
-    // samples gelijk, wat op 24000 een duur van 1,39 s "oplevert".
-    //
-    // Wie hier een hogere rate instelt, labelt 16 kHz-audio als 24 kHz en krijgt spraak
-    // die anderhalf keer te snel klinkt. Dat is geen subtiel kwaliteitsverlies maar een
-    // kapot gesprek, dus het hoort te knallen en niet stilletjes te gebeuren.
-    if (this.config.sampleRate !== 16_000) {
-      throw new Error(
-        `Cartesia: sampleRate ${this.config.sampleRate} werkt niet over de WebSocket. ` +
-          'Die honoreert de parameter niet en levert altijd 16000 Hz; een andere waarde ' +
-          'labelt de audio verkeerd en laat hem te snel klinken. Zie de toelichting bij ' +
-          'connect() en RISICOS.md.',
-      );
-    }
-
+    /*
+     * Hier stond een `throw` voor elke rate behalve 16000.
+     *
+     * De aanleiding was een meting: dezelfde zin gaf via REST 2,37 s op zowel 16000 als
+     * 24000 — het aantal samples schaalde daar netjes mee — maar via de WebSocket bleef het
+     * aantal samples gelijk. Wie dan 24000 instelt, labelt 16 kHz-audio als 24 kHz en krijgt
+     * spraak die anderhalf keer te snel loopt. Dat hoorde te knallen en niet stilletjes te
+     * gebeuren, vandaar de uitzondering.
+     *
+     * Die premisse klopt niet meer. Gemeten op 26 augustus 2026 met `pnpm diag:tts-vergelijk`,
+     * twee onafhankelijke toetsen:
+     *
+     *   spreektempo   24 kHz over de WebSocket geeft 3,83 woorden per seconde tegen 3,41 voor
+     *                 REST op dezelfde tekst. Werd de parameter genegeerd, dan zou de
+     *                 berekende duur twee derde van de echte zijn en het tempo boven de 5 w/s
+     *                 uitkomen. Dat gebeurt niet.
+     *   samples       128050 tegen 194676 samples op 16 tegen 24 kHz, drie runs per rate:
+     *                 verhouding 1,52. Genegeerd zou 1,00 opleveren.
+     *
+     * Waarom het vandaag anders uitvalt weet niemand; het kan een wijziging bij Cartesia zijn.
+     * De oorspronkelijke meting is niet in twijfel getrokken — zie de correctie bovenaan
+     * risico 12, waar dit als omgekeerd resultaat staat en niet als nieuw resultaat.
+     *
+     * Wat blijft staan is de eis dat een verkeerde rate niet stil mag zijn. Daarom geen
+     * blinde acceptatie maar een controle op de uitkomst: `bewaakSpreektempo()` hieronder
+     * kijkt aan het eind van de eerste beurt of het tempo klopt met wat we hebben gevraagd.
+     */
     const url = `${WS_URL}?api_key=${encodeURIComponent(this.config.apiKey)}&cartesia_version=${API_VERSION}`;
     const socket = new WebSocket(url);
     this.socket = socket;
@@ -206,8 +168,8 @@ export class CartesiaTtsStream implements TtsStream {
     this.emittedMs = 0;
     this.seq = 0;
     this.cancelled = false;
-    this.trimming = true;
-    this.trimmedMs = 0;
+    this.snijder.reset();
+    this.tempo.reset();
   }
 
   private onMessage(raw: string): void {
@@ -245,75 +207,37 @@ export class CartesiaTtsStream implements TtsStream {
        * knipt en aan de Buffer-pool van Node, en beide kunnen morgen anders zijn. De kosten
        * zijn één kopie per chunk; de fout die het uitsluit is onhoorbaar te debuggen.
        */
-      const bytes = Buffer.from(message.data, 'base64');
-      const bruikbaar = Math.floor(bytes.length / 2) * 2;
-      const uitgelijnd = Buffer.from(bytes.subarray(0, bruikbaar));
-      const ruw = new Int16Array(uitgelijnd.buffer, uitgelijnd.byteOffset, bruikbaar / 2);
-      if (bruikbaar !== bytes.length) {
+      const { pcm: ruw, oneven } = base64NaarPcm(message.data);
+      if (oneven) {
         // Nooit stil: als dit ooit afgaat, is elke sample hierna een byte verschoven.
         this.emit(
           'error',
-          new Error(
-            `Cartesia: chunk met oneven aantal bytes (${bytes.length}); ` +
-              'de audio hierna kan misuitgelijnd zijn.',
-          ),
+          new Error('Cartesia: chunk met oneven aantal bytes; de audio hierna kan scheef staan.'),
         );
       }
-      const pcm = this.trimming && this.config.trimLeadingSilence ? this.trimLeading(ruw) : ruw;
+      const pcm = this.snijder.verwerk(ruw);
       if (pcm.length === 0) return;
 
       const durationMs = (pcm.length / this.config.sampleRate) * 1000;
       this.emittedMs += durationMs;
       this.emit('audio', { pcm, seq: this.seq++, durationMs });
     } else if (message.type === 'done') {
+      const klacht = this.tempo.controleer(this.emittedMs, this.config.sampleRate);
+      if (klacht) this.emit('error', new Error(klacht));
       this.emit('done');
     } else if (message.type === 'error') {
       this.emit('error', new Error(`Cartesia: ${message.error ?? 'onbekende fout'}`));
     }
   }
 
-  /**
-   * Snijdt de stilte vóór het eerste geluid weg. Alleen aan het begin van een beurt.
-   *
-   * Levert een leeg fragment op als deze chunk volledig stil is; dan telt hij als
-   * weggesneden en wordt hij niet doorgegeven.
-   */
-  private trimLeading(pcm: Int16Array): Int16Array {
-    const grens = AUDIBLE_THRESHOLD * 32767;
-    let eerste = 0;
-    while (eerste < pcm.length && Math.abs(pcm[eerste]!) <= grens) eerste += 1;
-
-    const chunkMs = (pcm.length / this.config.sampleRate) * 1000;
-
-    if (eerste >= pcm.length) {
-      // Volledig stil. Boven de bovengrens stoppen we met snijden en laten we de rest
-      // staan: dan is er iets anders aan de hand dan prosodie.
-      if (this.trimmedMs + chunkMs > MAX_TRIM_MS) {
-        this.trimming = false;
-        return pcm;
-      }
-      this.trimmedMs += chunkMs;
-      return new Int16Array(0);
-    }
-
-    // Gevonden. Een stukje aanloop laten staan zodat een zachte inzet niet wordt afgekapt.
-    const lead = Math.round((KEEP_LEAD_MS / 1000) * this.config.sampleRate);
-    const vanaf = Math.max(0, eerste - lead);
-    this.trimming = false;
-    this.trimmedMs += (vanaf / this.config.sampleRate) * 1000;
-    if (vanaf === 0) return pcm;
-
-    const uit = pcm.slice(vanaf);
-    return fadeIn(uit, Math.round((FADE_IN_MS / 1000) * this.config.sampleRate));
-  }
-
   /** Hoeveel aanloopstilte er deze beurt is weggesneden. */
   trimmedLeadingMs(): number {
-    return Math.round(this.trimmedMs);
+    return this.snijder.weggesnedenMs;
   }
 
   say(text: string): void {
     if (this.cancelled || !this.socket) return;
+    this.tempo.telTekst(text);
     this.socket.send(
       JSON.stringify({
         model_id: this.config.model,

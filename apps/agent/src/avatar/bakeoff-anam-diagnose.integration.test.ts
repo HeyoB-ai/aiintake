@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { build } from 'esbuild';
 import { chromium, type Browser } from 'playwright';
-import { CartesiaTtsProvider, type CartesiaTtsStream } from '@intake/provider-tts';
+import { CartesiaTtsProvider } from '@intake/provider-tts';
 import { AnamAvatarProvider } from './anam';
 
 /**
@@ -114,11 +114,11 @@ function serve(clientJs: string): Promise<{ server: Server; url: string }> {
 
 async function synthetiseer(zin: string): Promise<Int16Array> {
   const tts = new CartesiaTtsProvider({ apiKey: process.env['CARTESIA_API_KEY']! });
-  const stream = (await tts.open({
+  const stream = await tts.open({
     voiceId: process.env['CARTESIA_VOICE_ID']!,
     language: 'nl',
     sampleRate: SAMPLE_RATE,
-  })) as CartesiaTtsStream;
+  });
 
   const chunks: Int16Array[] = [];
   await new Promise<void>((resolve, reject) => {

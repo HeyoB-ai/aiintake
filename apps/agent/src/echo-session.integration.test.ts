@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CartesiaTtsProvider, type CartesiaTtsStream } from '@intake/provider-tts';
-import { startEchoSession, type MediaConfig } from './echo-session';
+import { CartesiaTtsProvider } from '@intake/provider-tts';
+import { mediaConfigFrom, startEchoSession, type MediaConfig } from './echo-session';
+import type { AgentEnv } from './env';
 import { paceAudio, pacingDrift } from './test-support/pace-audio';
 import { formatHudLine, hudRows } from './metrics';
 import type { CompletedTurn } from './turn-loop';
@@ -32,11 +33,11 @@ const UITSPRAAK = 'Ik kreeg gisteren een vaststellingsovereenkomst van mijn werk
 /** Synthetiseert de cliëntzin, zodat er iets is om de STT mee te voeden. */
 async function spreek(text: string): Promise<Int16Array> {
   const tts = new CartesiaTtsProvider({ apiKey: process.env['CARTESIA_API_KEY']! });
-  const stream = (await tts.open({
+  const stream = await tts.open({
     voiceId: process.env['CARTESIA_VOICE_ID']!,
     language: 'nl',
     sampleRate: SAMPLE_RATE,
-  })) as CartesiaTtsStream;
+  });
 
   const chunks: Int16Array[] = [];
   await new Promise<void>((resolve, reject) => {
@@ -69,11 +70,14 @@ describeLive('echo-agent over de echte keten', () => {
     const pcm = await spreek(UITSPRAAK);
 
     const turns: CompletedTurn[] = [];
-    const media: MediaConfig = {
-      deepgramApiKey: process.env['DEEPGRAM_API_KEY']!,
-      cartesiaApiKey: process.env['CARTESIA_API_KEY']!,
-      cartesiaVoiceId: process.env['CARTESIA_VOICE_ID']!,
-    };
+    /*
+     * Via de fabriek en niet met de hand samengesteld.
+     *
+     * Een testconfiguratie die zelf een leverancier kiest, test die leverancier en niet wat er
+     * draait. Zo loopt deze test over dezelfde weg als productie — inclusief de standaard, de
+     * sample rate en `TTS_PROVIDER` als je er met de hand aan draait.
+     */
+    const media: MediaConfig = mediaConfigFrom(process.env as Partial<AgentEnv>);
     const session = await startEchoSession({ media, onTurn: (turn) => turns.push(turn) });
 
     const klaar = new Promise<void>((resolve) => {

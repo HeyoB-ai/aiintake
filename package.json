@@ -49,7 +49,8 @@
     "prepare": "node scripts/install-hooks.mjs",
     "diag:audio": "pnpm --filter @intake/agent diag:audio",
     "diag:tts-tekst": "pnpm --filter @intake/agent diag:tts-tekst",
-    "diag:tts-vergelijk": "pnpm --filter @intake/agent diag:tts-vergelijk"
+    "diag:tts-vergelijk": "pnpm --filter @intake/agent diag:tts-vergelijk",
+    "diag:tts-productieweg": "pnpm --filter @intake/agent diag:tts-productieweg"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

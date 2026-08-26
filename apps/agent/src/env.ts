@@ -35,6 +35,27 @@ const AgentEnvSchema = z.object({
 
   ELEVENLABS_API_KEY: z.string().min(1).optional(),
   ELEVENLABS_VOICE_ID: z.string().min(1).optional(),
+  ELEVENLABS_MODEL: z.string().default('eleven_flash_v2_5'),
+  /**
+   * Spreektempo, 0,7–1,2. Buiten dat bereik weigert hun API.
+   *
+   * Staat hier zodat eraan te draaien is zonder commit. Gemeten op de openingszin: ElevenLabs
+   * loopt op 1,0 ongeveer 2,45 woorden per seconde tegen 3,83 bij Cartesia — ruim drie seconde
+   * extra per beurt voordat de cliënt aan het woord komt. 1,1 herstelt dat vrijwel.
+   *
+   * Grenzen hier én in de adapter: hier zodat een typefout bij het starten opvalt, daar omdat
+   * een adapter zich niet hoort te verlaten op wie hem construeert.
+   */
+  ELEVENLABS_SPEED: z.coerce.number().min(0.7).max(1.2).optional(),
+
+  /**
+   * Overrulet `provider_config.tts` van het kantoor.
+   *
+   * Bedoeld om zonder commit een proef te draaien — precies wat er nodig was om de wissel naar
+   * ElevenLabs te kunnen onderbouwen. Leeg laten is het normale geval.
+   */
+  TTS_PROVIDER: z.enum(['cartesia', 'elevenlabs', 'fake']).optional(),
+
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
 
   AVATAR_PROVIDER: z.enum(['beyondpresence', 'anam', 'null']).default('null'),

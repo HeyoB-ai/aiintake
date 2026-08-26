@@ -31,7 +31,8 @@
     "start:worker": "node dist/worker.js",
     "diag:audio": "tsx --env-file=../../.env bakeoff/audio-diagnose.ts",
     "diag:tts-tekst": "tsx --env-file=../../.env bakeoff/tts-tekst-diagnose.ts",
-    "diag:tts-vergelijk": "tsx --env-file=../../.env bakeoff/tts-vergelijk-diagnose.ts"
+    "diag:tts-vergelijk": "tsx --env-file=../../.env bakeoff/tts-vergelijk-diagnose.ts",
+    "diag:tts-productieweg": "tsx --env-file=../../.env bakeoff/tts-productieweg-diagnose.ts"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",

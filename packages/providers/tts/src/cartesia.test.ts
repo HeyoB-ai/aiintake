@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CartesiaTtsStream } from './cartesia';
+import { SpreektempoWacht } from './spreektempo';
 
 /**
  * Het wegsnijden van aanloopstilte, zonder netwerk.
@@ -135,15 +136,61 @@ describe('de schakelaar', () => {
 });
 
 describe('de samplerate over de WebSocket', () => {
-  it('weigert een andere rate dan 16 kHz', async () => {
-    // Cartesia negeert `sample_rate` over de WebSocket en levert altijd 16 kHz. Gemeten:
-    // dezelfde zin gaf via REST 2,37 s op zowel 16000 als 24000, via de WebSocket bleef
-    // het aantal samples gelijk — op 24000 "duurt" die dan 1,39 s. Wie hier een hogere
-    // rate zet, labelt 16 kHz als 24 kHz en krijgt spraak die te snel klinkt.
-    const s = new CartesiaTtsStream(
-      { apiKey: 'test', model: 'sonic-3', sampleRate: 24_000, trimLeadingSilence: true },
-      { voiceId: 'v', language: 'nl' },
+  /*
+   * Hier stond: "weigert een andere rate dan 16 kHz".
+   *
+   * Die test bewaakte een `throw` in `connect()`, en die stond er omdat Cartesia
+   * `sample_rate` over de WebSocket negeerde en altijd 16 kHz leverde. Op 26 augustus 2026
+   * is met `pnpm diag:tts-vergelijk` gemeten dat dat niet meer zo is: 128050 tegen 194676
+   * samples op 16 tegen 24 kHz over drie runs per rate, een verhouding van 1,52, waar
+   * genegeerd 1,00 zou opleveren. Het spreektempo bevestigt het onafhankelijk.
+   *
+   * De test is niet weggehaald maar vervangen. Wat hij bewaakte, blijft gelden: een rate die
+   * de leverancier niet honoreert, mag niet stil zijn. Alleen kan dat nu niet meer vooraf —
+   * de leverancier heeft zijn gedrag één keer veranderd en kan dat opnieuw doen. Dus wordt de
+   * uitkomst gecontroleerd in plaats van de invoer verboden, en dit is de test daarvoor.
+   */
+  it('meldt het als het spreektempo niet bij de gevraagde rate kan horen', () => {
+    const wacht = new SpreektempoWacht('Cartesia');
+    // 29 woorden. Op 24 kHz die in werkelijkheid 16 kHz is, valt de berekende duur op twee
+    // derde: 8000 ms wordt 5333 ms, en het tempo springt van 3,6 naar 5,4 w/s.
+    wacht.telTekst(
+      'Goedenavond, Heyo Beentje. Ik ben de AI-intake-assistent van Van Dijk Arbeidsrecht. ' +
+        'Ik ben geen advocaat en ben aangesteld om de gegevens van uw zaak vast te leggen.',
     );
-    await expect(s.connect()).rejects.toThrow(/24000 werkt niet over de WebSocket/);
+    expect(wacht.controleer(5_000, 24_000)).toMatch(/woorden per seconde/);
+  });
+
+  it('zwijgt bij een tempo dat gewoon kan', () => {
+    const wacht = new SpreektempoWacht('Cartesia');
+    wacht.telTekst(
+      'Goedenavond, Heyo Beentje. Ik ben de AI-intake-assistent van Van Dijk Arbeidsrecht. ' +
+        'Ik ben geen advocaat en ben aangesteld om de gegevens van uw zaak vast te leggen.',
+    );
+    expect(wacht.controleer(8_000, 24_000)).toBeNull();
+  });
+
+  it('oordeelt niet over een fragment dat te kort is om iets te betekenen', () => {
+    /*
+     * Zonder deze ondergrens zou elke korte beurt vals alarm geven: een beurt van drie
+     * woorden krijgt een aanzienlijk deel van zijn duur van de weggesneden aanloop en de
+     * uitloop na het laatste woord. Een bewaker die vals alarm geeft, wordt uitgezet.
+     */
+    const wacht = new SpreektempoWacht('Cartesia');
+    wacht.telTekst('Ja, klopt.');
+    expect(wacht.controleer(300, 24_000)).toBeNull();
+  });
+
+  it('meldt hoogstens één keer per stream', () => {
+    const wacht = new SpreektempoWacht('Cartesia');
+    const zin =
+      'Goedenavond, Heyo Beentje. Ik ben de AI-intake-assistent van Van Dijk Arbeidsrecht. ' +
+      'Ik ben geen advocaat en ben aangesteld om de gegevens van uw zaak vast te leggen.';
+    wacht.telTekst(zin);
+    expect(wacht.controleer(5_000, 24_000)).not.toBeNull();
+    wacht.reset();
+    wacht.telTekst(zin);
+    // Gaat er iets structureel mis met de rate, dan is dat één probleem en niet één per beurt.
+    expect(wacht.controleer(5_000, 24_000)).toBeNull();
   });
 });

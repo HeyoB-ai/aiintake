@@ -44,7 +44,8 @@ export function buildSeed(now = new Date()) {
         // Tot de bakeoff gedraaid is, blijft dit de null-provider.
         avatar: 'null',
         stt: 'deepgram',
-        tts: 'cartesia',
+        // Sinds de vergelijking van 26 augustus 2026; zie de migratie en RISICOS 17b.
+        tts: 'elevenlabs',
         llmHot: 'claude-haiku-4-5-20251001',
         llmCold: 'claude-sonnet-5',
       },

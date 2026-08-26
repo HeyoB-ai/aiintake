@@ -7,7 +7,10 @@
  * binnenkomt.
  */
 export * from './contract';
+export * from './aanloopstilte';
 export * from './cartesia';
+export * from './elevenlabs';
+export * from './spreektempo';
 export * from './fake';
 export * from './sentence-flush';
 /*

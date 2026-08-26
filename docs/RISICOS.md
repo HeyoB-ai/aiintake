@@ -1027,7 +1027,13 @@ groter dan een reparatie.
 
 ## 17. De TTS spreekt niet betrouwbaar uit wat wij aanleveren
 
-**Status: open, gemeten 25 augustus 2026.** Dit raakt de belofte op het toestemmingsscherm.
+**Status: gewisseld naar ElevenLabs op 26 augustus 2026. Gemeten 25 en 26 augustus 2026.**
+
+> **Wat er is gedaan.** De keten draait sinds 26 augustus op ElevenLabs; zie 17b voor de
+> cijfers en 17c voor de meting ná de wissel. Cartesia blijft werkend als tweede optie. Dit
+> risico blijft open en wordt niet afgevinkt: het is verplaatst naar een leverancier waarbij
+> de foutvorm zich in 9 en later 10 metingen niet heeft voorgedaan, en dat is iets anders dan
+> een uitgesloten fout. Onder 17c staat wat er nu nog niet gedekt is.
 
 **Waargenomen.** Een met de hand getranscribeerde opname (`rauw.wav`, buiten onze adapter
 en buiten de avatar om) miste tekst. Verstuurd:
@@ -1140,7 +1146,18 @@ en staat bewust niet in de tabel.
 
 ## 18. Een leverancier wisselen kan niet zoals bij de avatars
 
-**Status: open. Vastgesteld 26 augustus 2026 bij het onderzoek naar risico 17.**
+**Status: opgelost op 26 augustus 2026, op één punt na — zie "Wat het onderzoek er los van
+vond" onderaan, dat blijft open.**
+
+> **Wat er is gedaan.** `MediaConfig` draagt nu `tts: TtsConfig` in plaats van
+> `cartesiaApiKey`/`cartesiaVoiceId`; `apps/agent/src/tts-fabriek.ts` leest
+> `provider_config.tts` en `provider_config.ttsVoiceId` uit en `live/server.ts` geeft ze per
+> verbinding mee; de zes bestanden die naar `CartesiaTtsStream` castten doen dat niet meer —
+> ze gebruikten alleen contractmethoden, dus de cast was puur ruis. `TTS_PROVIDER` overrulet
+> alles voor een losse proef.
+>
+> De beschrijving hieronder blijft staan zoals hij was, want hij verklaart waarom het werk
+> nodig was.
 
 De vraag was of de providerlaag op een wissel is ingericht zoals bij de avatars. Het antwoord
 is: het contract wel, de bedrading niet.
@@ -1196,3 +1213,54 @@ Eén gevolg blijft wel staan, en het is klein: `newContext()` zet ook `trimming`
 `true`. Omdat hij na beurt 1 niet meer draait, wordt aanloopstilte alleen in de eerste beurt
 weggesneden — en geeft `trimmedLeadingMs()` een sessietotaal terug op een plek waar de HUD een
 beurtwaarde toont. Dat kost latency en leesbaarheid, geen woorden.
+
+### 17c. Na de wissel, over de weg die nu draait
+
+**Gemeten 26 augustus 2026, `pnpm diag:tts-productieweg`.**
+
+De vergelijking in 17b praat rechtstreeks met de API's. Dat is juist om een leverancier te
+kiezen, maar het is niet wat er in productie gebeurt: daartussen zitten de fabriek, het
+wegsnijden van aanloopstilte, het opknippen in chunks, de contextrotatie en de sample rate.
+Elk van die stappen kan woorden kosten. Een wissel die op de kale API goed meet en in de keten
+iets anders doet, is geen wissel maar een verhuizing van het probleem.
+
+Deze proef loopt door `mediaConfigFrom` en `maakTtsProvider` — dezelfde twee functies die
+`startEchoSession` gebruikt. Twee beurten per run over dezelfde stream, want zo loopt een
+gesprek, en de tweede raakt de contextrotatie die de lus zelf niet aanroept.
+
+Zes metingen, `ELEVENLABS_SPEED=1.1`, 24 kHz:
+
+| wat                            | uitkomst |
+| ------------------------------ | -------- |
+| "Goedenavond" weg              | 0/6      |
+| "geen advocaat" weg            | 0/6      |
+| herhaalde reeks van 3+ woorden | 0/6      |
+| tweede beurt zonder audio      | 0/6      |
+| foutmeldingen van de adapter   | 0        |
+
+Eerste audio 99–256 ms (mediaan 127), tegen 131 ms bij de kale API — de adapter kost dus
+niets. Weggesneden aanloopstilte 0–18 ms per beurt, en die waarde is per beurt en niet
+oplopend: de `AanloopSnijder` reset wél in deze adapter. Wat er in alle zes de metingen
+ontbreekt is "Heyo" uit de verzonnen naam, en dat deed elke arm van beide leveranciers.
+
+**Het spreektempo, met de cijfers om aan de knop te draaien.** Dezelfde zin, door de hele
+keten:
+
+| `ELEVENLABS_SPEED`                 | duur      |
+| ---------------------------------- | --------- |
+| 1,0 (standaard van de leverancier) | 10,4 s    |
+| **1,1 (onze standaard)**           | **9,4 s** |
+| 1,2 (maximum van hun API)          | 8,4 s     |
+| — Cartesia ter vergelijking        | 7,5 s     |
+
+Het verschil is dus te verkleinen maar niet weg te nemen: op het maximum blijft er ongeveer
+0,9 seconde per beurt over, niet de drie seconden waar het op de standaardinstelling stond. Op
+1,2 is het resultaat nog steeds 0 op 4 voor alle drie de foutvormen, dus die keuze kost geen
+betrouwbaarheid — alleen hoe het klinkt, en dat is een oordeel van het oor. De knob staat in
+`ELEVENLABS_SPEED` en vraagt geen commit.
+
+**Wat hiermee niet gedekt is.** Tien metingen zonder wegval zijn geen bewijs dat de foutvorm
+niet bestaat; bij Cartesia trad hij in 1 op 9 op, dus een leverancier met 1 op 50 zou hier
+gewoon schoon uit komen. Wat er nu wél staat is een instrument dat de vraag in twintig minuten
+opnieuw beantwoordt, en een bewaker in de adapter die het zegt als de sample rate stil
+verandert (`SpreektempoWacht`). Dat is minder dan een garantie en meer dan een aanname.

@@ -1,7 +1,7 @@
 import type { AvatarProvider } from '@intake/provider-avatar';
 import { NullAvatarProvider } from '@intake/provider-avatar';
 import { DeepgramSttProvider, keytermsFor } from '@intake/provider-stt';
-import { CartesiaTtsProvider } from '@intake/provider-tts';
+import { maakTtsProvider, ttsConfigFrom, ttsKeuzeVan, type TtsConfig } from './tts-fabriek';
 import type { Language } from '@intake/domain';
 import type { AgentEnv } from './env';
 import { log } from './log';
@@ -28,22 +28,34 @@ import { TurnLoop, type CompletedTurn, type ResponseSource } from './turn-loop';
 export interface MediaConfig {
   readonly deepgramApiKey: string;
   readonly deepgramModel?: string;
-  readonly cartesiaApiKey: string;
-  readonly cartesiaVoiceId: string;
+  /**
+   * Welke TTS, met welke sleutels.
+   *
+   * Hier stonden `cartesiaApiKey` en `cartesiaVoiceId` als veldnamen. Dat betekende dat de
+   * leverancierskeuze in de vórm van dit type zat: een tweede leverancier toevoegen raakte
+   * elk bestand dat die velden noemt. Zie tts-fabriek.ts.
+   */
+  readonly tts: TtsConfig;
 }
 
-export function mediaConfigFrom(env: Partial<AgentEnv>): MediaConfig {
-  const ontbreekt: string[] = [];
-  if (!env.DEEPGRAM_API_KEY) ontbreekt.push('DEEPGRAM_API_KEY');
-  if (!env.CARTESIA_API_KEY) ontbreekt.push('CARTESIA_API_KEY');
-  if (!env.CARTESIA_VOICE_ID) ontbreekt.push('CARTESIA_VOICE_ID');
-  if (ontbreekt.length > 0) throw new Error(`mediaketen onvolledig: ${ontbreekt.join(', ')}`);
+/**
+ * De mediaketen uit de omgeving.
+ *
+ * `keuzeUitOrganisatie` is `provider_config.tts` van het kantoor; laat hem weg en de keuze
+ * komt uit `TTS_PROVIDER` of valt terug op ElevenLabs. `stemUitOrganisatie` is
+ * `provider_config.ttsVoiceId`.
+ */
+export function mediaConfigFrom(
+  env: Partial<AgentEnv>,
+  keuzeUitOrganisatie?: string | null,
+  stemUitOrganisatie?: string | null,
+): MediaConfig {
+  if (!env.DEEPGRAM_API_KEY) throw new Error('mediaketen onvolledig: DEEPGRAM_API_KEY');
 
   return {
-    deepgramApiKey: env.DEEPGRAM_API_KEY!,
+    deepgramApiKey: env.DEEPGRAM_API_KEY,
     deepgramModel: env.DEEPGRAM_MODEL,
-    cartesiaApiKey: env.CARTESIA_API_KEY!,
-    cartesiaVoiceId: env.CARTESIA_VOICE_ID!,
+    tts: ttsConfigFrom(env, ttsKeuzeVan(env, keuzeUitOrganisatie), stemUitOrganisatie),
   };
 }
 
@@ -109,13 +121,12 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     ...(media.deepgramModel ? { model: media.deepgramModel } : {}),
   }).connect({ language, keyterms: keytermsFor(language) });
 
-  const tts = await new CartesiaTtsProvider({
-    apiKey: media.cartesiaApiKey,
-    // Uit te zetten met TTS_TRIM_LEADING=0 om het verschil te horen in plaats van te meten.
-    trimLeadingSilence: process.env['TTS_TRIM_LEADING'] !== '0',
-  }).open({
-    voiceId: media.cartesiaVoiceId,
+  // Welke leverancier dit is, staat in media.tts. TTS_TRIM_LEADING=0 zet het snijden van
+  // aanloopstilte uit, voor beide, om het verschil te horen in plaats van te meten.
+  const tts = await maakTtsProvider(media.tts).open({
+    voiceId: media.tts.voiceId,
     language,
+    sampleRate: media.tts.sampleRate,
   });
 
   const avatarProvider = options.avatarProvider ?? new NullAvatarProvider(now);

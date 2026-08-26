@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { CartesiaTtsProvider, type CartesiaTtsStream } from '@intake/provider-tts';
+import { CartesiaTtsProvider } from '@intake/provider-tts';
 import {
   DeepgramSttProvider,
   EMPLOYMENT_KEYTERMS_NL,
@@ -43,11 +43,11 @@ describeLive('Cartesia -> Deepgram rondgang', () => {
 
   beforeAll(async () => {
     const tts = new CartesiaTtsProvider({ apiKey: process.env['CARTESIA_API_KEY']! });
-    const stream = (await tts.open({
+    const stream = await tts.open({
       voiceId: process.env['CARTESIA_VOICE_ID']!,
       language: 'nl',
       sampleRate: SAMPLE_RATE,
-    })) as CartesiaTtsStream;
+    });
 
     const chunks: Int16Array[] = [];
     const start = performance.now();

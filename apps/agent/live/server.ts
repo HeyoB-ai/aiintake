@@ -85,7 +85,29 @@ const SAMPLE_RATE = 16_000;
 assertGeenGeheimeSleutel();
 
 const env = process.env as Partial<AgentEnv>;
+/*
+ * De mediaketen zonder organisatie erbij.
+ *
+ * Dit is de terugval voor een verbinding waarvoor geen intakecontext kon worden opgehaald.
+ * Zodra die er wél is, wint `provider_config.tts` van het kantoor — zie `mediaVoor()`.
+ * Hier al construeren zodat een ontbrekende sleutel bij het starten knalt en niet pas bij
+ * de eerste cliënt.
+ */
 const media = mediaConfigFrom(env);
+console.log(`  TTS: ${media.tts.keuze} · ${media.tts.sampleRate / 1000} kHz (standaard)`);
+
+/**
+ * De mediaketen voor deze verbinding.
+ *
+ * `provider_config.tts` en `provider_config.ttsVoiceId` van het kantoor wegen mee. Die
+ * schakelaar bestond al en werd nergens uitgelezen (risico 15); dit is de plek waar dat
+ * gebeurt. `TTS_PROVIDER` in de omgeving overrulet hem nog steeds, voor een losse proef.
+ */
+function mediaVoor(context: IntakeContext | null) {
+  if (!context) return media;
+  const config = context.organization.providerConfig;
+  return mediaConfigFrom(env, config.tts, config.ttsVoiceId);
+}
 
 if (!env.ANTHROPIC_API_KEY) {
   console.error(
@@ -807,8 +829,12 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
   });
 
   try {
+    const mediaketen = mediaVoor(context);
+    console.log(
+      `  TTS voor deze sessie: ${mediaketen.tts.keuze} · stem ${mediaketen.tts.voiceId.slice(0, 8)}`,
+    );
     sessie = await startEchoSession({
-      media,
+      media: mediaketen,
       language: 'nl',
       respond: intake.responseSource(),
       avatarProvider: browserAvatar(new NullAvatarProvider(() => performance.now()), ws),

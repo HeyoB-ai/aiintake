@@ -7,7 +7,16 @@ export const ProviderConfigSchema = z
     avatar: AvatarProviderIdSchema.default('null'),
     avatarId: z.string().nullable().default(null),
     stt: z.enum(['deepgram', 'fake']).default('deepgram'),
-    tts: z.enum(['cartesia', 'elevenlabs', 'fake']).default('cartesia'),
+    /**
+     * ElevenLabs sinds 26 augustus 2026.
+     *
+     * Cartesia liet in 7 van de 9 metingen de openingsgroet vallen en in 1 van de 9 het woord
+     * "geen" uit "ik ben geen advocaat" -- de disclaimer waarvoor de client tekent. ElevenLabs:
+     * 0 van de 9 op alle drie de gemeten foutvormen. Zie RISICOS.md 17b.
+     *
+     * Cartesia blijft een geldige waarde, zodat de vergelijking te herhalen is.
+     */
+    tts: z.enum(['cartesia', 'elevenlabs', 'fake']).default('elevenlabs'),
     ttsVoiceId: z.string().nullable().default(null),
     llmHot: z.string().default('claude-haiku-4-5-20251001'),
     llmCold: z.string().default('claude-sonnet-5'),

@@ -1,5 +1,5 @@
 import { AnthropicLlmProvider } from '@intake/provider-llm';
-import { CartesiaTtsProvider, type CartesiaTtsStream } from '@intake/provider-tts';
+import { CartesiaTtsProvider } from '@intake/provider-tts';
 import type { OrgConfig } from '@intake/domain';
 import { LATENCY_BUDGET_MS } from '@intake/domain';
 import { IntakeSession } from '../src/intake-session';
@@ -112,12 +112,20 @@ const wacht = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Eén zin synthetiseren en er stilte achter plakken, zodat de beurt normaal sluit. */
 async function synthetiseer(zin: string): Promise<Int16Array> {
-  const tts = new CartesiaTtsProvider({ apiKey: media.cartesiaApiKey });
-  const stream = (await tts.open({
-    voiceId: media.cartesiaVoiceId,
+  /*
+   * De cliëntstem, en die staat los van wat de assistent gebruikt.
+   *
+   * Bewust Cartesia en niet `media.tts`: de assistent draait sinds de wissel op ElevenLabs, en
+   * een proef waarin beide kanten dezelfde stem hebben meet de spraakherkenner niet eerlijk.
+   * Het houdt Cartesia bovendien in gebruik — een tweede optie die nergens meer draait, is
+   * geen tweede optie maar dood pad.
+   */
+  const tts = new CartesiaTtsProvider({ apiKey: process.env['CARTESIA_API_KEY']! });
+  const stream = await tts.open({
+    voiceId: process.env['CARTESIA_VOICE_ID']!,
     language: 'nl',
     sampleRate: SAMPLE_RATE,
-  })) as CartesiaTtsStream;
+  });
 
   const delen: Int16Array[] = [];
   await new Promise<void>((resolve, reject) => {
