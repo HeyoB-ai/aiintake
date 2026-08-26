@@ -15,6 +15,7 @@
     "test:pipeline": "pnpm --filter @intake/agent test:pipeline",
     "test:bakeoff": "pnpm --filter @intake/agent test:bakeoff",
     "db:check": "node scripts/check-migrations.mjs",
+    "db:status": "node scripts/check-db-status.mjs",
     "db:seed": "node scripts/seed.mjs",
     "keys:check": "node scripts/check-keys.mjs",
     "boundaries": "depcruise --config .dependency-cruiser.cjs packages apps && node scripts/check-boundaries-effective.mjs",
@@ -43,7 +44,8 @@
     "dev:live:https": "pnpm --filter @intake/agent dev:live:https",
     "cert:serve": "node scripts/cert-serve.mjs",
     "build:netlify": "node scripts/build-als-netlify.mjs",
-    "deps:check": "node scripts/check-fantoom-deps.mjs"
+    "deps:check": "node scripts/check-fantoom-deps.mjs",
+    "prepare": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.47.10",

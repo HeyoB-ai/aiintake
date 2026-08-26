@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# Vóór elke push: staat op de database wat er in de repo staat?
+#
+# Waarom een haak en geen los commando: een controle die je met de hand moet aanroepen,
+# draai je precies dan niet wanneer het ertoe doet. Twee deploys op rij strandden op iets
+# wat alleen buiten de repo zichtbaar was, en allebei de keren was er een commando dat het
+# had kunnen zien.
+#
+# Waarom bij `push` en niet bij `commit`: committen doe je tientallen keren per dag en het
+# raakt niemand buiten je machine. Een push is het moment waarop Netlify gaat bouwen en de
+# web-app tegen de echte database gaat praten — daar hoort de vraag.
+#
+# Deze haak faalt alleen als hij een verschil ziet. Kan hij niet kijken — geen netwerk,
+# geen ingelogde CLI — dan zegt hij dat en laat door. Zie de toelichting in
+# scripts/check-db-status.mjs.
+#
+# Overslaan kan met `git push --no-verify`. Dat staat hier expres genoemd: een ontsnapping
+# die je moet zoeken, wordt in haast een gewoonte.
+
+exec pnpm db:status
