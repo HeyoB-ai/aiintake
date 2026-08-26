@@ -82,6 +82,7 @@ async function harness(
     avatarId: null,
     language: 'nl',
     roomName: null,
+    sampleRate: 16_000,
   })) as NullAvatarSession;
 
   const turns: CompletedTurn[] = [];

@@ -17,5 +17,12 @@
 #
 # Overslaan kan met `git push --no-verify`. Dat staat hier expres genoemd: een ontsnapping
 # die je moet zoeken, wordt in haast een gewoonte.
+#
+# De tweede controle is van een andere soort en staat er om dezelfde reden. Op 26 augustus
+# 2026 ging de TTS naar 24 kHz en bleven drie andere plekken op 16000 staan. Alles bleef
+# groen -- typecheck, tests, de hele reeks -- want alle drie de getallen zijn geldig. Wat
+# eruit kwam was spraak die anderhalf keer te traag liep. Dat is niet met een typecheck te
+# vangen maar wel met een controle die kijkt of het getal ergens opnieuw wordt opgeschreven.
 
-exec pnpm db:status
+pnpm db:status || exit 1
+exec pnpm samplerate:check

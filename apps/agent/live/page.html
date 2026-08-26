@@ -223,7 +223,16 @@
     </aside>
 
     <script type="module">
-      const SR = 16000;
+      /*
+       * De microfoonkant. Deepgram krijgt 16 kHz en dat staat los van wat de TTS levert.
+       *
+       * Dit heette `SR` en werd voor béide richtingen gebruikt — ook om de audio van de
+       * assistent mee af te spelen. Toen de TTS op 26 augustus 2026 naar 24 kHz ging, bleef
+       * dit op 16000 staan: 24000 samples werden als 16 kHz verklaard en dus over anderhalf
+       * keer zoveel tijd afgespeeld. Dat klinkt als een stem die te langzaam praat, met een
+       * te lage toonhoogte. De naam `SR` was daar medeplichtig aan; hij zei niet welke kant.
+       */
+      const SR_IN = 16000;
       const $ = (id) => document.getElementById(id);
       /**
        * De statusregel, en een fout die blijft staan.
@@ -259,10 +268,17 @@
        */
       let anam = null;
       let anamInvoer = null;
-      // Komt van de server; niet hier herhalen. Anam accepteert 16000, 24000 en 44100, maar
-      // wat wij sturen bepaalt de TTS — en die staat op 16 kHz omdat Cartesia over de
-      // WebSocket geen hogere rate levert.
-      let SR_UIT = 16000;
+      /*
+       * De afspeelkant. Komt van de server, en heeft hier met opzet géén terugval.
+       *
+       * `null` tot het `ready`-bericht binnen is. Stond hier eerst 16000 als beginwaarde, en
+       * juist die stille terugval maakte de mismatch onzichtbaar: er kwam gewoon geluid uit,
+       * alleen te traag. Nu is "ik weet de rate niet" een zichtbare fout in plaats van een
+       * aanname die klinkt.
+       *
+       * Anam accepteert 16000, 24000 en 44100; wat wij sturen bepaalt de TTS.
+       */
+      let SR_UIT = null;
 
       function nieuweAnamStroom() {
         if (!anam) return null;
@@ -301,6 +317,18 @@
 
       /** Audio afspelen op volgorde, zodat er geen gaten of overlap ontstaan. */
       function speel(int16) {
+        /*
+         * Eerst de rate, dan pas afspelen — en dat geldt voor beide wegen.
+         *
+         * Anam heeft hem nog harder nodig dan de lokale weg: die krijgt hem als parameter mee
+         * in de invoerstroom. Audio vóór `ready` hoort niet voor te komen; gebeurt het toch,
+         * dan is raden het slechtste antwoord. Dan klinkt het als een stem die te langzaam
+         * praat, niet als een fout.
+         */
+        if (!SR_UIT) {
+          fout('audio ontvangen voordat de server zijn samplerate meldde');
+          return;
+        }
         // Met avatar gaat de audio hun kant op; lokaal afspelen zou hem dubbel laten
         // klinken en bovendien vóór het gezicht uit lopen.
         if (anam) {
@@ -311,7 +339,7 @@
           return;
         }
         if (!ctxUit) return;
-        const buf = ctxUit.createBuffer(1, int16.length, SR);
+        const buf = ctxUit.createBuffer(1, int16.length, SR_UIT);
         const kanaal = buf.getChannelData(0);
         for (let i = 0; i < int16.length; i++) kanaal[i] = int16[i] / 32768;
         const bron = ctxUit.createBufferSource();
@@ -356,8 +384,16 @@
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         });
 
-        ctxIn = new AudioContext({ sampleRate: SR });
-        ctxUit = new AudioContext({ sampleRate: SR });
+        ctxIn = new AudioContext({ sampleRate: SR_IN });
+        /*
+         * De uitvoercontext krijgt géén opgelegde rate.
+         *
+         * Hier stond dezelfde 16000 als bij de invoer. Dat dwingt de browser om alles naar
+         * 16 kHz terug te rekenen — precies de kwaliteitswinst weg die 24 kHz oplevert. Zonder
+         * argument neemt hij zijn eigen rate (meestal 48 kHz) en herbemonstert hij de buffer
+         * die we aanleveren; die draagt zijn eigen rate in `createBuffer`.
+         */
+        ctxUit = new AudioContext();
         await ctxUit.resume();
 
         ws = new WebSocket(`ws://${location.host}`);
@@ -383,6 +419,7 @@
           }
           if (m.type === 'ready') {
             if (m.sampleRate) SR_UIT = m.sampleRate;
+            else fout('de server meldde geen samplerate; afspelen zou raden zijn');
             // Wat de server werkelijk meestuurde, zodat een controle het kan uitlezen in
             // plaats van het uit de zichtbare gevolgen af te leiden. Het token zelf niet:
             // alleen of het er was.

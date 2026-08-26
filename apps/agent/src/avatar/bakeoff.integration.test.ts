@@ -62,6 +62,7 @@ describeLive('bakeoff — Beyond Presence', () => {
       avatarId: process.env['BEY_AVATAR_ID']!,
       language: 'nl',
       roomName: `bakeoff-bey-${Math.random().toString(36).slice(2, 8)}`,
+      sampleRate: SAMPLE_RATE,
     });
     const sessionReadyMs = Math.round(performance.now() - startedAt);
 

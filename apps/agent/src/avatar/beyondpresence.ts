@@ -302,7 +302,7 @@ export class BeyondPresenceAvatarProvider implements AvatarProvider {
 
   constructor(options: BeyondPresenceOptions) {
     this.options = {
-      sampleRate: options.sampleRate ?? 16_000,
+      sampleRate: options.sampleRate,
       ...options,
     } as Required<BeyondPresenceOptions>;
   }

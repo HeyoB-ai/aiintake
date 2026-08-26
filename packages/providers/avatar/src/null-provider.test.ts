@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NullAvatarSession } from './null-provider';
+import { NullAvatarProvider, NullAvatarSession } from './null-provider';
 
 /**
  * De boekhouding per beurt.
@@ -137,5 +137,56 @@ describe('speaking_end', () => {
     s.endTurn();
 
     expect(gebeurtenissen).toEqual(['start', 'end']);
+  });
+});
+
+describe('de samplerate waarmee de sessie rekent', () => {
+  /*
+   * Waarom dit er is.
+   *
+   * `NullAvatarProvider.createSession()` negeerde zijn opties en construeerde de sessie met
+   * een hardgecodeerde 16000. Toen de TTS op 26 augustus 2026 naar 24 kHz ging, bleef dat
+   * staan. Niets viel om — beide getallen zijn geldig — maar `bufferedMs` kwam er anderhalf
+   * keer te hoog uit. Dat is de bovengrens waarmee `truncateToSpoken` bepaalt wat de cliënt
+   * heeft gehoord, dus het transcript ging meer als gehoord vastleggen dan er klonk.
+   *
+   * Dat is dezelfde klasse als `finishTurn`/`endTurn`: geen fout, geen melding, alleen een
+   * getal dat stilletjes niet meer klopt.
+   */
+  it('rekent bufferedMs op de rate die is meegegeven en niet op 16 kHz', async () => {
+    const klok = new Klok();
+    const provider = new NullAvatarProvider(klok.now);
+    const sessie = (await provider.createSession({
+      avatarId: null,
+      language: 'nl',
+      roomName: null,
+      sampleRate: 24_000,
+    })) as NullAvatarSession;
+
+    // 24000 samples is één seconde op 24 kHz. Op 16 kHz zou dezelfde buffer 1500 ms "duren".
+    sessie.pushAudio(new Int16Array(24_000), 0);
+    klok.verder(5_000);
+
+    // playedMs is min(bufferedMs, verstreken tijd). Met 5 seconden verstreken is de buffer
+    // de bindende grens, dus dit leest bufferedMs rechtstreeks af.
+    const { spokenMs } = await sessie.interrupt();
+    expect(spokenMs).toBe(1000);
+  });
+
+  it('geeft de opties door en negeert ze niet', async () => {
+    // De vorige versie had `_options` in de signatuur: de aanroeper wist de rate wél en gaf
+    // hem mee, en de provider gooide hem weg. Deze test faalt als dat terugkomt.
+    const klok = new Klok();
+    const provider = new NullAvatarProvider(klok.now);
+    const sessie = (await provider.createSession({
+      avatarId: null,
+      language: 'nl',
+      roomName: null,
+      sampleRate: 8_000,
+    })) as NullAvatarSession;
+
+    sessie.pushAudio(new Int16Array(8_000), 0);
+    klok.verder(5_000);
+    expect((await sessie.interrupt()).spokenMs).toBe(1000);
   });
 });

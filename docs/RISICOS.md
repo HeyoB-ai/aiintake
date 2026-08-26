@@ -1264,3 +1264,60 @@ niet bestaat; bij Cartesia trad hij in 1 op 9 op, dus een leverancier met 1 op 5
 gewoon schoon uit komen. Wat er nu wél staat is een instrument dat de vraag in twintig minuten
 opnieuw beantwoordt, en een bewaker in de adapter die het zegt als de sample rate stil
 verandert (`SpreektempoWacht`). Dat is minder dan een garantie en meer dan een aanname.
+
+## 19. De samplerate stond op drie plekken los van elkaar
+
+**Status: opgelost op 26 augustus 2026, dezelfde dag als de fout die hem veroorzaakte.**
+
+**Wat er gebeurde.** De TTS ging naar 24 kHz (zie de correctie bij risico 12). Drie andere
+plekken bleven op 16000 staan, alle drie als eigen kopie:
+
+| plek               | wat er stond                                                     |
+| ------------------ | ---------------------------------------------------------------- |
+| `live/server.ts`   | `const SAMPLE_RATE = 16_000`, meegestuurd in het `ready`-bericht |
+| `live/page.html`   | `const SR = 16000`, gebruikt in `createBuffer()`                 |
+| `null-provider.ts` | `new NullAvatarSession(16_000, …)`, met de opties genegeerd      |
+
+**Waarom niets omviel.** Alle drie de getallen zijn geldig. Typecheck groen, tests groen, de
+hele reeks groen. Er kwam geluid uit de speakers — alleen anderhalf keer te traag en een
+kwint te laag, want 24000 samples die als 16 kHz worden verklaard duren 1,5 seconde in plaats
+van 1. Van buiten klinkt dat als een stem die langzaam praat.
+
+**Hoe het aan het licht kwam.** Niet door een controle. Door de waarneming "1.2 klinkt nog
+steeds te langzaam", en door de juiste gevolgtrekking daarbij: een tempo dat niet te
+compenseren valt, wijst op een rate die niet klopt. De poging tot compensatie liep tegen de
+grens van ElevenLabs' API (0,7–1,2, hard geweigerd boven 1,2) — dat was een tweede symptoom
+van dezelfde oorzaak en geen los probleem.
+
+**De tweede schade, en die is erger dan het geluid.** `NullAvatarSession.bufferedMs` kwam er
+anderhalf keer te hoog uit. Dat is de bovengrens waarmee `truncateToSpoken` bepaalt wat de
+cliënt heeft gehóórd. Het transcript legde dus meer als gehoord vast dan er klonk — dezelfde
+klasse als de `finishTurn`/`endTurn`-fout, en met dezelfde onzichtbaarheid.
+
+**Wat er nu staat.**
+
+- `AvatarSessionOptions.sampleRate` is een **verplicht** veld. Geen terugval, want optioneel
+  met een default is precies de vorm waarin dit stil misgaat. Drie aanroepers werden er een
+  compilefout van; dat is het bewijs dat het veld werkt.
+- `server.ts` leidt `SAMPLE_RATE` af van `media.tts.sampleRate`, en het `ready`-bericht meldt
+  `mediaketen.tts.sampleRate` — de rate van díé sessie, inclusief een kantoor met een andere
+  leverancier.
+- `page.html` heeft `SR_IN` (microfoon, echt 16 kHz) gescheiden van `SR_UIT` (van de server).
+  `SR_UIT` begint op `null` en audio vóór `ready` geeft een zichtbare fout in plaats van een
+  gok. De uitvoercontext krijgt geen opgelegde rate meer, zodat de browser niet alles naar
+  16 kHz terugrekent.
+- `null-provider.test.ts` heeft twee tests die op de oude code faalden (1500 in plaats van
+  1000 ms).
+- `pnpm samplerate:check` draait vóór elke push, naast `db:status`.
+
+**Waarom een controle en niet een betere toelichting.** Boven het `ready`-bericht stond op het
+moment van de fout al, letterlijk: _"twee plekken met hetzelfde getal is hoe een mismatch
+ontstaat, en een mismatch klinkt hier als spraak die te snel of te traag loopt."_ Die
+waarschuwing stond er, was juist, en hielp niets — want het getal dat werd meegestuurd was
+zélf de tweede kopie. Een toelichting is geen bewaker.
+
+**Wat de controle niet kan.** Hij leest tekst en voert niets uit; hij ziet dus niet of de
+doorgegeven rate ook de juiste ís, alleen dat er geen tweede bron voor in de plaats is
+gekomen. Dat de sessie met de meegegeven rate rékent staat in `null-provider.test.ts`; dat de
+synthese levert wat ze belooft in `pnpm diag:tts-productieweg`. Los dekt geen van de drie de
+keten.

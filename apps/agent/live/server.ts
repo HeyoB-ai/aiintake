@@ -65,7 +65,19 @@ if (PRODUCTIE && process.argv.includes('--zonder-token')) {
   );
   process.exit(1);
 }
-const SAMPLE_RATE = 16_000;
+/*
+ * Geen eigen getal meer.
+ *
+ * Hier stond `16_000`, en drie regels verderop staat de toelichting dat twee plekken met
+ * hetzelfde getal is hoe een mismatch ontstaat. Precies dat gebeurde: op 26 augustus 2026 ging
+ * de TTS naar 24 kHz en deze constante bleef staan. De pagina kreeg 16000 gemeld, verklaarde
+ * 24 kHz-samples als 16 kHz, en speelde alles anderhalf keer te traag af — met een lagere
+ * toonhoogte erbij. Van buiten klonk dat als een stem die te langzaam praat.
+ *
+ * De les was niet "zet het getal op 24000" maar "laat het geen tweede getal zijn". Dit volgt
+ * nu de TTS-configuratie.
+ */
+const SAMPLE_RATE = media.tts.sampleRate;
 
 /**
  * Rechtstreeks uit process.env, en niet via `readAgentEnv()`.
@@ -828,11 +840,13 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     void beeindig('tab', `code ${code}${reden ? ` "${String(reden)}"` : ''}`);
   });
 
+  const mediaketen = mediaVoor(context);
+  console.log(
+    `  TTS voor deze sessie: ${mediaketen.tts.keuze} · stem ` +
+      `${mediaketen.tts.voiceId.slice(0, 8)} · ${mediaketen.tts.sampleRate / 1000} kHz`,
+  );
+
   try {
-    const mediaketen = mediaVoor(context);
-    console.log(
-      `  TTS voor deze sessie: ${mediaketen.tts.keuze} · stem ${mediaketen.tts.voiceId.slice(0, 8)}`,
-    );
     sessie = await startEchoSession({
       media: mediaketen,
       language: 'nl',
@@ -934,15 +948,24 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     }
   }
 
-  // De samplerate meesturen in plaats van hem in de pagina te herhalen. Twee plekken met
-  // hetzelfde getal is hoe een mismatch ontstaat, en een mismatch klinkt hier als spraak
-  // die te snel of te traag loopt.
+  /*
+   * De samplerate meesturen in plaats van hem in de pagina te herhalen.
+   *
+   * Twee plekken met hetzelfde getal is hoe een mismatch ontstaat, en een mismatch klinkt hier
+   * als spraak die te snel of te traag loopt. Dat stond hier al, en toch ging het mis: het
+   * getal dat werd meegestuurd was zélf een tweede kopie, hardgecodeerd op 16000, terwijl de
+   * TTS op 24 kHz ging. Meesturen helpt alleen als wat je meestuurt de bron is.
+   *
+   * Daarom `mediaketen.tts.sampleRate` en niet de constante: dit is de rate waarmee deze
+   * sessie werkelijk synthetiseert, inclusief een kantoor dat een andere leverancier heeft
+   * gekozen.
+   */
   // De providerkeuze gaat expliciet mee, niet impliciet via de aanwezigheid van een token.
   // Anders kan de pagina "geen token" niet onderscheiden van "geen avatar bedoeld", en
   // draait hij zonder gezicht verder terwijl de server iets anders meldt.
   stuur({
     type: 'ready',
-    sampleRate: SAMPLE_RATE,
+    sampleRate: mediaketen.tts.sampleRate,
     avatar: AVATAR,
     ...(anamToken ? { anamToken } : {}),
     ...(avatarFout ? { avatarFout } : {}),

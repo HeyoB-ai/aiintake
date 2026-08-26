@@ -352,6 +352,7 @@ describe('bakeoff in de browser', () => {
         avatarId: process.env['BEY_AVATAR_ID']!,
         language: 'nl',
         roomName,
+        sampleRate: SAMPLE_RATE,
       });
 
       // De browser kijkt mee als gewone deelnemer. Precies het token dat een cliënt

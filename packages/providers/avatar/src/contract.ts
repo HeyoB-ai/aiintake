@@ -29,6 +29,20 @@ export interface AvatarSessionOptions {
   readonly language: Language;
   /** Naam van de room waarin de videotrack gepubliceerd wordt. */
   readonly roomName: string | null;
+  /**
+   * De samplerate van de PCM die deze sessie zal krijgen.
+   *
+   * **Verplicht, en met opzet geen standaardwaarde.** Dit veld bestaat omdat het er niet was:
+   * `NullAvatarProvider` construeerde zijn sessie met een hardgecodeerde 16000 en
+   * `beyondpresence.ts` viel terug op `?? 16_000`. Toen de TTS op 26 augustus 2026 naar 24 kHz
+   * ging, bleven die twee op 16 kHz staan. Niets viel om — de getallen zijn allebei geldig —
+   * maar `bufferedMs` kwam er anderhalf keer te hoog uit, en dat is de bovengrens waarmee
+   * `truncateToSpoken` bepaalt wat de cliënt heeft gehóórd.
+   *
+   * Een optioneel veld met een terugval is precies de vorm waarin dat stil kan gebeuren. Als
+   * verplicht veld is een provider die het niet doorgeeft een compilefout.
+   */
+  readonly sampleRate: number;
 }
 
 /** Wat de transportlaag teruggeeft; opzettelijk niet getypeerd naar één SDK. */

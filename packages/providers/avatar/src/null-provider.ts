@@ -39,7 +39,8 @@ export class NullAvatarSession implements AvatarSession {
   disconnected = false;
 
   constructor(
-    private readonly sampleRate: number = 16_000,
+    /** Geen standaardwaarde: zie de toelichting bij `AvatarSessionOptions.sampleRate`. */
+    private readonly sampleRate: number,
     /** Injecteerbaar zodat de HUD-meting deterministisch te testen is. */
     private readonly now: () => number = () => Date.now(),
   ) {}
@@ -158,8 +159,10 @@ export class NullAvatarProvider implements AvatarProvider {
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
-  async createSession(_options: AvatarSessionOptions): Promise<AvatarSession> {
-    this.session = new NullAvatarSession(16_000, this.now);
+  async createSession(options: AvatarSessionOptions): Promise<AvatarSession> {
+    // Hier stond `16_000`, hardgecodeerd, terwijl de aanroeper de werkelijke rate wél wist.
+    // De opties heetten daarom `_options`: ze werden niet gebruikt. Zie het contract.
+    this.session = new NullAvatarSession(options.sampleRate, this.now);
     return this.session;
   }
 }

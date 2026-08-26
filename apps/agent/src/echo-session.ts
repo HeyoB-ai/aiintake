@@ -134,6 +134,8 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     avatarId: null,
     language,
     roomName: null,
+    // Dezelfde rate als de TTS levert. Stond hier niet, en de avatarlaag nam 16 kHz aan.
+    sampleRate: media.tts.sampleRate,
   });
 
   const loop = new TurnLoop({
