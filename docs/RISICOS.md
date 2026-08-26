@@ -669,7 +669,34 @@ gebruiken zolang er maar één weg naartoe loopt.
 
 ## 12. Audiokwaliteit: de keten zit vast op 16 kHz door de Cartesia-WebSocket
 
-**Status: open. Blokkeert een kwaliteitswinst die verder gratis is.**
+**Status: de premisse klopt niet meer. Gemeten 26 augustus 2026.**
+
+> **Correctie, en die staat hier boven en niet onderaan.** De titel van dit risico en de
+> `throw` in `CartesiaTtsStream.connect()` gaan ervan uit dat Cartesia's WebSocket
+> `sample_rate` negeert en altijd 16 kHz levert. Dat is niet meer zo. Twee onafhankelijke
+> metingen (`pnpm diag:tts-vergelijk`):
+>
+> - **spreektempo** — 24 kHz over de WebSocket geeft 3,83 woorden per seconde, tegen 3,41
+>   voor REST op dezelfde tekst. Werd de parameter genegeerd, dan zou de berekende duur twee
+>   derde van de echte zijn en het tempo boven de 5 w/s uitkomen. Dat gebeurt niet.
+> - **samples op 16 tegen 24 kHz** — 128050 tegen 194676 samples over drie runs per rate,
+>   een verhouding van **1,52**. Genegeerd zou 1,00 opleveren.
+>
+> ElevenLabs honoreert het eveneens (1,47).
+>
+> Dit is een **omgekeerd** eerder resultaat, geen nieuw resultaat. De oorspronkelijke meting
+> staat hieronder ongewijzigd en de toenmalige uitkomst is niet in twijfel getrokken; wat
+> hier is vastgesteld, is dat hij vandaag anders uitvalt. Waarom weet niemand — het kan een
+> wijziging bij Cartesia zijn. Dat is precies risico 16: een gecorrigeerd feit is niet te
+> onderscheiden van een bevestigd feit, en daarom staat de correctie hier bovenaan met de
+> meting erbij.
+>
+> **Wat dit openzet.** De reden om 24 kHz niet in productie te nemen was dat het zelf
+> opschalen per chunk randeffecten toevoegt op precies de plekken die je onderzoekt. Die
+> reden vervalt: 24 kHz is nu rechtstreeks te vragen, zonder resamplingstap. De gemeten winst
+> was ongeveer een derde minder tikken. De `throw` in `connect()` blokkeert dat vandaag nog.
+>
+> **Wat dit niet oplost.** De tikken verdwenen in arm B ook niet. Dat blijft staan.
 
 Live met avatar klonken er tikken en viel de kwaliteit tegen. Drie verdachten, alle drie
 gemeten in plaats van beredeneerd.
@@ -1056,3 +1083,116 @@ marge en 8 ms fade). Niet Anam: dit is gemeten vóór de avatar.
 - Een mogelijke mitigatie die nog niet is uitgewerkt: de opening niet als één synthese
   aanbieden, zodat een wegval één korte zin kost in plaats van de disclaimer. Dat is een
   ontwerpkeuze en geen reparatie — hij verkleint de kans, hij sluit hem niet uit.
+
+### 17b. Naast ElevenLabs gelegd — dezelfde tekst, dezelfde rondgang
+
+**Gemeten 26 augustus 2026, `pnpm diag:tts-vergelijk`.** Drie runs per arm, zes armen, negen
+metingen per leverancier. Geen wisseling doorgevoerd; dit zijn de cijfers om op te beslissen.
+
+Het instrument telt nu beide kanten op. `diag:tts-tekst` telde alleen wat er ontbrak; de
+herhaalde staart heb ik daar met het oog uit een transcript gehaald, en dat is precies de
+waarneming die de volgende keer wordt gemist. Er zitten nu drie maten in: ontbrekende
+woorden, woorden die er niet in stonden, en de langste aaneengesloten reeks die tweemaal in
+één transcript staat.
+
+| foutvorm                                 | Cartesia | ElevenLabs |
+| ---------------------------------------- | -------- | ---------- |
+| "Goedenavond" ontbreekt volledig         | **7/9**  | **0/9**    |
+| "geen advocaat" ontbreekt of is verminkt | **1/9**  | **0/9**    |
+| herhaalde reeks van 3+ woorden           | **2/9**  | **0/9**    |
+
+De ernstigste regel is de tweede, en niet vanwege het aantal. Cartesia REST leverde in run 2
+dit:
+
+> "Ik ben Leo Bentje, ik ben de intakeassistent van Van Dijk Arbeentje, **ik ben advocaat** en
+> ben aangesteld om de gegevens van uw zaak vast te leggen."
+
+Het woord "geen" is weg. De disclaimer zegt dan niet minder dan bedoeld — hij zegt **het
+tegenovergestelde**. Van "ik ben geen advocaat" wordt "ik ben advocaat", in een gesprek waarin
+de cliënt op het toestemmingsscherm juist voor die zin heeft getekend. Eén op negen.
+
+Wat ElevenLabs mist is in alle negen metingen hetzelfde en van een andere orde: de verzonnen
+naam "Heyo Beentje", en "intake assistent" dat als één woord terugkomt. Beide leveranciers
+verhaspelen die naam in elke run, dus dat is een naamprobleem en geen leveranciersprobleem.
+In geen enkele ElevenLabs-meting ontbreekt een zin, een groet of de disclaimer.
+
+**Snelheid.** Eerste audio, gemiddeld over drie runs, in de productievorm (WebSocket, per zin):
+
+| arm                     | Cartesia | ElevenLabs |
+| ----------------------- | -------- | ---------- |
+| WebSocket, per zin      | 123 ms   | 131 ms     |
+| WebSocket, één bericht  | 139 ms   | 136 ms     |
+| REST, streamend gelezen | 232 ms   | 184 ms     |
+
+Acht milliseconde verschil op de weg die wij gebruiken. Het latencybudget is hier niet de
+beslissende factor — die getallen zijn wel vanaf een werkplek gemeten en niet vanaf Railway,
+dus lees ze als verhouding en niet als budgettoets.
+
+**Spreektempo, en dat is wél een verschil.** ElevenLabs spreekt 2,45 woorden per seconde tegen
+3,83 bij Cartesia. Dezelfde openingszin duurt daar 10,4 seconde tegen 7,5. Dat is ruim drie
+seconde extra voordat de cliënt aan het woord komt, elke beurt opnieuw. Dat weegt tegen de
+betrouwbaarheid op, en het is een keuze en geen meetfout.
+
+**Wat deze proef niet meet.** Klemtoon en intonatie in het Nederlands. Een spraakherkenner
+geeft woorden terug, geen oordeel over "ARbeidsrecht" tegen "arbeidsRECHT". Daarom schrijft
+elke arm een WAV weg in `apps/agent/measurements/tts-vergelijk/`. Dat oordeel is van het oor
+en staat bewust niet in de tabel.
+
+## 18. Een leverancier wisselen kan niet zoals bij de avatars
+
+**Status: open. Vastgesteld 26 augustus 2026 bij het onderzoek naar risico 17.**
+
+De vraag was of de providerlaag op een wissel is ingericht zoals bij de avatars. Het antwoord
+is: het contract wel, de bedrading niet.
+
+**Het contract is schoon.** `TextToSpeechProvider` en `TtsStream` in
+`packages/providers/tts/src/contract.ts` beschrijven precies wat de lus nodig heeft — `say`,
+`flush`, `cancel`, `trimmedLeadingMs`, `on`, `close` — en `turn-loop.ts` raakt niets anders
+aan. Een tweede adapter is te schrijven zonder de lus te veranderen.
+
+**De bedrading is dat niet.** Bij de avatars zit de naad in de opties:
+`EchoSessionOptions.avatarProvider` wordt ingespoten en valt terug op de null-provider. Bij de
+TTS bestaat die naad niet. `startEchoSession` construeert `new CartesiaTtsProvider(...)`
+rechtstreeks, en `MediaConfig` draagt `cartesiaApiKey` en `cartesiaVoiceId` als **veldnamen**.
+De keuze zit dus niet in een parameter maar in de vorm van het configuratietype.
+
+**Er is een schakelaar die niemand uitleest.** `organization.settings.tts` is
+`z.enum(['cartesia', 'elevenlabs', 'fake'])`, wordt in de seed op `'cartesia'` gezet en gaat
+via `p_tts_provider` de database in. Geen enkele regel in `apps/agent` leest hem. Dat is
+dezelfde vorm als de zeven ongebruikte agent-RPC's uit risico 15: geconfigureerd, opgeslagen,
+en zonder effect.
+
+**Wat er dan werkelijk moet gebeuren.** Een adapter schrijven, `MediaConfig` neutraal maken,
+een fabriek bouwen die `settings.tts` uitleest, en de zeven testbestanden aanpassen die
+`CartesiaTtsProvider` rechtstreeks construeren en naar `CartesiaTtsStream` casten. Dat laatste
+is de echte maat: het zijn niet de aanroepers van het contract die vastzitten, het zijn de
+plekken die het contract omzeilen.
+
+### Wat het onderzoek er los van vond
+
+`CartesiaTtsStream.nextTurn()` roteert de context per beurt en heeft **nul aanroepers** in de
+hele repo. Dat is de derde keer dat dit patroon opduikt: `finishTurn` bij de null-avatar deed
+hetzelfde en kostte ons vanaf beurt 2 van elk gesprek de `first_frame`-meting en een correcte
+truncatie.
+
+De lus roept aan het eind van een schone beurt wél `avatar.endTurn()` aan, maar niets op de
+TTS. De enige andere weg naar `newContext()` is `cancel()`, en die loopt alleen bij een
+barge-in. In een gesprek zonder onderbrekingen krijgt beurt 2 dus dezelfde `context_id` als
+beurt 1, en die is met `continue: false` afgesloten.
+
+**Gemeten, niet aangenomen.** Drie beurten over één socket, dezelfde tekst:
+
+| beurt                            | audio   | woorden kwijt |
+| -------------------------------- | ------- | ------------- |
+| 1 · verse context                | 8081 ms | 3             |
+| 2 · dezelfde context (productie) | 8173 ms | 3             |
+| 3 · verse context                | 7105 ms | 5             |
+
+Het hergebruik doet er niet toe. Cartesia accepteert een gesloten context en levert gewoon
+audio. **Dit is dus niet de oorzaak van risico 17** — dat moest gemeten worden voordat het
+kon worden uitgesloten, en dat is nu gebeurd.
+
+Eén gevolg blijft wel staan, en het is klein: `newContext()` zet ook `trimming` terug op
+`true`. Omdat hij na beurt 1 niet meer draait, wordt aanloopstilte alleen in de eerste beurt
+weggesneden — en geeft `trimmedLeadingMs()` een sessietotaal terug op een plek waar de HUD een
+beurtwaarde toont. Dat kost latency en leesbaarheid, geen woorden.

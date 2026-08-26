@@ -30,7 +30,8 @@
     "build:worker": "esbuild live/server.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/worker.js --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
     "start:worker": "node dist/worker.js",
     "diag:audio": "tsx --env-file=../../.env bakeoff/audio-diagnose.ts",
-    "diag:tts-tekst": "tsx --env-file=../../.env bakeoff/tts-tekst-diagnose.ts"
+    "diag:tts-tekst": "tsx --env-file=../../.env bakeoff/tts-tekst-diagnose.ts",
+    "diag:tts-vergelijk": "tsx --env-file=../../.env bakeoff/tts-vergelijk-diagnose.ts"
   },
   "dependencies": {
     "@intake/db-core": "workspace:*",
