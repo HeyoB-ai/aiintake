@@ -2,6 +2,7 @@ import {
   hervattingsZin,
   kiesErkenning,
   wanhoopReactie,
+  ERKENNING_MARKERING,
   type WanhoopReactie,
   type ErkenningKeuze,
   type ErkenningStand,
@@ -112,7 +113,29 @@ export interface IntakeSessionOptions {
       detectedBy: 'rule' | 'rule+ai';
       sourceRef: string | null;
     }): Promise<unknown>;
+    appendMessage(args: {
+      turnIndex: number;
+      role: 'assistant' | 'client' | 'system';
+      content: string;
+      intendedContent?: string | null;
+      interruptedAtChar?: number | null;
+      spokenMs?: number | null;
+      plannedQuestionKeys?: string[];
+      clientUtteranceWasCut?: boolean;
+    }): Promise<unknown>;
   };
+  /**
+   * Elk bericht dat is weggeschreven, of de reden waarom niet.
+   *
+   * Nooit stil: een transcript dat niet landt, is van buiten niet te onderscheiden van een
+   * gesprek dat niet heeft plaatsgevonden.
+   */
+  readonly onBericht?: (info: {
+    turnIndex: number;
+    role: 'assistant' | 'client';
+    tekens: number;
+    stap: 'weggeschreven' | string;
+  }) => void;
   /**
    * De erkenningslaag uitzetten.
    *
@@ -129,6 +152,8 @@ export class IntakeSession {
   private laatstePrompt: RenderedPrompt | null = null;
   private erkenningStand: ErkenningStand = { gebruikt: [], laatsteBeurt: null };
   private laatsteErkenning: string | null = null;
+  /** De erkenning van de lopende beurt; wordt bij het wegschrijven afgesplitst. */
+  private erkenningVanBeurt: string | null = null;
   private laatsteOordeel: LadingOordeel | null = null;
 
   /**
@@ -331,6 +356,7 @@ export class IntakeSession {
                 laatsteBeurt: self.history.length,
               };
               self.laatsteErkenning = keuze.zin;
+              self.erkenningVanBeurt = keuze.zin;
               // Met een spatie erachter: de zinsflusher knipt op het leesteken, dus dit
               // wordt een eigen zin en gaat als eerste naar de TTS.
               yield `${keuze.zin} `;
@@ -430,6 +456,114 @@ export class IntakeSession {
     if (assistantContent.trim()) {
       this.history.push(beurt('assistant', assistantContent, this.history.length));
     }
+  }
+
+  /**
+   * De beurt naar `messages`, buiten de klok.
+   *
+   * ## Waarom hier en niet in live/server.ts
+   *
+   * Dit is de aanroep die je bij een latere overstap naar een ander transport wilt
+   * behouden. In de transportlaag zou hij mee verdwijnen; hier verhuist hij mee zonder
+   * aanpassing. Zie het beslisdocument over weg A.
+   *
+   * ## Waarom de erkenning een eigen bericht wordt
+   *
+   * De erkenning is vóór het antwoord de spraakstroom in gezet, dus hij zit ín
+   * `assistantContent`. Zou hij daar blijven, dan is er geen enkele manier om hem later
+   * terug te vinden — en een erkenning mag nooit als grondslag voor een feit tellen.
+   *
+   * Assistent-beurten zijn al uitgesloten van extractie; dat is het eerste slot. Dit is het
+   * tweede: een eigen bericht met `ERKENNING_MARKERING` ervoor, leesbaar voor een mens die
+   * het transcript nakijkt. Twee sloten op één deur, want het eerste werkt alleen zolang
+   * niemand ooit besluit assistent-tekst wél mee te wegen.
+   *
+   * `interruptedAtChar` wordt meeverschoven met de lengte van het afgesplitste stuk. Dat
+   * getal is een index in wat er is uitgesproken, en zou hij blijven staan, dan wijst hij
+   * na het afsplitsen naar het verkeerde teken — precies de soort stille fout die het
+   * transcript onbetrouwbaar maakt.
+   */
+  async persistTurn(turn: {
+    turnIndex: number;
+    clientUtterance: string;
+    assistantContent: string;
+    intendedContent: string;
+    interruptedAtChar: number | null;
+    spokenMs: number | null;
+    clientUtteranceWasCut: boolean;
+    plannedQuestionKeys?: readonly string[];
+  }): Promise<void> {
+    const rpc = this.options.rpc;
+    if (!rpc) return;
+
+    const schrijf = async (
+      role: 'assistant' | 'client',
+      content: string,
+      extra: Record<string, unknown>,
+    ): Promise<void> => {
+      if (!content.trim()) return;
+      try {
+        await rpc.appendMessage({ turnIndex: turn.turnIndex, role, content, ...extra });
+        this.options.onBericht?.({
+          turnIndex: turn.turnIndex,
+          role,
+          tekens: content.length,
+          stap: 'weggeschreven',
+        });
+      } catch (fout) {
+        this.options.onBericht?.({
+          turnIndex: turn.turnIndex,
+          role,
+          tekens: content.length,
+          stap: `NIET WEGGESCHREVEN: ${fout instanceof Error ? fout.message : String(fout)}`,
+        });
+      }
+    };
+
+    // De cliënt eerst: de volgorde in `messages` hoort de volgorde van het gesprek te zijn.
+    await schrijf('client', turn.clientUtterance, {
+      clientUtteranceWasCut: turn.clientUtteranceWasCut,
+    });
+
+    const erkenning = this.erkenningVanBeurt;
+    this.erkenningVanBeurt = null;
+
+    let inhoud = turn.assistantContent;
+    let knip = turn.interruptedAtChar;
+
+    if (erkenning && inhoud.startsWith(erkenning)) {
+      // De erkenning is met een spatie erachter geyield; die hoort bij het afgesplitste
+      // stuk en niet bij het antwoord.
+      const prefix = inhoud.slice(0, erkenning.length + 1);
+      inhoud = inhoud.slice(prefix.length);
+
+      if (knip !== null && knip < prefix.length) {
+        /*
+         * De onderbreking viel middenin de erkenning.
+         *
+         * Dan is het antwoord nooit begonnen. De erkenning krijgt de knip, en er volgt geen
+         * assistent-bericht — zou dat er wel zijn, dan staat er tekst in het transcript die
+         * niemand heeft gehoord.
+         */
+        await schrijf('assistant', `${ERKENNING_MARKERING}${erkenning}`, {
+          interruptedAtChar: knip,
+          spokenMs: turn.spokenMs,
+        });
+        return;
+      }
+
+      await schrijf('assistant', `${ERKENNING_MARKERING}${erkenning}`, {
+        interruptedAtChar: null,
+      });
+      if (knip !== null) knip -= prefix.length;
+    }
+
+    await schrijf('assistant', inhoud, {
+      intendedContent: turn.intendedContent,
+      interruptedAtChar: knip,
+      spokenMs: turn.spokenMs,
+      plannedQuestionKeys: [...(turn.plannedQuestionKeys ?? [])],
+    });
   }
 
   async observe(): Promise<ObservationResult> {

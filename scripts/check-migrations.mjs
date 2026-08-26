@@ -337,6 +337,138 @@ async function checkContactVerplicht(client) {
   return true;
 }
 
+/**
+ * Eén gesprek erin, en nakijken wat er in `messages` staat.
+ *
+ * ## Waarom deze controle er zo uitziet
+ *
+ * `agent_append_message` bestond sinds Fase 0 en werd nooit aangeroepen. Vier keer deze
+ * week bleek een groene uitkomst niets te bewijzen omdat de controle het gedrag niet raakte
+ * — een cache die oversloeg, een fake die minder kon dan het contract, een tabel met nul
+ * metingen, een test die in beide toestanden groen bleef. Daarom staat hier een negatieve
+ * controle vóór de positieve: eerst bewijzen dat de deur op slot zit, dan pas dat de sleutel
+ * past. Slaagt een schrijfpoging met een onzintoken, dan zegt de rest van deze functie niets.
+ *
+ * Draait tegen de embedded Postgres uit db:check, dus zonder Supabase-secrets en in elke
+ * CI-run.
+ */
+async function checkTranscript(client) {
+  const { createHash, randomBytes } = await import('node:crypto');
+
+  /** Eén regel uitvoer, met een lege regel ervoor als dat de eerste is van een blok. */
+  const meld = (tekst, metWitregel = true) => {
+    process.stdout.write(`${metWitregel ? '\n' : ''}  ${tekst}\n`);
+  };
+
+  const { rows: org } = await client.query(
+    `select slug from public.organizations where is_active and deleted_at is null
+      order by created_at limit 1`,
+  );
+  if (org.length === 0) {
+    meld('(geen organisatie in de seed; transcript niet getoetst)');
+    return true;
+  }
+
+  const { rows: gemaakt } = await client.query(
+    `select * from public.create_public_intake(
+       $1::text, 'nl', 'video', 'transcriptcheck', true, 'v1', true, 'v1', false, true, null,
+       'Sanne de Vries', null, '0612345678')`,
+    [org[0].slug],
+  );
+  const intakeId = gemaakt[0].intake_id;
+
+  const token = randomBytes(32).toString('base64url');
+  const hash = createHash('sha256').update(token).digest('hex');
+  await client.query(
+    `select * from public.issue_agent_session($1::uuid, 'video', $2::text, null, null, null)`,
+    [intakeId, hash],
+  );
+
+  // --- negatieve controle: een onzintoken mag niets kunnen schrijven
+  try {
+    await client.query(
+      `select public.agent_append_message($1::text, $2::uuid, 0, 'client', 'zou niet mogen')`,
+      ['dit-is-geen-geldig-token', intakeId],
+    );
+    meld('FAIL een ongeldig sessietoken kon in het transcript schrijven');
+    return false;
+  } catch {
+    /* precies goed: geweigerd */
+  }
+
+  // --- het gesprek zoals de lus het wegschrijft
+  const schrijf = (index, role, content, extra = {}) =>
+    client.query(
+      `select public.agent_append_message(
+         $1::text, $2::uuid, $3::int, $4::text, $5::text, $6::text, $7::int, $8::int)`,
+      [
+        token,
+        intakeId,
+        index,
+        role,
+        content,
+        extra.intended ?? null,
+        extra.knip ?? null,
+        extra.spokenMs ?? null,
+      ],
+    );
+
+  await schrijf(0, 'assistant', 'Goedemiddag, Sanne de Vries. Ik ben de AI-intake-assistent.');
+  await schrijf(1, 'client', 'Ik ben op staande voet ontslagen.');
+  await schrijf(1, 'assistant', '[erkenning] Dat is schrikken.');
+  await schrijf(1, 'assistant', 'Wanneer is dat gebeurd?', {
+    intended: 'Wanneer is dat gebeurd? En had u al een waarschuwing gehad?',
+    knip: 22,
+    spokenMs: 900,
+  });
+
+  const { rows } = await client.query(
+    `select turn_index, role, content, interrupted_at_char, intended_content
+       from public.messages where intake_id = $1
+      order by turn_index, created_at, id`,
+    [intakeId],
+  );
+
+  if (rows.length !== 4) {
+    meld(`FAIL ${rows.length} berichten in plaats van 4`);
+    return false;
+  }
+
+  const volgorde = rows.map((r) => `${r.turn_index}:${r.role}`).join(' ');
+  if (volgorde !== '0:assistant 1:client 1:assistant 1:assistant') {
+    meld(`FAIL verkeerde volgorde of rollen: ${volgorde}`);
+    return false;
+  }
+
+  // De erkenning is als eigen bericht herkenbaar. Dat is het tweede slot uit risico 16:
+  // assistent-beurten zijn al uitgesloten van extractie, en dit maakt het ook leesbaar.
+  const erkenning = rows[2];
+  if (!erkenning.content.startsWith('[erkenning] ')) {
+    meld('FAIL de erkenning staat niet als eigen gemarkeerd bericht');
+    return false;
+  }
+  if (erkenning.interrupted_at_char !== null) {
+    meld('FAIL de erkenning draagt een afkapping die er niet was');
+    return false;
+  }
+
+  // En de afgekapte beurt houdt zijn eigen index; `content` is wat er is gehoord,
+  // `intended_content` wat het model wilde zeggen.
+  const antwoord = rows[3];
+  if (antwoord.interrupted_at_char !== 22 || antwoord.intended_content === null) {
+    meld('FAIL de afkapping van de assistent-beurt is niet bewaard');
+    return false;
+  }
+  if (antwoord.intended_content.length <= antwoord.content.length) {
+    meld('FAIL intended_content is niet langer dan wat er is gehoord');
+    return false;
+  }
+
+  meld('Transcript: 4 berichten, juiste volgorde en rollen, erkenning gemarkeerd,');
+  meld('            afkapping bewaard, ongeldig token geweigerd', false);
+  return true;
+}
+
 async function run(connectionString) {
   const client = new pg.Client({ connectionString });
   await client.connect();
@@ -424,6 +556,7 @@ async function run(connectionString) {
 
     ok = (await checkSessieVerval(client)) && ok;
     ok = (await checkContactVerplicht(client)) && ok;
+    ok = (await checkTranscript(client)) && ok;
   }
 
   await client.end();

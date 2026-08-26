@@ -602,6 +602,11 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
               'de cliënt wordt niet aangesproken',
       );
     },
+    onBericht: (info) => {
+      console.log(
+        `  bericht ${info.turnIndex}/${info.role} (${info.tekens} tekens) · ${info.stap}`,
+      );
+    },
     onHervatting: (info) => {
       console.log(
         `  hervatting · ${info.turnCount} eerdere beurt(en) · ` +
@@ -830,6 +835,28 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
         // Het koude pad, ná de beurt en buiten de klok. Faalt het, dan raakt dat het
         // gesprek niet — daarom een losse catch en geen await op het spraakpad.
         intake.recordTurn(turn.clientUtterance, turn.assistantContent);
+
+        /*
+         * Het transcript, buiten de klok en met een eigen catch.
+         *
+         * Dezelfde behandeling als de koude ronde hieronder: faalt het wegschrijven, dan
+         * raakt dat het lopende gesprek niet. Wat het wél doet is een regel in het log
+         * achterlaten -- zie onBericht -- want een transcript dat niet landt is van buiten
+         * niet te onderscheiden van een gesprek dat niet heeft plaatsgevonden.
+         */
+        void intake
+          .persistTurn({
+            turnIndex: turn.turnIndex,
+            clientUtterance: turn.clientUtterance,
+            assistantContent: turn.assistantContent,
+            intendedContent: turn.intendedContent,
+            interruptedAtChar: turn.interruptedAtChar,
+            spokenMs: turn.spokenMs,
+            clientUtteranceWasCut: turn.clientUtteranceWasCut,
+          })
+          .catch((fout: unknown) => {
+            console.log(`  transcript NIET weggeschreven: ${String(fout).slice(0, 200)}`);
+          });
         void intake
           .observe()
           .then((r) => {
