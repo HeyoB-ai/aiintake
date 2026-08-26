@@ -174,9 +174,25 @@ export class TurnLoop {
      * Zonder deze regel zijn ze van buiten identiek aan stilte.
      */
     o.stt.on('empty_turn', (meta) => {
+      /*
+       * Twee gevallen, en ze horen niet hetzelfde te klinken.
+       *
+       * `tekensGezien === 0` is een kuch, een deur, een stoel: er was geluid en geen taal.
+       * Onvermijdelijk, en verder onschuldig.
+       *
+       * `tekensGezien > 0` is dataverlies. De herkenner zag woorden en ze zijn verdwenen —
+       * `pending` stapelt uitsluitend op `is_final`, dus een tussentijds resultaat dat nooit
+       * definitief werd, gaat als partial naar buiten en wordt weggegooid. De cliënt heeft
+       * gepraat, wij hebben het verstaan, en er komt geen beurt. Dat is dezelfde klasse als
+       * risico 2 en het hoort met zoveel woorden gemeld te worden.
+       */
       o.onSkippedTurn?.(
-        `beurt zonder bruikbare tekst — afgesloten door ${meta.endedBy}, ` +
-          `${meta.resultaten} resultaat/resultaten van de herkenner`,
+        meta.tekensGezien > 0
+          ? `DATAVERLIES: ${meta.tekensGezien} tekens verstaan maar geen enkele final — ` +
+              `beurt gesloten door ${meta.endedBy}, ${meta.resultaten} resultaat/resultaten. ` +
+              'De uitspraak van de cliënt is niet verwerkt.'
+          : `beurt zonder bruikbare tekst (geen taal verstaan) — afgesloten door ` +
+              `${meta.endedBy}, ${meta.resultaten} resultaat/resultaten van de herkenner`,
       );
     });
 

@@ -92,6 +92,15 @@ export class DeepgramSttStream implements SttStream {
   private pending = '';
   /** Aantal `Results`-berichten in de lopende beurt; alleen om een lege beurt te duiden. */
   private resultatenInBeurt = 0;
+  /**
+   * De langste transcripttekst die in deze beurt langskwam, in tekens.
+   *
+   * Alleen de lengte, nooit de tekst: §14 verbiedt transcriptfragmenten in logs, en voor
+   * het onderscheid dat dit veld moet maken is de lengte genoeg. Nul betekent dat de
+   * herkenner geen enkel woord heeft gezien; meer dan nul bij een lege beurt betekent dat
+   * er wél woorden waren en dat ze onderweg zijn verdwenen.
+   */
+  private tekensInBeurt = 0;
   /** Wandkloktijd waarop de stream openging; ankerpunt voor de streamtijdstempels. */
   private streamStartedAt = 0;
   /** Einde van het laatste woord, in seconden vanaf streamstart. */
@@ -206,6 +215,26 @@ export class DeepgramSttStream implements SttStream {
       // Tellen vóór de lege-tekstzeef: een Results zonder transcript is precies het
       // geval dat een lege beurt verklaart, en dat wil je terugzien in de melding.
       this.resultatenInBeurt += 1;
+      if (text.length > this.tekensInBeurt) this.tekensInBeurt = text.length;
+
+      /*
+       * Een lege `speech_final` sluit de beurt óók.
+       *
+       * Hier stond `if (!text) return;` vóór deze tak, en dat had een gevolg dat niemand
+       * had bedoeld: een `speech_final` zonder transcript bereikte `endTurn` nooit. De
+       * beurt bleef openstaan tot het UtteranceEnd-vangnet hem een seconde later sloot, en
+       * in die seconde bleef `speaking` op true. Zolang dat zo is, onderdrukt de tak
+       * hierboven élke volgende `SpeechStarted` — de barge-in-trigger. De cliënt die in dat
+       * gat begint te praten, wordt niet gehoord als onderbreking.
+       *
+       * Deze regel kost niets en verandert niets aan wat er in het transcript belandt: er
+       * was geen tekst, dus er valt niets te verliezen. Wat hij wél doet is de beurt
+       * afsluiten op het moment dat Deepgram zegt dat hij klaar is.
+       */
+      if (message.is_final && !text) {
+        if (message.speech_final) this.endTurn('speech_final');
+        return;
+      }
       if (!text) return;
 
       if (message.is_final) {
@@ -236,10 +265,12 @@ export class DeepgramSttStream implements SttStream {
     const text = this.pending.trim();
     const speechEndedAt = this.streamStartedAt + this.lastWordEndSec * 1000;
     const resultaten = this.resultatenInBeurt;
+    const tekensGezien = this.tekensInBeurt;
 
     this.pending = '';
     this.speaking = false;
     this.resultatenInBeurt = 0;
+    this.tekensInBeurt = 0;
 
     if (!text) {
       this.lastWordEndSec = 0;
@@ -256,7 +287,7 @@ export class DeepgramSttStream implements SttStream {
        * foute bewering in het dossier staan mét een kloppend citaat. Zie RISICOS.md
        * risico 16.
        */
-      this.emit('empty_turn', { endedBy, resultaten });
+      this.emit('empty_turn', { endedBy, resultaten, tekensGezien });
       return;
     }
 

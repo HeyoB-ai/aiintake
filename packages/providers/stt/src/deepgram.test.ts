@@ -26,7 +26,7 @@ function stroom(): {
   stuur: (bericht: unknown) => void;
   continuations: Vangst[];
   turns: { text: string; endedBy: string }[];
-  leeg: { endedBy: string; resultaten: number }[];
+  leeg: { endedBy: string; resultaten: number; tekensGezien: number }[];
 } {
   const s = new DeepgramSttStream(
     {
@@ -43,7 +43,7 @@ function stroom(): {
   const turns: { text: string; endedBy: string }[] = [];
   s.on('turn_continued', (_t, meta) => continuations.push(meta as unknown as Vangst));
   s.on('end_of_turn', (text, meta) => turns.push({ text, endedBy: meta.endedBy }));
-  const leeg: { endedBy: string; resultaten: number }[] = [];
+  const leeg: { endedBy: string; resultaten: number; tekensGezien: number }[] = [];
   s.on('empty_turn', (meta) => leeg.push({ ...meta }));
 
   // `onMessage` is privé en hoort dat te blijven: het is de protocolkant, geen API. Voor
@@ -284,31 +284,6 @@ describe('de vorm van de afkapdetectie', () => {
  * verschil — zie RISICOS.md risico 16.
  */
 describe('lege beurt', () => {
-  it('een lege speech_final sluit de beurt niet; het vangnet doet dat', () => {
-    const { stuur, turns, leeg } = stroom();
-
-    stuur({ type: 'SpeechStarted' });
-    stuur({
-      type: 'Results',
-      is_final: true,
-      speech_final: true,
-      start: 0,
-      duration: 0.4,
-      channel: { alternatives: [{ transcript: '' }] },
-    });
-
-    // Nog niets: de lege-tekstzeef in onMessage keert terug vóór de speech_final-tak, dus
-    // deze beurt blijft openstaan. Dat is bestaand gedrag en het staat hier vastgelegd
-    // omdat het gevolg heeft: `speaking` blijft tot dat moment op true, en zolang dat zo
-    // is onderdrukt de adapter elke volgende SpeechStarted — de barge-in-trigger.
-    expect(turns).toHaveLength(0);
-    expect(leeg).toHaveLength(0);
-
-    stuur({ type: 'UtteranceEnd', last_word_end: 0.4 });
-
-    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 1 }]);
-  });
-
   it('meldt ook wanneer het vangnet de beurt sluit', () => {
     const { stuur, turns, leeg } = stroom();
 
@@ -316,7 +291,7 @@ describe('lege beurt', () => {
     stuur({ type: 'UtteranceEnd', last_word_end: 0.4 });
 
     expect(turns).toHaveLength(0);
-    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 0 }]);
+    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 0, tekensGezien: 0 }]);
   });
 
   it('telt de resultaten, zodat "niets gehoord" en "niets verstaan" te scheiden zijn', () => {
@@ -330,7 +305,7 @@ describe('lege beurt', () => {
     }
     stuur({ type: 'UtteranceEnd', last_word_end: 0.9 });
 
-    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 3 }]);
+    expect(leeg).toEqual([{ endedBy: 'utterance_end', resultaten: 3, tekensGezien: 0 }]);
   });
 
   it('meldt niets bij een beurt die wél tekst opleverde', () => {
@@ -361,5 +336,119 @@ describe('lege beurt', () => {
     stuur({ type: 'UtteranceEnd', last_word_end: 1.4 });
 
     expect(leeg.map((l) => l.resultaten)).toEqual([1, 0]);
+  });
+});
+
+/**
+ * De twee paden waarop een uitspraak verdwijnt, en hoe je ze uit elkaar houdt.
+ *
+ * Live kwam deze melding binnen, met koptelefoon dus zonder akoestische lekkage:
+ *
+ *     beurt zonder bruikbare tekst — afgesloten door utterance_end, 1 resultaat
+ *
+ * Eén resultaat, geen woorden, gesloten door het vangnet. Twee verklaringen passen daar
+ * allebei op, en het log kon er niet tussen kiezen — vandaar `tekensGezien`.
+ */
+describe('waarom een beurt leeg blijft', () => {
+  it('sluit de beurt nu wél op een lege speech_final', () => {
+    const { stuur, leeg } = stroom();
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({
+      type: 'Results',
+      is_final: true,
+      speech_final: true,
+      start: 0,
+      duration: 0.4,
+      channel: { alternatives: [{ transcript: '' }] },
+    });
+
+    // Vóór deze reparatie gebeurde hier niets: de lege-tekstzeef keerde terug vóór de
+    // speech_final-tak, de beurt bleef openstaan tot het vangnet, en `speaking` bleef
+    // ondertussen true — wat elke volgende SpeechStarted onderdrukt.
+    expect(leeg).toEqual([{ endedBy: 'speech_final', resultaten: 1, tekensGezien: 0 }]);
+  });
+
+  it('laat SpeechStarted weer door zodra de lege beurt gesloten is', () => {
+    const s = stroom();
+    const starts: number[] = [];
+
+    // Twee keer spraak met een lege speech_final ertussen. De tweede SpeechStarted hoort
+    // door te komen; dat is de barge-in-trigger.
+    s.stuur({ type: 'SpeechStarted' });
+    s.stuur({
+      type: 'Results',
+      is_final: true,
+      speech_final: true,
+      channel: { alternatives: [{ transcript: '' }] },
+    });
+    s.stuur({ type: 'SpeechStarted' });
+    starts.push(s.leeg.length);
+
+    s.stuur({ type: 'UtteranceEnd', last_word_end: 1.2 });
+    expect(s.leeg).toHaveLength(2);
+    expect(s.leeg[1]!.endedBy).toBe('utterance_end');
+  });
+
+  it('meldt dataverlies als er wél woorden waren maar geen final', () => {
+    const { stuur, turns, leeg } = stroom();
+
+    /*
+     * Dit is het andere pad, en het ernstige.
+     *
+     * `pending` stapelt uitsluitend op `is_final`. Een tussentijds resultaat mét woorden
+     * gaat als `partial` naar buiten en wordt weggegooid. Komt er daarna geen final maar
+     * een UtteranceEnd, dan sluit de beurt leeg — terwijl de cliënt heeft gepraat en
+     * Deepgram het heeft verstaan.
+     *
+     * `tekensGezien` boven nul is dus geen detail maar de handtekening van dataverlies.
+     */
+    stuur({ type: 'SpeechStarted' });
+    stuur({
+      type: 'Results',
+      is_final: false,
+      channel: { alternatives: [{ transcript: 'nee het was februari' }] },
+    });
+    stuur({ type: 'UtteranceEnd', last_word_end: 1.4 });
+
+    expect(turns).toHaveLength(0);
+    expect(leeg).toHaveLength(1);
+    expect(leeg[0]!.tekensGezien).toBe('nee het was februari'.length);
+  });
+
+  it('scheidt een kuch van een verdwenen uitspraak', () => {
+    const kuch = stroom();
+    kuch.stuur({ type: 'SpeechStarted' });
+    kuch.stuur({ type: 'UtteranceEnd', last_word_end: 0.3 });
+
+    const verdwenen = stroom();
+    verdwenen.stuur({ type: 'SpeechStarted' });
+    verdwenen.stuur({
+      type: 'Results',
+      is_final: false,
+      channel: { alternatives: [{ transcript: 'ik ben ontslagen' }] },
+    });
+    verdwenen.stuur({ type: 'UtteranceEnd', last_word_end: 1.1 });
+
+    // Van buiten waren deze twee tot vandaag identiek: "beurt zonder bruikbare tekst".
+    expect(kuch.leeg[0]!.tekensGezien).toBe(0);
+    expect(verdwenen.leeg[0]!.tekensGezien).toBeGreaterThan(0);
+  });
+
+  it('telt de tekens per beurt en niet cumulatief', () => {
+    const { stuur, leeg } = stroom();
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({
+      type: 'Results',
+      is_final: false,
+      channel: { alternatives: [{ transcript: 'abcde' }] },
+    });
+    stuur({ type: 'UtteranceEnd', last_word_end: 0.5 });
+
+    stuur({ type: 'SpeechStarted' });
+    stuur({ type: 'UtteranceEnd', last_word_end: 1.5 });
+
+    expect(leeg.map((l) => l.tekensGezien)).toEqual([5, 0]);
   });
 });

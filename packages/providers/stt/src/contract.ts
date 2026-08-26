@@ -102,6 +102,18 @@ export interface EmptyTurnMeta {
    * geval, en het interessantere van de twee.
    */
   readonly resultaten: number;
+  /**
+   * De langste transcripttekst die in deze beurt langskwam, in tekens.
+   *
+   * Dit veld maakt de melding beslisbaar. Nul betekent: de herkenner heeft geen woord
+   * gezien — een kuch, een deur, een stoel. **Meer dan nul betekent dataverlies**: er
+   * waren woorden en ze zijn onderweg verdwenen, vrijwel zeker omdat ze alleen als
+   * tussentijds resultaat kwamen en `pending` uitsluitend op `is_final` stapelt.
+   *
+   * Alleen de lengte en nooit de tekst: §14 verbiedt transcriptfragmenten in logs, en voor
+   * dit onderscheid is de lengte genoeg.
+   */
+  readonly tekensGezien: number;
 }
 
 export interface SttStream {
