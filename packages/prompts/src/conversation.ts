@@ -54,6 +54,18 @@ export interface ConversationVars extends Record<string, unknown> {
    * `null` tussen middernacht en zes uur: dan is elke groet vreemder dan geen groet.
    */
   readonly greeting: string | null;
+  /**
+   * De naam die de cliënt zelf heeft ingevuld, of `null`.
+   *
+   * Hij staat op de intake vóór het gesprek begint, dus de assistent kan hem in de opening
+   * gebruiken. Dat is geen versiering: iemand die net zijn baan kwijt is en op een scherm
+   * met een AI praat, hoort minstens aangesproken te worden met de naam die hij zelf heeft
+   * opgegeven.
+   *
+   * Letterlijk overnemen, niet inkorten en er geen aanhef bij verzinnen — zie de instructie
+   * in de opening hieronder.
+   */
+  readonly clientName: string | null;
 }
 
 const GRENZEN_NL = [
@@ -80,6 +92,10 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // v3: verbod op het voorstellen van concrete waarden die de cliënt niet noemde.
   // In v2 vroeg de assistent "was dat 17 januari?" over een datum die nooit was gezegd.
   // v4: gespreksvorm — korte gesloten vragen, vulwoorden als erkenning, meteen doorvragen.
+  // v9: de cliënt wordt bij naam begroet. Die naam staat sinds 26 augustus op de intake
+  // (toestemmingsscherm) en was er dus al vóór de eerste beurt; de assistent vroeg er niet
+  // naar en gebruikte hem niet. Wie net zijn baan kwijt is en tegen een scherm praat, hoort
+  // op zijn minst aangesproken te worden met de naam die hij zelf heeft opgegeven.
   // v8: de opening opnieuw opgebouwd. In v7 liep hij als "...van Kantoor De Vries, en ik
   // ben geen advocaat en geef geen juridisch advies" — twee mededelingen aan één komma,
   // gesproken een adem te lang. Nu een zinseinde na de kantoornaam, losse korte zinnen,
@@ -97,7 +113,7 @@ export const conversationPrompt: PromptTemplate<ConversationVars> = {
   // dat er geen advocaat aan de lijn zit en dat er geen advies wordt gegeven, kwam er niet
   // in voor. Tegelijk de je-vorm vervangen door u-vorm, want het model mengde ze binnen
   // één gesprek ("Kunt u vertellen" gevolgd door "Dank je").
-  version: 8,
+  version: 9,
   description:
     'Hot-path gespreksinstructie voor de arbeidsrecht-intake. Platte tekst, één vraag per beurt.',
 
@@ -172,7 +188,8 @@ function rendernl(v: ConversationVars): string {
       '',
       'Volg deze opbouw:',
       '',
-      `${v.greeting ? `${v.greeting}. ` : ''}Ik ben de AI-intake-assistent van ` +
+      `${v.greeting ? `${v.greeting}${v.clientName ? `, ${v.clientName}` : ''}. ` : ''}` +
+        `Ik ben de AI-intake-assistent van ` +
         `${v.organisationName}. Ik ben geen advocaat en ben aangesteld om de gegevens van ` +
         `uw zaak vast te leggen, zodat een advocaat van ${v.organisationName} uw zaak ` +
         'sneller kan beoordelen. Zelf geef ik geen juridisch advies. Kunt u vertellen wat ' +
@@ -196,6 +213,12 @@ function rendernl(v: ConversationVars): string {
         'kosten, tarieven of wat het de cliënt bespaart — die toezegging is niet aan u.',
       '- De uitnodiging is open: "Kunt u vertellen wat er speelt en waarom u contact ' +
         'opneemt?" Niet "Waar gaat het om?" — dat vraagt om één zin, en u wilt een verhaal.',
+      v.clientName
+        ? `- De cliënt heet "${v.clientName}". Neem die naam letterlijk over: niet inkorten, ` +
+            'geen aanhef als "meneer" of "mevrouw" erbij verzinnen, en de naam één keer ' +
+            'gebruiken. Weet u niet zeker hoe hij wordt uitgesproken, zeg hem dan gewoon zoals ' +
+            'hij er staat — hem weglaten is erger dan hem onhandig uitspreken.'
+        : '- De naam van de cliënt is niet bekend. Groet dan zonder naam en verzin er geen.',
       v.greeting
         ? `- De groet is "${v.greeting}". Het tijdstip is bekend; kies er zelf geen andere.`
         : '- Geen groet. Het is midden in de nacht, en dan is "goedenacht" een afscheid en ' +
@@ -329,7 +352,8 @@ function renderen(v: ConversationVars): string {
       '',
       'Follow this shape:',
       '',
-      `${v.greeting ? `${v.greeting}. ` : ''}I am the AI intake assistant for ` +
+      `${v.greeting ? `${v.greeting}${v.clientName ? `, ${v.clientName}` : ''}. ` : ''}` +
+        `I am the AI intake assistant for ` +
         `${v.organisationName}. I am not a lawyer, and my job is to record the details of ` +
         `your case so a lawyer at ${v.organisationName} can assess it faster. I do not ` +
         'give legal advice myself. Can you tell me what is going on and why you are ' +

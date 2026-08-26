@@ -22,6 +22,16 @@ import type {
 
 export interface EngineInput {
   readonly organization: OrgConfig;
+  /**
+   * De naam die de cliënt op het toestemmingsscherm heeft ingevuld.
+   *
+   * Geen `case_fact`: er is geen citaat dat hem staaft en er valt niet op door te vragen.
+   * Hij komt uit `intakes.client_name` en is er dus al vóór de eerste beurt — precies wat
+   * nodig is, want de opening is de beurt waarin hij gebruikt wordt.
+   *
+   * `null` betekent: niet ingevuld. Dan groet de assistent zonder naam en verzint er geen.
+   */
+  readonly clientName?: string | null;
   readonly practiceArea: 'employment';
   readonly template: IntakeTemplate;
   readonly rules: readonly IntakeRule[];

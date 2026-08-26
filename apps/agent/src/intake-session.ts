@@ -43,7 +43,19 @@ import type { ResponseSource } from './turn-loop';
 export interface IntakeSessionOptions {
   readonly llm: LLMProvider;
   readonly organization: OrgConfig;
+  /**
+   * De naam die de cliënt op het toestemmingsscherm heeft ingevuld.
+   *
+   * Geen feit uit het gesprek: hij staat op de intake vóór de eerste beurt, en de opening
+   * is precies de beurt waarin hij gebruikt wordt. Ontbreekt hij, dan groet de assistent
+   * zonder naam en verzint er geen.
+   */
+  readonly clientName?: string | null;
   readonly language?: Language;
+  /** Feiten uit eerdere beurten van deze intake, uit `agent_context`. */
+  readonly initialFacts?: Readonly<Record<string, CaseFact>>;
+  /** Het transcript tot nu toe, uit `agent_context`. */
+  readonly initialHistory?: readonly Turn[];
   readonly hotModel: string;
   readonly coldModel: string;
   /** Klok, geïnjecteerd zodat termijnregels in tests reproduceerbaar zijn. */
@@ -58,8 +70,8 @@ export interface IntakeSessionOptions {
 
 export class IntakeSession {
   private readonly engine;
-  private readonly facts: Record<string, CaseFact> = {};
-  private readonly history: Turn[] = [];
+  private readonly facts: Record<string, CaseFact>;
+  private readonly history: Turn[];
   private laatstePrompt: RenderedPrompt | null = null;
 
   /**
@@ -71,6 +83,17 @@ export class IntakeSession {
   private readonly geweigerd: { key: string; reason: string }[] = [];
 
   constructor(private readonly options: IntakeSessionOptions) {
+    /*
+     * Beginnen bij wat er al vaststaat, niet bij nul.
+     *
+     * Een tweede gesprek over dezelfde intake — de cliënt kwam terug, of de verbinding
+     * viel weg — hoort niet opnieuw te vragen wat er al in het dossier staat. Zonder deze
+     * twee regels begon elke sessie blanco en stelde de planner vragen die allang
+     * beantwoord waren.
+     */
+    this.facts = { ...(options.initialFacts ?? {}) };
+    this.history = [...(options.initialHistory ?? [])];
+
     const hot: HotPathModel = {
       stream: (req) => {
         const berichten = [
@@ -226,6 +249,7 @@ export class IntakeSession {
       documents: [],
       pendingLawyerRequests: [],
       language: this.options.language ?? ('nl' as Language),
+      clientName: this.options.clientName ?? null,
       mode: 'realtime' as const,
       now: this.options.now?.() ?? new Date(),
       ...(input.utterance ? { lastClientUtterance: input.utterance } : {}),

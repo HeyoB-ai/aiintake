@@ -181,6 +181,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
           isOpening,
           isClosing,
           narrativePhase,
+          clientName: input.clientName ?? null,
           // De klok zit al in `input.now`; de groet hoort daaruit te volgen en niet uit
           // het model, dat er geen heeft en "Goedemorgen" om acht uur 's avonds koos.
           greeting: dagdeelGroet(input.now, input.language, input.organization.timeZone),

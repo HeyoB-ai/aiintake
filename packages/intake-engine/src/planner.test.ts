@@ -94,6 +94,7 @@ describe('QuestionPlanner', () => {
         isClosing: false,
         narrativePhase: true,
         greeting: 'Goedemiddag',
+        clientName: null,
       },
       'nl',
     );

@@ -1,0 +1,144 @@
+import {
+  createAgentClient,
+  createAgentRpc,
+  type AgentContext,
+  type AgentRpc,
+} from '@intake/db-core';
+import {
+  OrgConfigSchema,
+  type CaseFact,
+  type Language,
+  type OrgConfig,
+  type Turn,
+} from '@intake/domain';
+
+/**
+ * De worker haalt op wie hij tegenover zich heeft.
+ *
+ * ## Waarom dit bestand bestaat
+ *
+ * `live/server.ts` draaide op een hardgecodeerde `ORG` — "Kantoor De Vries", een vast
+ * UUID — en wist verder niets van de intake waarvoor hij was opgeroepen. De cliënt had
+ * zijn naam op het toestemmingsscherm ingetypt en de assistent begroette hem niet, want
+ * de worker had die naam nooit gezien.
+ *
+ * `agent_context` bestond al en leverde dit allemaal. Hij werd alleen nergens aangeroepen:
+ * zeven van de negen agent-RPC's stonden ongebruikt (risico 15). Dit is de eerste ervan.
+ *
+ * ## Waarom hier en niet in live/server.ts
+ *
+ * De aanroep hoort in de laag die het gesprek voert, niet in de laag die het transport
+ * doet. `live/server.ts` is het bestand dat verdwijnt als het transport ooit verandert;
+ * alles wat hier staat verhuist dan mee zonder aanpassing. Dat is geen netheid maar de
+ * afspraak uit het beslisdocument over weg A.
+ *
+ * ## Wat er met een fout gebeurt
+ *
+ * Niets stils. Lukt het ophalen niet, dan gooit deze functie — en de aanroeper moet dan
+ * beslissen of hij het gesprek weigert of doorgaat op minder. Een lege context stilzwijgend
+ * teruggeven zou betekenen dat de assistent zich gedraagt alsof het kantoor niet bestaat
+ * en de cliënt geen naam heeft, en dat is van buiten niet te onderscheiden van een cliënt
+ * die niets heeft ingevuld.
+ */
+
+export interface IntakeContext {
+  readonly rpc: AgentRpc;
+  readonly sessionId: string;
+  readonly organization: OrgConfig;
+  readonly language: Language;
+  /** Wat de cliënt zelf heeft ingevuld. `null` als het veld leeg is gebleven. */
+  readonly clientName: string | null;
+  /** Wat er al vaststaat uit eerdere beurten van deze intake. */
+  readonly facts: Record<string, CaseFact>;
+  /** Het transcript tot nu toe; bij een eerste gesprek leeg. */
+  readonly history: Turn[];
+  readonly pendingLawyerRequests: readonly string[];
+}
+
+export interface ContextOptions {
+  readonly supabaseUrl: string;
+  readonly publishableKey: string;
+  readonly sessionToken: string;
+  readonly intakeId: string;
+}
+
+/**
+ * De organisatie uit de database naar `OrgConfig`.
+ *
+ * De RPC levert snake_case uit Postgres; het domein werkt in camelCase met zod-defaults.
+ * Die vertaling staat hier expliciet en niet als een `as OrgConfig`-cast: een cast zou een
+ * ontbrekend veld pas laten opvallen op het moment dat iets het leest, en dat is midden in
+ * een gesprek.
+ */
+function naarOrgConfig(rauw: Record<string, unknown>): OrgConfig {
+  return OrgConfigSchema.parse({
+    id: rauw['id'],
+    slug: rauw['slug'],
+    name: rauw['name'],
+    defaultLanguage: rauw['default_language'] ?? 'nl',
+    timeZone: rauw['time_zone'] ?? 'Europe/Amsterdam',
+    providerConfig: rauw['provider_config'] ?? {},
+    sessionLimits: rauw['session_limits'] ?? {},
+    intakeCriteria: rauw['intake_criteria'] ?? {},
+    retentionPolicy: rauw['retention_policy'] ?? {},
+    publishClientVideo: rauw['publish_client_video'] ?? false,
+  });
+}
+
+/**
+ * Het transcript uit de database naar de vorm die de engine verwacht.
+ *
+ * `content` is wat de cliënt daadwerkelijk heeft gehóórd — de kolom is al getrunceerd op
+ * `spokenMs` bij het wegschrijven. Hier gebeurt dus niets meer met afkappen; zou dat hier
+ * ook staan, dan zijn er twee plekken die hetzelfde oordeel vellen.
+ */
+function naarGeschiedenis(rijen: AgentContext['history']): Turn[] {
+  return rijen
+    .filter((m) => m.role === 'client' || m.role === 'assistant')
+    .map((m) => ({
+      id: m.id,
+      role: m.role as 'client' | 'assistant',
+      content: m.content,
+      plannedQuestionKeys: m.plannedQuestionKeys ?? [],
+      createdAt: m.createdAt,
+    }));
+}
+
+export async function haalIntakeContext(opties: ContextOptions): Promise<IntakeContext> {
+  const client = createAgentClient(opties.supabaseUrl, opties.publishableKey);
+  const rpc = createAgentRpc(client, {
+    sessionToken: opties.sessionToken,
+    intakeId: opties.intakeId,
+  });
+
+  const context = await rpc.context();
+
+  const intake = context.intake as AgentContext['intake'] & { client_name?: string | null };
+  const naam = typeof intake.client_name === 'string' ? intake.client_name.trim() : '';
+
+  const facts: Record<string, CaseFact> = {};
+  for (const f of context.facts) {
+    facts[f.key] = {
+      key: f.key,
+      value: f.value,
+      valueType: f.valueType as CaseFact['valueType'],
+      status: f.status as CaseFact['status'],
+      confidence: f.confidence,
+      source: f.source as CaseFact['source'],
+      sourceRef: f.sourceRef,
+      llmCallId: null,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    rpc,
+    sessionId: context.sessionId,
+    organization: naarOrgConfig(context.organization),
+    language: (intake.language === 'en' ? 'en' : 'nl') as Language,
+    clientName: naam === '' ? null : naam,
+    facts,
+    history: naarGeschiedenis(context.history),
+    pendingLawyerRequests: context.pendingLawyerRequests,
+  };
+}

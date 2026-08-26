@@ -22,6 +22,7 @@ import { formatHudLine } from '../src/metrics';
 import type { AgentEnv } from '../src/env';
 import { magAfsluitenWegensStilte } from '../src/inactiviteit';
 import { assertGeenGeheimeSleutel } from '../src/geen-geheime-sleutel';
+import { haalIntakeContext, type IntakeContext } from '../src/intake-context';
 
 /**
  * Zelf tegen de intake praten, lokaal.
@@ -488,10 +489,63 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(bericht));
   };
 
+  /*
+   * Ophalen wie hier tegenover zit, vóór het gesprek begint.
+   *
+   * De aanroep zelf staat in src/intake-context.ts en niet hier. Dit bestand doet het
+   * transport; de laag die het gesprek voert hoort te weten wat een intake is. Bij een
+   * verandering van transport verhuist die kennis dan mee zonder aanpassing.
+   *
+   * Zonder sessiebewijs — het ontwikkelharnas met `--zonder-token` — is er geen intake om
+   * op te halen. Dan valt hij terug op het demokantoor, en dat staat in het log zodat
+   * niemand denkt dat hij naar een echt dossier zit te praten.
+   */
+  let context: IntakeContext | null = null;
+  if (toegang.bewijs) {
+    const bereik = supabaseBereik();
+    if (!bereik) {
+      stuur({ type: 'error', waar: 'context', wat: 'de worker kan de intake niet ophalen' });
+      console.log('  intake niet opgehaald: geen Supabase-configuratie');
+    } else {
+      try {
+        context = await haalIntakeContext({
+          supabaseUrl: bereik.url,
+          publishableKey: bereik.anon,
+          sessionToken: toegang.bewijs.token,
+          intakeId: toegang.bewijs.intakeId,
+        });
+        console.log(
+          `  intake ${toegang.bewijs.intakeId.slice(0, 8)} · ${context.organization.name}` +
+            ` · ${context.clientName ?? 'naam niet ingevuld'}` +
+            ` · ${context.history.length} eerdere beurt(en)`,
+        );
+      } catch (fout) {
+        /*
+         * Niet stil doorgaan op een lege context.
+         *
+         * De assistent zou zich dan gedragen alsof het kantoor niet bestaat en de cliënt
+         * geen naam heeft — van buiten niet te onderscheiden van iemand die niets heeft
+         * ingevuld. Het gesprek gaat wél door op het demokantoor, want een cliënt die al
+         * toestemming heeft gegeven wegsturen is erger dan een gesprek zonder naam.
+         */
+        console.log(`  intake NIET opgehaald: ${String(fout).slice(0, 200)}`);
+        stuur({
+          type: 'error',
+          waar: 'context',
+          wat: 'de gegevens van deze intake zijn niet geladen',
+        });
+      }
+    }
+  }
+
   const llm = new AnthropicLlmProvider({ apiKey: env.ANTHROPIC_API_KEY! });
   const intake = new IntakeSession({
     llm,
-    organization: ORG,
+    organization: context?.organization ?? ORG,
+    clientName: context?.clientName ?? null,
+    language: context?.language ?? 'nl',
+    initialFacts: context?.facts ?? {},
+    initialHistory: context?.history ?? [],
     hotModel: env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001',
     coldModel: env.LLM_COLD_MODEL ?? 'claude-haiku-4-5-20251001',
   });

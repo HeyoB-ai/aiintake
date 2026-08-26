@@ -156,6 +156,7 @@ function onsSysteem(): string {
       narrativePhase: false,
       // Vast, zodat de promptlengte tussen runs niet verandert; dit meet latency.
       greeting: 'Goedemiddag',
+      clientName: null,
     },
     'nl',
   ).body;
