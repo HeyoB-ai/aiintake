@@ -34,6 +34,7 @@
     "anam:persona": "pnpm --filter @intake/agent anam:persona",
     "diag:tikken": "pnpm --filter @intake/agent diag:tikken",
     "diag:afsluiten": "pnpm --filter @intake/agent diag:afsluiten",
+    "diag:belasting": "pnpm --filter @intake/agent diag:belasting",
     "zichtbaarheid": "pnpm --filter @intake/agent zichtbaarheid",
     "preview": "pnpm --filter @intake/ui preview",
     "diag:bey-calls": "pnpm --filter @intake/agent diag:bey-calls",

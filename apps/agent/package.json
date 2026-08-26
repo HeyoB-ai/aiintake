@@ -22,6 +22,7 @@
     "anam:persona": "tsx --env-file=../../.env bakeoff/anam-persona.ts",
     "diag:tikken": "tsx --env-file=../../.env bakeoff/tikken-diagnose.ts",
     "diag:afsluiten": "tsx --env-file=../../.env bakeoff/afsluiten-diagnose.ts",
+    "diag:belasting": "tsx --env-file=../../.env bakeoff/belasting-diagnose.ts",
     "zichtbaarheid": "node live/zichtbaarheid.mjs",
     "diag:bey-calls": "tsx --env-file=../../.env bakeoff/bey-calls-diagnose.ts",
     "dev:live:https": "tsx --env-file=../../.env live/server.ts --zonder-token --tls",
