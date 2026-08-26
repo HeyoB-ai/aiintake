@@ -70,6 +70,25 @@ export default async function DashboardPage() {
     .order('created_at', { ascending: false })
     .limit(100);
 
+  /*
+   * `error` werd hier gebonden en nergens gebruikt.
+   *
+   * Een mislukte query viel daardoor samen met een leeg dashboard — precies hetzelfde
+   * scherm als een kantoor dat nog geen intakes heeft. Dat is de stilste variant van dit
+   * probleem: er is geen melding, geen lege staat met uitleg, en niets in het log.
+   *
+   * De pagina blijft renderen; een advocaat met een tijdelijk onbereikbare database hoort
+   * geen foutscherm te krijgen voor een lijst die zo weer terug is.
+   */
+  if (error) {
+    console.error('dashboard: intakes niet leesbaar', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+  }
+
   const intakes = (data ?? []) as IntakeRow[];
 
   /*

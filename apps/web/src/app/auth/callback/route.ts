@@ -15,6 +15,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
+    /*
+     * "link_verlopen" is wat de bezoeker ziet, en dat klopt meestal. Maar niet altijd: een
+     * hergebruikte code, een redirect-URL die niet in Supabase staat, of een scheve klok
+     * geven dezelfde uitkomst. Zonder deze regel is dat verschil van buiten niet te maken
+     * en van binnen ook niet.
+     */
+    console.error('auth: code inwisselen mislukt', {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+    });
     return NextResponse.redirect(`${origin}/login?error=link_verlopen`);
   }
 

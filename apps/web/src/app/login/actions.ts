@@ -33,8 +33,21 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   });
 
   if (error) {
-    // Geen onderscheid tussen "onbekend account" en "verkeerd wachtwoord": dat
-    // verschil vertelt een aanvaller welke e-mailadressen bestaan.
+    /*
+     * De melding blijft vaag voor de gebruiker en wordt precies in het log.
+     *
+     * Geen onderscheid tussen "onbekend account" en "verkeerd wachtwoord": dat verschil
+     * vertelt een aanvaller welke e-mailadressen bestaan. Maar een storing — Supabase plat,
+     * een verkeerde publishable key, een geblokkeerd account — ziet er voor de gebruiker
+     * dan net zo uit als een typefout, en dat mag niet ook voor ons gelden.
+     *
+     * Zonder het e-mailadres: dat is een persoonsgegeven en het staat al in auth.
+     */
+    console.error('auth: inloggen mislukt', {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+    });
     return { error: 'Inloggen mislukt. Controleer uw gegevens.' };
   }
 

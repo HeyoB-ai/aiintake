@@ -38,8 +38,21 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     .is('deleted_at', null);
 
   if (error) {
-    // Geen throw: een gebruiker zonder leesbaar lidmaatschap hoort een lege staat te
-    // zien, geen stacktrace.
+    /*
+     * Dit is de vervelendste van de reeks: een fout wordt hier een lege lijst, en een lege
+     * lijst is een geldige toestand. Een kapotte policy op organization_users ziet er voor
+     * de gebruiker uit als "u hoort bij geen enkel kantoor", en voor ons als niets.
+     *
+     * Geen throw — een gebruiker zonder leesbaar lidmaatschap hoort een lege staat te zien
+     * en geen stacktrace — maar wel een regel in het log.
+     */
+    console.error('auth: lidmaatschappen niet leesbaar', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      user: user.id,
+    });
     return {
       id: user.id,
       email: user.email ?? '',

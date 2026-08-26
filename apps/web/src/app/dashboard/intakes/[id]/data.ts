@@ -143,6 +143,19 @@ export async function laadIntake(id: string): Promise<IntakeDetail> {
 
   // Niet gevonden én geen toegang zien er via RLS hetzelfde uit, en dat is de bedoeling:
   // een 404 verraadt niet dat er bij een ánder kantoor een dossier met dit id bestaat.
+  //
+  // Naar buiten dus één uitkomst, naar binnen twee. Een echte queryfout — een kapotte
+  // policy, een kolom die niet meer bestaat — zou anders als 404 langskomen en zich niet
+  // laten onderscheiden van een id dat iemand verkeerd heeft overgetypt.
+  if (intakeRes.error) {
+    console.error('dossier: intake niet leesbaar', {
+      code: intakeRes.error.code,
+      message: intakeRes.error.message,
+      details: intakeRes.error.details,
+      hint: intakeRes.error.hint,
+      intakeId: id,
+    });
+  }
   if (intakeRes.error || !intakeRes.data) notFound();
 
   /*
