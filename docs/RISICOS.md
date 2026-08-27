@@ -1749,3 +1749,57 @@ staat in het bestand.
 **De vorm om te onthouden.** Dit is risico 19 opnieuw: één grootheid, meerdere plekken die hem
 zelf uitrekenen, en niets dat rood wordt als er een bijkomt. Daar was het de samplerate op drie
 plekken, hier de tijdzone op zes. Vierde keer dat deze vorm iets kost.
+
+## 26. Een gebroken getal naar een `int`-kolom kostte twee openingsbeurten
+
+**Status: opgelost op 27 augustus 2026.**
+
+```
+bericht 0/assistant (338 tekens) · NIET WEGGESCHREVEN:
+invalid input syntax for type integer: "20702.458333333336"
+```
+
+**De kolom.** `messages.spoken_ms`, een `int`, via `p_spoken_ms int` in
+`agent_append_message`.
+
+**Waar de waarde vandaan komt.** `turn-loop.ts` telt per chunk `chunk.durationMs` op in
+`emittedMs`, en die duur is `(samples / rate) * 1000`. Op 16 kHz komt dat neer op
+`samples / 16` en viel het altijd rond; op 24 kHz werd het `samples / 24` en dus meestal niet.
+De samplerate-wissel van 26 augustus maakte een fout zichtbaar die er al zat.
+
+**Waarom juist deze weg.** Er zijn vier wegen naar dezelfde grootheid, en **drie ervan rondden
+al wél af**: `cancel()` in de Cartesia-adapter, `cancel()` in de ElevenLabs-adapter en
+`interrupt()` in de null-avatar. Alleen de schone beurt — `spokenMs: this.emittedMs` — deed het
+niet, en dat was vanaf de andere drie niet te zien.
+
+Dat is dezelfde vorm als risico 19 (samplerate op drie plekken) en risico 25 (tijdzone op zes).
+Vijfde keer deze week.
+
+**En de grootte klopt.** Gemeten met `diag:tts-productieweg`: 163 tekens in 9400 ms bij
+`ELEVENLABS_SPEED=1.1`, dus 57,7 ms per teken. 338 tekens × 57,7 = 19 500 ms verwacht; gemeld is
+20 702 ms, ofwel 61,2 ms per teken. Dat is 6 procent verschil en valt binnen de spreiding die
+diezelfde proef liet zien. Het getal is dus juist en alleen het type was fout.
+
+**Wat er wél uit die rekensom volgt, en dat is een aparte bevinding.** De canonieke opening is
+225 tekens; deze beurt was er 338. Het model levert dus een langere opening dan ontworpen, en
+de cliënt wacht daardoor **twintig seconden** voordat hij aan het woord komt. Dat is geen
+typefout maar een gespreksprobleem, en het is met deze meting voor het eerst hard: elke honderd
+tekens extra kosten bijna zes seconden stilte aan het begin.
+
+**Wat er nu staat.**
+
+- Afgerond waar de waarde ontstaat: `completeTurn` voor `spokenMs`, en een `ms()`-helper in
+  `metrics.ts` voor alle zes de latencyvelden. Niet vlak voor de insert — een conversie op de
+  rand van de database verbergt dat de grootheid zelf misschien niet klopt, en dan leest niemand
+  meer of die twintig seconden ook echt kloppen.
+- `agent_record_metric` doet `(p_metrics ->> 'x')::int` op zes kolommen, en die waarden zijn
+  rauwe `performance.now()`-verschillen. Die RPC wordt nog nergens aangeroepen, dus daar had de
+  fout nog niet toegeslagen — hij stond klaar voor het moment dat iemand hem aansloot.
+- `hele-milliseconden.test.ts`: een echte beurt door de lus met chunkduren van 1024 samples op
+  24 kHz (42,666… ms) en een klok met fracties. Getoetst dat beide tests falen op de oude code.
+
+**Wat dit niet oplost.** Het faalde nét: leesbare melding, sessie liep door, en alleen de
+openingsbeurt ontbrak. Dat viel op omdat iemand toevallig in het log keek. Een mislukte
+transcriptregel hoort zichtbaar te zijn zonder logboek — vergelijk risico 2b, waar een
+overgeslagen beurt inmiddels wél een regel in het transcript krijgt. Voor een mislukte
+schrijfactie bestaat dat nog niet.

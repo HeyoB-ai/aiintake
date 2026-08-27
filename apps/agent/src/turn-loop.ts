@@ -470,7 +470,26 @@ export class TurnLoop {
       assistantContent: result.content,
       intendedContent: this.intended,
       interruptedAtChar: result.interruptedAtChar,
-      spokenMs: result.spokenMs,
+      /*
+       * Hele milliseconden, en hier afgerond en niet bij de insert.
+       *
+       * `emittedMs` telt `chunk.durationMs` op, en dat is `(samples / rate) * 1000` — een
+       * breuk zodra het aantal samples geen veelvoud van de rate/1000 is. Op 16 kHz kwam dat
+       * neer op `samples / 16` en viel het altijd rond; op 24 kHz werd het `samples / 24` en
+       * dus meestal niet. De wissel van gisteren maakte een fout zichtbaar die er al zat.
+       *
+       * `spoken_ms` is een `int`-kolom en weigerde dat met "invalid input syntax for type
+       * integer: 20702.458333333336". Twee keer de openingsbeurt van een gesprek kwijt.
+       *
+       * De drie andere wegen naar dezelfde grootheid rondden al wél af — `cancel()` in beide
+       * TTS-adapters en `interrupt()` in de null-avatar. Dit was de vierde, en de enige die
+       * het niet deed. Zelfde vorm als de samplerate en de tijdzone: één grootheid, meerdere
+       * plekken, en de plek die het fout doet is niet te zien vanaf de andere drie.
+       *
+       * Afronden hier en niet vlak voor de database, want een conversie op die rand verbergt
+       * dat de grootheid zelf misschien niet klopt.
+       */
+      spokenMs: result.spokenMs === null ? null : Math.round(result.spokenMs),
       clientUtteranceWasCut: this.utteranceWasCut,
       endedBy: this.endedBy,
       trimmedLeadingMs: this.o.tts.trimmedLeadingMs?.() ?? 0,

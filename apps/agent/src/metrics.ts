@@ -45,27 +45,27 @@ export class TurnMetricsRecorder {
 
   sttFinal(): void {
     this.sttFinalAt = this.now();
-    this.metrics.speechEndToSttFinalMs = this.sttFinalAt - this.t0;
+    this.metrics.speechEndToSttFinalMs = ms(this.sttFinalAt - this.t0);
   }
 
   llmFirstToken(): void {
     if (this.firstTokenAt !== null) return;
     this.firstTokenAt = this.now();
-    this.metrics.sttToLlmFirstTokenMs = this.firstTokenAt - (this.sttFinalAt ?? this.t0);
+    this.metrics.sttToLlmFirstTokenMs = ms(this.firstTokenAt - (this.sttFinalAt ?? this.t0));
   }
 
   ttsFirstAudio(): void {
     if (this.firstAudioAt !== null) return;
     this.firstAudioAt = this.now();
-    this.metrics.llmToTtsFirstAudioMs = this.firstAudioAt - (this.firstTokenAt ?? this.t0);
+    this.metrics.llmToTtsFirstAudioMs = ms(this.firstAudioAt - (this.firstTokenAt ?? this.t0));
   }
 
   avatarFirstFrame(): void {
     if (this.firstFrameAt !== null) return;
     this.firstFrameAt = this.now();
-    this.metrics.ttsToAvatarFirstFrameMs = this.firstFrameAt - (this.firstAudioAt ?? this.t0);
+    this.metrics.ttsToAvatarFirstFrameMs = ms(this.firstFrameAt - (this.firstAudioAt ?? this.t0));
     // Dit is het getal dat telt: spraakeinde tot een sprekend gezicht.
-    this.metrics.totalResponseLatencyMs = this.firstFrameAt - this.t0;
+    this.metrics.totalResponseLatencyMs = ms(this.firstFrameAt - this.t0);
   }
 
   interruptRequested(): void {
@@ -76,12 +76,34 @@ export class TurnMetricsRecorder {
   /** Aanroepen zodra de TTS daadwerkelijk stil is. Budget: 50 ms. */
   silenceReached(): void {
     if (this.interruptAt === null) return;
-    this.metrics.interruptToSilenceMs = this.now() - this.interruptAt;
+    this.metrics.interruptToSilenceMs = ms(this.now() - this.interruptAt);
   }
 
   snapshot(): TurnMetrics {
     return { ...this.metrics };
   }
+}
+
+/**
+ * Een gemeten duur naar hele milliseconden.
+ *
+ * `performance.now()` levert fracties, en elk verschil daartussen dus ook. Alle zes de velden
+ * hieronder gaan via `agent_record_metric` naar kolommen van het type `int` — daar wordt een
+ * gebroken getal geweigerd met "invalid input syntax for type integer".
+ *
+ * Dat is geen theoretisch geval: dezelfde fout kostte op 27 augustus 2026 twee keer de
+ * openingsbeurt van een gesprek, langs `spoken_ms`. Deze RPC wordt nog niet aangeroepen, dus
+ * hier had hij nog niet toegeslagen — hij stond klaar voor het moment dat iemand hem aansloot.
+ *
+ * Afronden gebeurt hier, waar de waarde ontstaat, en niet vlak voor de insert. Een conversie op
+ * de rand van de database verbergt dat de grootheid zelf misschien niet klopt: de melding zegt
+ * dan "20702.458" en niemand kijkt of die twintig seconden ook echt kloppen.
+ *
+ * Een halve milliseconde weggooien kost niets: het budget wordt in tientallen milliseconden
+ * uitgedrukt en de meetruis is groter dan de afronding.
+ */
+function ms(verschil: number): number {
+  return Math.round(verschil);
 }
 
 function empty(): TurnMetrics {
