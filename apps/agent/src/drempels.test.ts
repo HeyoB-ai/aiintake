@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BACKCHANNEL_MAX_MS, INTERRUPT_MIN_SPEECH_MS, INTERRUPT_MIN_WORDS } from '@intake/domain';
+import {
+  BACKCHANNEL_MAX_MS,
+  ENDPOINTING_MS,
+  INTERRUPT_MIN_SPEECH_MS,
+  INTERRUPT_MIN_WORDS,
+  UTTERANCE_END_MS,
+} from '@intake/domain';
 import { classifySpeech } from './barge-in';
 import { DrempelFout, drempelBanner, heeftAfwijking, leesDrempels } from './drempels';
 
@@ -20,6 +26,17 @@ describe('zonder afwijking', () => {
     expect(d.interruptMinWords).toBe(INTERRUPT_MIN_WORDS);
     expect(d.backchannelMaxMs).toBe(BACKCHANNEL_MAX_MS);
     expect(heeftAfwijking(d)).toBe(false);
+  });
+
+  it('neemt de endpointing uit het domein en niet uit een eigen getal', () => {
+    /*
+     * Het getal stond op twee plekken: `standaard: 300` hier en `?? 300` in de
+     * Deepgram-adapter. Dezelfde vorm als de samplerate — één grootheid, meerdere plekken.
+     * Deze test en zijn tegenhanger in deepgram.test.ts binden ze allebei aan de bron.
+     */
+    expect(leesDrempels({}).endpointingMs).toBe(ENDPOINTING_MS);
+    expect(leesDrempels({}).utteranceEndMs).toBe(UTTERANCE_END_MS);
+    expect(ENDPOINTING_MS, 'de op gehoor afgestelde waarde').toBe(700);
   });
 
   it('leest de wachttijd voor een onafgeronde zin, nul inbegrepen', () => {

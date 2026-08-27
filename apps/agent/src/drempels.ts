@@ -1,4 +1,10 @@
-import { BACKCHANNEL_MAX_MS, INTERRUPT_MIN_SPEECH_MS, INTERRUPT_MIN_WORDS } from '@intake/domain';
+import {
+  BACKCHANNEL_MAX_MS,
+  ENDPOINTING_MS,
+  INTERRUPT_MIN_SPEECH_MS,
+  INTERRUPT_MIN_WORDS,
+  UTTERANCE_END_MS,
+} from '@intake/domain';
 
 /**
  * De drempels die het onderbrekingsgedrag bepalen, af te stellen zonder deploy.
@@ -110,19 +116,20 @@ const REGELS: Regel[] = [
   {
     env: 'DEEPGRAM_ENDPOINTING_MS',
     sleutel: 'endpointingMs',
-    standaard: 300,
+    standaard: ENDPOINTING_MS,
     min: 10,
     max: 5_000,
     geheel: true,
     waarom:
       'Bepaalt hoe lang de cliënt stil mag zijn voordat zijn beurt sluit — en dus hoe snel de ' +
       'assistent begint te praten. Te laag knipt midden in een denkpauze (risico 2); te hoog ' +
-      'laat elke stilte aanvoelen als een haperende verbinding.',
+      'laat elke stilte aanvoelen als een haperende verbinding. De standaard is 700 en dat is ' +
+      'op gehoor afgesteld; de 300 die hier stond kwam uit de spec en is nooit beproefd.',
   },
   {
     env: 'DEEPGRAM_UTTERANCE_END_MS',
     sleutel: 'utteranceEndMs',
-    standaard: 1_000,
+    standaard: UTTERANCE_END_MS,
     min: 1_000,
     max: 5_000,
     geheel: true,

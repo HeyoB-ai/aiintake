@@ -107,6 +107,29 @@ export const INTERRUPT_MIN_SPEECH_MS = 180;
 export const INTERRUPT_MIN_WORDS = 2;
 
 /**
+ * Stilte in ms voordat de beurt van de cliënt sluit — hoe snel de assistent begint te praten.
+ *
+ * **700 en niet 300, en dat is een gemeten waarde.** De 300 kwam uit de spec en is nooit
+ * beproefd; hij knipt midden in een denkpauze. 700 is op gehoor afgesteld in gevoerde
+ * gesprekken en werkt. Zolang dat als afwijking in één omgeving stond, draaide elke tweede
+ * omgeving op 300 en was niet te begrijpen waarom het daar slechter klonk.
+ *
+ * Staat hier en niet in `drempels.ts` of in de Deepgram-adapter, omdat het getal daar tot
+ * vandaag twéé keer stond: `standaard: 300` in de drempellaag en `?? 300` in de adapter. Dat is
+ * dezelfde vorm als de samplerate en de tijdzone — één grootheid, meerdere plekken, en de plek
+ * die achterloopt is vanaf de andere niet te zien.
+ */
+export const ENDPOINTING_MS = 700;
+
+/**
+ * Vangnet dat de beurt sluit op gaten tussen woordtijdstempels.
+ *
+ * Deepgram accepteert onder de 1000 niet. Voedt ook `continuationInterval`, de detector voor
+ * een te vroege knip.
+ */
+export const UTTERANCE_END_MS = 1_000;
+
+/**
  * `maxMs` is optioneel en valt terug op de constante hierboven.
  *
  * De parameter bestaat zodat de worker hem uit de omgeving kan afwijken zonder deploy — het

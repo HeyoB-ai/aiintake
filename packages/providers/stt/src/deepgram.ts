@@ -1,3 +1,4 @@
+import { ENDPOINTING_MS, UTTERANCE_END_MS } from '@intake/domain';
 import type { SpeechToTextProvider, SttEvents, SttOptions, SttStream } from './contract';
 
 /**
@@ -15,8 +16,9 @@ import type { SpeechToTextProvider, SttEvents, SttOptions, SttStream } from './c
  *   `endpointing`      stilte in ms voordat een resultaat `speech_final` wordt
  *   `utterance_end_ms` gat tussen woordtijdstempels dat een UtteranceEnd oplevert
  *
- * 300 ms endpointing is agressief maar haalbaar bij een gesprek waarin de cliënt aan
- * het woord is; de UtteranceEnd is het vangnet als het laatste woord wegvalt.
+ * De standaard staat op 700 ms (`ENDPOINTING_MS` in @intake/domain) en dat is op gehoor
+ * afgesteld. Hier stond eerst 300 — uit de spec, nooit beproefd, en in gesprekken knipt dat
+ * midden in een denkpauze. De UtteranceEnd is het vangnet als het laatste woord wegvalt.
  */
 
 const WS_URL = 'wss://api.deepgram.com/v1/listen';
@@ -426,8 +428,10 @@ export class DeepgramSttProvider implements SpeechToTextProvider {
       apiKey: options.apiKey,
       // Niet 'flux': die bestaat niet voor Nederlands. Zie de toelichting bovenaan.
       model: options.model ?? 'nova-3',
-      endpointingMs: options.endpointingMs ?? 300,
-      utteranceEndMs: options.utteranceEndMs ?? 1000,
+      // Eén bron voor deze twee: @intake/domain. Stonden ze hier als los getal, dan loopt de
+      // adapter achter zodra de drempellaag verandert — en dat is van buiten niet te zien.
+      endpointingMs: options.endpointingMs ?? ENDPOINTING_MS,
+      utteranceEndMs: options.utteranceEndMs ?? UTTERANCE_END_MS,
       sampleRate: options.sampleRate ?? 16_000,
     };
   }

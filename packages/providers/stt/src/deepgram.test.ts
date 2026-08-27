@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DeepgramSttStream, continuationInterval, isPlausibleContinuationGap } from './deepgram';
+import { ENDPOINTING_MS, UTTERANCE_END_MS } from '@intake/domain';
+import {
+  DeepgramSttProvider,
+  DeepgramSttStream,
+  continuationInterval,
+  isPlausibleContinuationGap,
+  type DeepgramOptions,
+} from './deepgram';
 
 /**
  * De afkapdetectie, zonder netwerk.
@@ -13,8 +20,6 @@ import { DeepgramSttStream, continuationInterval, isPlausibleContinuationGap } f
  * drempel die te ruim staat maar een berekening zonder bovengrens — en de gevolgen zijn
  * erger dan niets doen: de eerste uitspraak krijgt tekst toegevoegd die er niet bij hoort.
  */
-
-const UTTERANCE_END_MS = 1000;
 
 interface Vangst {
   gapMs: number;
@@ -450,5 +455,32 @@ describe('waarom een beurt leeg blijft', () => {
     stuur({ type: 'UtteranceEnd', last_word_end: 1.5 });
 
     expect(leeg.map((l) => l.tekensGezien)).toEqual([5, 0]);
+  });
+});
+
+describe('de standaardinstellingen komen uit het domein', () => {
+  it('vult endpointing en utterance_end met de domeinconstanten', () => {
+    /*
+     * Deze twee getallen stonden hier als los literal (`?? 300`, `?? 1000`) én in
+     * apps/agent/src/drempels.ts. Eén grootheid op twee plekken: dezelfde vorm als de
+     * samplerate, en de plek die achterloopt is vanaf de andere niet te zien.
+     *
+     * In productie geeft de drempellaag altijd een waarde mee, dus deze terugval viel niet op —
+     * maar elke diagnose die de provider rechtstreeks aanroept, draaide op 300 terwijl het
+     * gesprek op 700 liep, en dan meet de proef iets anders dan er draait.
+     */
+    const provider = new DeepgramSttProvider({ apiKey: 'test' });
+    const config = (provider as unknown as { config: Required<DeepgramOptions> }).config;
+
+    expect(config.endpointingMs).toBe(ENDPOINTING_MS);
+    expect(config.utteranceEndMs).toBe(UTTERANCE_END_MS);
+  });
+
+  it('laat een expliciete waarde voorgaan op de standaard', () => {
+    // Anders bewaakt de test hierboven niets: een provider die alles negeert, zou ook slagen.
+    const provider = new DeepgramSttProvider({ apiKey: 'test', endpointingMs: 250 });
+    const config = (provider as unknown as { config: Required<DeepgramOptions> }).config;
+
+    expect(config.endpointingMs).toBe(250);
   });
 });
