@@ -674,6 +674,16 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
         `  bericht ${info.turnIndex}/${info.role} (${info.tekens} tekens) · ${info.stap}`,
       );
     },
+    /*
+     * De koude weg, per schrijfactie zichtbaar.
+     *
+     * Niet één verzamelmelding achteraf: een advocaat die een leeg dossier ziet, kan niet
+     * afleiden of de cliënt niets heeft verteld of dat het wegschrijven is mislukt. In het log
+     * hoort dat onderscheid per feit te staan.
+     */
+    onVastlegging: (info) => {
+      console.log(`  ${info.soort} ${info.sleutel} · ${info.stap}`);
+    },
     onHervatting: (info) => {
       console.log(
         `  hervatting · ${info.turnCount} eerdere beurt(en) · ` +
@@ -887,7 +897,19 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
       respond: intake.responseSource(),
       avatarProvider: browserAvatar(new NullAvatarProvider(() => performance.now()), ws),
       onPrematureCut: (_volledig, gapMs, detectedBy) => stuur({ type: 'cut', gapMs, detectedBy }),
-      onSkippedTurn: (reden) => stuur({ type: 'skipped', reden }),
+      onSkippedTurn: (reden, meta) => {
+        stuur({ type: 'skipped', reden });
+        /*
+         * Alleen echt verlies belandt in het transcript.
+         *
+         * `meta.dataverlies` komt uit `tekensGezien > 0`: de herkenner zag woorden en de lus
+         * kreeg ze niet. Een kuch heeft dat niet en hoort geen regel te krijgen.
+         *
+         * De sessie bepaalt zelf op welke plek in het gesprek de regel hoort; de lus heeft er
+         * geen nummer voor, want de beurt is nooit voltooid.
+         */
+        if (meta?.dataverlies) void intake.meldOvergeslagenBeurt();
+      },
       onTurnError: (error) => stuur({ type: 'error', waar: 'beurt', wat: String(error) }),
       onTurn: (turn) => {
         raakteActief();

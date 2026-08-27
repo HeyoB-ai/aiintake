@@ -96,7 +96,18 @@ export interface TurnLoopOptions {
    * De assistent blijft dan gewoon wachten. Zichtbaar, want stilte zonder melding is
    * niet te onderscheiden van een vastgelopen lus.
    */
-  readonly onSkippedTurn?: (reason: string) => void;
+  /**
+   * `meta` draagt het onderscheid dat de tekst ook maakt, maar dan machinaal.
+   *
+   * De reden is voor een mens in het log; `dataverlies` is voor de laag die beslist of er een
+   * regel in het transcript hoort. Een kuch is geen gat in het dossier, een verstane uitspraak
+   * die verdwijnt wél — en dat verschil uit een zin terug moeten parsen is hoe het stilletjes
+   * fout gaat.
+   */
+  readonly onSkippedTurn?: (
+    reason: string,
+    meta?: { readonly dataverlies: boolean; readonly tekensGezien: number },
+  ) => void;
   /**
    * Een beurt liep stuk.
    *
@@ -157,7 +168,10 @@ export class TurnLoop {
       // geschiedenis. Dat laatste is het ergste: elke volgende beurt stuurt dat mee, en
       // de API weigert een bericht zonder inhoud. Eén kuch legde zo het hele gesprek stil.
       if (!text.trim()) {
-        o.onSkippedTurn?.('geen bruikbare tekst van de STT');
+        o.onSkippedTurn?.('geen bruikbare tekst van de STT', {
+          dataverlies: false,
+          tekensGezien: 0,
+        });
         return;
       }
       this.endedBy = meta?.endedBy ?? 'speech_final';
@@ -195,6 +209,7 @@ export class TurnLoop {
               'De uitspraak van de cliënt is niet verwerkt.'
           : `beurt zonder bruikbare tekst (geen taal verstaan) — afgesloten door ` +
               `${meta.endedBy}, ${meta.resultaten} resultaat/resultaten van de herkenner`,
+        { dataverlies: meta.tekensGezien > 0, tekensGezien: meta.tekensGezien },
       );
     });
 

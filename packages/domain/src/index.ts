@@ -4,6 +4,7 @@ export * from './schemas/index';
 export * from './arithmetic';
 export * from './affirmation';
 export * from './weekdag';
+export * from './demodata';
 export * from './erkenning';
 export * from './wanhoop';
 export * from './hervatting';

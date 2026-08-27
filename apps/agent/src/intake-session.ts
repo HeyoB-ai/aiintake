@@ -100,10 +100,10 @@ export interface IntakeSessionOptions {
    */
   readonly onWanhoop?: (reactie: WanhoopReactie, stap: string) => void;
   /**
-   * De agent-RPC, voor de risicovlag bij wanhoop.
+   * De agent-RPC: transcript, feiten, signalen en voortgang.
    *
    * Optioneel: zonder verbinding met het dossier draait het gesprek door, maar dan meldt
-   * `onWanhoop` met zoveel woorden dat er niets is vastgelegd.
+   * `onWanhoop` en `onVastlegging` met zoveel woorden dat er niets is vastgelegd.
    */
   readonly rpc?: {
     setRiskFlag(args: {
@@ -123,7 +123,30 @@ export interface IntakeSessionOptions {
       plannedQuestionKeys?: string[];
       clientUtteranceWasCut?: boolean;
     }): Promise<unknown>;
+    upsertFact(args: {
+      key: string;
+      value: unknown;
+      valueType: 'string' | 'number' | 'date' | 'boolean' | 'enum';
+      status: 'confirmed' | 'inferred' | 'unknown' | 'contradicted';
+      confidence: number;
+      source: 'client_statement' | 'document' | 'lawyer_input';
+      sourceRef: string | null;
+      evidenceQuote?: string | null;
+    }): Promise<unknown>;
+    updateProgress(args: { completeness?: number | null }): Promise<unknown>;
   };
+  /**
+   * Wat er van de koude weg in het dossier is beland, of waarom niet.
+   *
+   * Dezelfde afspraak als bij `onBericht`: nooit stil. Een feit dat niet landt, is van buiten
+   * niet te onderscheiden van een feit dat de cliënt nooit heeft verteld — en dat is precies
+   * het verschil waar een advocaat op afgaat.
+   */
+  readonly onVastlegging?: (info: {
+    soort: 'feit' | 'signaal' | 'voortgang';
+    sleutel: string;
+    stap: 'vastgelegd' | string;
+  }) => void;
   /**
    * Elk bericht dat is weggeschreven, of de reden waarom niet.
    *
@@ -132,7 +155,7 @@ export interface IntakeSessionOptions {
    */
   readonly onBericht?: (info: {
     turnIndex: number;
-    role: 'assistant' | 'client';
+    role: 'assistant' | 'client' | 'system';
     tekens: number;
     stap: 'weggeschreven' | string;
   }) => void;
@@ -585,7 +608,187 @@ export class IntakeSession {
     if (resultaat.rejectedFacts) this.geweigerd.push(...resultaat.rejectedFacts);
 
     this.options.onObservation?.(resultaat);
+    // Bewust ná onObservation en niet erin: de HUD hoort niet te wachten op de database, en
+    // een mislukte schrijfactie mag de volgende beurt niet ophouden.
+    await this.legVast(resultaat);
     return resultaat;
+  }
+
+  /**
+   * De koude weg naar het dossier: feiten, signalen, voortgang.
+   *
+   * ## Waarom dit hier staat en niet in live/server.ts
+   *
+   * Dezelfde afspraak als bij het transcript: de aanroep hoort in de laag die het gesprek
+   * voert, niet in de laag die het transport doet. `live/server.ts` is het bestand dat
+   * verdwijnt als het transport ooit verandert.
+   *
+   * ## Waarom elke schrijfactie apart wordt gemeld
+   *
+   * Een feit dat niet landt, is van buiten niet te onderscheiden van een feit dat de cliënt
+   * nooit heeft verteld. De advocaat ziet een leeg dossier en concludeert dat er niets is
+   * verteld. Daarom per feit een melding, en bij een fout de reden erbij — niet één
+   * verzamelmelding achteraf.
+   *
+   * ## Waarom een fout de beurt niet afbreekt
+   *
+   * Dit draait op de koude weg, ná het antwoord. Een gesprek afkappen omdat één feit niet
+   * kon worden weggeschreven, kost de cliënt meer dan het oplevert. Wat het niet mag zijn is
+   * stil, en dat is het niet.
+   */
+  private async legVast(resultaat: ObservationResult): Promise<void> {
+    const rpc = this.options.rpc;
+    if (!rpc) {
+      for (const update of resultaat.factUpdates) {
+        this.options.onVastlegging?.({
+          soort: 'feit',
+          sleutel: update.key,
+          stap: 'NIET VASTGELEGD: geen verbinding met het dossier',
+        });
+      }
+      return;
+    }
+
+    for (const update of resultaat.factUpdates) {
+      try {
+        await rpc.upsertFact({
+          key: update.key,
+          value: update.value,
+          valueType: update.valueType,
+          status: update.status,
+          confidence: update.confidence,
+          source: update.source,
+          sourceRef: update.sourceRef || null,
+          /*
+           * Het citaat gaat mee, en dat is geen extra.
+           *
+           * `evidence_quote` is waarop een advocaat kan nagaan waaróm er iets in het dossier
+           * staat. Zonder dat is een feit een bewering van een model, en dan is een verkeerd
+           * bedrag niet van een goed bedrag te onderscheiden zonder het hele transcript te
+           * herlezen. De citaatverankering weigert al wat niet in het transcript staat.
+           */
+          evidenceQuote: update.evidenceQuote || null,
+        });
+        this.options.onVastlegging?.({ soort: 'feit', sleutel: update.key, stap: 'vastgelegd' });
+      } catch (fout) {
+        this.options.onVastlegging?.({
+          soort: 'feit',
+          sleutel: update.key,
+          stap: `NIET VASTGELEGD: ${fout instanceof Error ? fout.message : String(fout)}`,
+        });
+      }
+    }
+
+    for (const vlag of resultaat.riskFlags) {
+      try {
+        await rpc.setRiskFlag({
+          ruleKey: vlag.ruleKey,
+          level: vlag.level as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+          label: vlag.label,
+          // 'rule': deze komen uit de regelmachine over de feiten, niet uit een modeloordeel.
+          // Het wanhoopspad zet 'rule+ai', en dat onderscheid hoort zichtbaar te blijven —
+          // een advocaat mag weten of een signaal is afgeleid of ingeschat.
+          detectedBy: 'rule',
+          sourceRef: null,
+        });
+        this.options.onVastlegging?.({
+          soort: 'signaal',
+          sleutel: vlag.ruleKey,
+          stap: 'vastgelegd',
+        });
+      } catch (fout) {
+        this.options.onVastlegging?.({
+          soort: 'signaal',
+          sleutel: vlag.ruleKey,
+          stap: `NIET VASTGELEGD: ${fout instanceof Error ? fout.message : String(fout)}`,
+        });
+      }
+    }
+
+    try {
+      /*
+       * Alleen `completeness`.
+       *
+       * `status` blijft van de mens: de RPC laat de agent hoogstens naar READY_FOR_REVIEW,
+       * maar wanneer een intake dat is, hoort niet door een teller te worden bepaald.
+       * `subject` gaat bewust niet mee — er is geen bron voor; zie RISICOS.md risico 24.
+       */
+      await rpc.updateProgress({ completeness: resultaat.completeness });
+      this.options.onVastlegging?.({
+        soort: 'voortgang',
+        sleutel: `volledigheid ${Math.round(resultaat.completeness * 100)}%`,
+        stap: 'vastgelegd',
+      });
+    } catch (fout) {
+      this.options.onVastlegging?.({
+        soort: 'voortgang',
+        sleutel: 'volledigheid',
+        stap: `NIET VASTGELEGD: ${fout instanceof Error ? fout.message : String(fout)}`,
+      });
+    }
+  }
+
+  /**
+   * Een beurt waarin de cliënt iets zei dat niet is verstaan, als regel in het transcript.
+   *
+   * ## Waarom dit er hoort te staan
+   *
+   * Een overgeslagen beurt liet nergens een spoor na. `onSkippedTurn` ging naar de browser en
+   * naar het worker-log, en het transcript dat een advocaat leest, las als een doorlopend
+   * gesprek. Wat er ontbrak was niet te zien — en dat is precies wat een dossier onbruikbaar
+   * maakt: het ziet er compleet uit.
+   *
+   * ## Alleen bij dataverlies, niet bij elk geluid
+   *
+   * Een kuch, een deur, een stoel: daar is geen taal in en er gaat niets verloren. Zou daar ook
+   * een regel voor komen, dan staat het transcript vol meldingen die niets betekenen — en dan
+   * leest niemand ze meer, ook de regel niet die er wél toe doet.
+   *
+   * ## Waarom de tekst zo is
+   *
+   * Een advocaat moet begrijpen dát er iets niet is verstaan, en niet hoeven weten wat
+   * `utterance_end` of `speech_final` betekent. Geen regelnaam, geen code, geen aantal tekens:
+   * dat aantal is bovendien de lengte van een tussentijds transcript en geen maat voor hoeveel
+   * er is gezegd. Wat er staat is wat er waar is: hier is iets gezegd en het staat er niet.
+   */
+  async meldOvergeslagenBeurt(): Promise<void> {
+    /*
+     * De index komt van de sessie zelf en niet van de aanroeper.
+     *
+     * De beurt is nooit voltooid, dus de lus heeft er geen nummer voor. `history.length` is
+     * waar het gesprek op dit moment staat, en dat is precies de plek waar het gat hoort.
+     */
+    const turnIndex = this.history.length;
+    const tekst =
+      'Hier heeft de cliënt iets gezegd dat niet is verstaan. ' +
+      'De spraakherkenning ving wel geluid op maar leverde geen tekst; ' +
+      'wat op dit punt is gezegd, ontbreekt in dit transcript.';
+
+    if (!this.options.rpc) {
+      this.options.onBericht?.({
+        turnIndex,
+        role: 'system',
+        tekens: tekst.length,
+        stap: 'NIET WEGGESCHREVEN: geen verbinding met het dossier',
+      });
+      return;
+    }
+    try {
+      await this.options.rpc.appendMessage({ turnIndex, role: 'system', content: tekst });
+      this.options.onBericht?.({
+        turnIndex,
+        role: 'system',
+        tekens: tekst.length,
+        stap: 'weggeschreven',
+      });
+    } catch (fout) {
+      this.options.onBericht?.({
+        turnIndex,
+        role: 'system',
+        tekens: tekst.length,
+        stap: `NIET WEGGESCHREVEN: ${fout instanceof Error ? fout.message : String(fout)}`,
+      });
+    }
   }
 
   /** Alles wat de citaatverankering deze sessie heeft geweigerd. */

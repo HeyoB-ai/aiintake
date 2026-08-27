@@ -92,16 +92,41 @@ function naarOrgConfig(rauw: Record<string, unknown>): OrgConfig {
  * `spokenMs` bij het wegschrijven. Hier gebeurt dus niets meer met afkappen; zou dat hier
  * ook staan, dan zijn er twee plekken die hetzelfde oordeel vellen.
  */
+/**
+ * Alleen voor de test die de uitsluiting bewaakt.
+ *
+ * De functie zelf blijft privé — hij is een vertaalstap en geen API. Maar wat hij uitsluit is
+ * een afspraak die stil te breken is, en die hoort vastgehouden te worden door iets dat rood
+ * wordt. Zie vastlegging.test.ts.
+ */
+export function naarGeschiedenisVoorTest(rijen: AgentContext['history']): Turn[] {
+  return naarGeschiedenis(rijen);
+}
+
 function naarGeschiedenis(rijen: AgentContext['history']): Turn[] {
-  return rijen
-    .filter((m) => m.role === 'client' || m.role === 'assistant')
-    .map((m) => ({
-      id: m.id,
-      role: m.role as 'client' | 'assistant',
-      content: m.content,
-      plannedQuestionKeys: m.plannedQuestionKeys ?? [],
-      createdAt: m.createdAt,
-    }));
+  return (
+    rijen
+      /*
+       * Systeemregels gaan er hier uit, en dat is geen opruimwerk.
+       *
+       * Sinds een overgeslagen beurt een regel in het transcript krijgt, staan er berichten met
+       * rol `system` tussen — "hier heeft de cliënt iets gezegd dat niet is verstaan". Dat is
+       * een mededeling van ons over het gesprek, geen uitspraak van de cliënt.
+       *
+       * Zou zo'n regel als geschiedenis meegaan, dan wordt hij invoer voor de feitextractie en
+       * kan hij als grondslag voor een `case_fact` gelden. Dezelfde uitsluiting als bij de
+       * erkenning, en om dezelfde reden: alleen wat de cliënt zelf heeft gezegd, mag een feit
+       * dragen. `geen-systeemregel-als-grondslag.test.ts` bewaakt dit.
+       */
+      .filter((m) => m.role === 'client' || m.role === 'assistant')
+      .map((m) => ({
+        id: m.id,
+        role: m.role as 'client' | 'assistant',
+        content: m.content,
+        plannedQuestionKeys: m.plannedQuestionKeys ?? [],
+        createdAt: m.createdAt,
+      }))
+  );
 }
 
 export async function haalIntakeContext(opties: ContextOptions): Promise<IntakeContext> {

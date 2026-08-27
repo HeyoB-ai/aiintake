@@ -74,7 +74,10 @@ export interface EchoSessionOptions {
    */
   readonly respond?: ResponseSource;
   readonly onTurnError?: (error: unknown) => void;
-  readonly onSkippedTurn?: (reason: string) => void;
+  readonly onSkippedTurn?: (
+    reason: string,
+    meta?: { readonly dataverlies: boolean; readonly tekensGezien: number },
+  ) => void;
   readonly onTurn?: (turn: CompletedTurn) => void;
   /**
    * Afwijkende drempels voor onderbreken en endpointing.
@@ -170,9 +173,9 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
       : {}),
     respond: options.respond ?? echoResponse,
     onTurn: (turn) => options.onTurn?.(turn),
-    onSkippedTurn: (reason) => {
+    onSkippedTurn: (reason, meta) => {
       log.info('beurt overgeslagen', { reden: reason });
-      options.onSkippedTurn?.(reason);
+      options.onSkippedTurn?.(reason, meta);
     },
     onTurnError: (error) => {
       log.error('beurt mislukt', { fout: String(error).slice(0, 200) });

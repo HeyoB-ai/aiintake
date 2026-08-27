@@ -1636,3 +1636,64 @@ iemand zijn contract heeft is bruikbaar voor de advocaat; alleen de toezegging k
 18 (een schakelaar die niemand uitleest): infrastructuur die er af uitziet omdat het schema, de
 policies en de UI er zijn, terwijl het stuk dat ze verbindt ontbreekt. Het verschil is dat het
 hier niet bij een lege kolom bleef — de assistent deed er een toezegging over aan een cliënt.
+
+## 23. Seed en productie staan in dezelfde tabellen en zijn niet te onderscheiden
+
+**Status: gemarkeerd, niet gescheiden. 27 augustus 2026.**
+
+Het heeft een ronde gekost. Bij het onderzoek naar verdwijnende spraak heb ik een systeemregel
+uit de database aangehaald als bewijs dat er in een echt gesprek een beurt was overgeslagen. Die
+regel kwam uit `supabase/seed/demo-data.mjs`. De conclusie die erop volgde was onjuist, en er is
+een halve ronde overheen gegaan voordat dat opviel.
+
+Het is niet alleen een onderzoeksprobleem. Een advocaat die het dashboard opent, ziet
+demo-intakes tussen de echte staan — met urgentie, volledigheid en status. Wie daarop een
+werkvoorraad inschat, telt zaken mee die niet bestaan.
+
+**De goedkope weg, en waarom niet de eerlijke.** Een kolom `is_demo` zou beter zijn, maar die
+vraagt een migratie, moet op elke tabel terugkomen, en moet door élke schrijfweg correct worden
+gezet — inclusief de wegen die er later bij komen. Meer oppervlak om fout te doen dan het
+probleem groot is.
+
+De seed gebruikt vaste UUID's met een herkenbare vorm: `…-0000-4000-a000-…`. Bij een echte
+v4-UUID zijn die middengroepen willekeurig; de kans dat een echt gesprek die vorm treft is
+ruwweg één op tienduizend miljard. `isDemoId()` in `@intake/domain` herkent hem, en het
+dashboard zet er een aantekening bij.
+
+**Wat dat niet is.** Geen bewijs en geen beveiliging — het is een aanwijzing. En geen filter: er
+verdwijnt niets uit het dashboard. Een overzicht dat stilletjes rijen weglaat is een nieuw soort
+onbetrouwbaar.
+
+De test bewaakt vooral de dure kant: een écht id mag nooit als demo worden bestempeld, want dan
+verdwijnt een echte intake achter een aantekening die zegt dat hij niet bestaat.
+
+## 24. "Onderwerp" heeft geen bron
+
+**Status: open. Vastgesteld 27 augustus 2026.**
+
+De kolom `intakes.subject` bestaat, staat op het dashboard en in de intakedetailpagina, en
+`agent_update_progress` heeft er een parameter voor (`p_subject`). Er is niets dat hem vult.
+
+Doorzocht: `packages/intake-engine`, `packages/domain`, `packages/prompts`. Geen enkele
+component levert een onderwerp. De feitcatalogus heeft categorieën en feiten, geen samenvattende
+noemer; de engine geeft kandidaten, feiten, risicovlaggen en volledigheid terug, en verder
+niets.
+
+**Waarom hij niet is meegenomen in deze ronde.** Een onderwerp afleiden vraagt een oordeel:
+"ontslag op staande voet" is een samenvatting van meerdere feiten, en dat is werk voor een model
+of voor een deterministische regel over de catalogus. Beide zijn te bouwen; geen van beide is
+te improviseren tijdens het aansluiten van twee RPC's. `updateProgress` stuurt daarom bewust
+alleen `completeness` mee — `p_subject` blijft `null` en de kolom blijft leeg.
+
+Dat is de eerlijke stand. Een onderwerp verzinnen uit de eerste cliëntzin zou de kolom vullen en
+er iets neerzetten wat niemand heeft vastgesteld — precies de klasse fout die risico 16 en 22
+beschrijven.
+
+**Wat er wél moet gebeuren, in volgorde van eerlijkheid:**
+
+1. Deterministisch, uit de catalogus: de hoogst gescoorde beantwoorde categorie als noemer.
+   Traceerbaar en saai, maar grof.
+2. Een koude-weg-model met gesloten schema en een citaat, zoals de feitextractie. Duurder, en
+   het levert een onderwerp op dat een advocaat kan nagaan.
+
+Tot dat er is, hoort de kolom leeg te blijven en niet gevuld met een gok.

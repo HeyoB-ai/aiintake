@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { formatCompleteness, URGENCY_STYLES } from '@intake/ui';
-import type { IntakeStatus, UrgencyLevel } from '@intake/domain';
+import { DEMO_LABEL, isDemoId, type IntakeStatus, type UrgencyLevel } from '@intake/domain';
 import { requireUser } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 
@@ -235,6 +235,28 @@ function IntakeTable({
                 >
                   {row.client_name ?? 'Naam niet vastgelegd'}
                 </Link>
+                {/*
+                 * Demodata als demodata tonen, niet verbergen.
+                 *
+                 * Seed en productie staan in dezelfde tabel en zijn aan niets te onderscheiden.
+                 * Wie hier een werkvoorraad inschat, telt anders zaken mee die niet bestaan —
+                 * met urgentie en volledigheid en al. Zie RISICOS.md risico 23.
+                 *
+                 * Een aantekening en geen filter: een dashboard dat stilletjes rijen weglaat,
+                 * is een nieuw soort onbetrouwbaar.
+                 */}
+                {isDemoId(row.id) && (
+                  <span
+                    className="ml-2 rounded px-1.5 py-0.5 text-[11px] uppercase tracking-wide"
+                    style={{
+                      backgroundColor: 'var(--app-surface)',
+                      color: 'var(--app-text-muted)',
+                    }}
+                    title="Gezaaide demodata, geen echte intake"
+                  >
+                    {DEMO_LABEL}
+                  </span>
+                )}
               </Td>
               <Td>{row.subject ?? '—'}</Td>
               <Td>{row.practice_area === 'employment' ? 'Arbeidsrecht' : row.practice_area}</Td>
