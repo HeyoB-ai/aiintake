@@ -33,7 +33,15 @@ import { naarPcm16k } from '@intake/audio';
 
 /** Wat de server over de socket stuurt. Zie apps/agent/live/server.ts. */
 export type ServerBericht =
-  | { type: 'ready'; sampleRate: number; avatar: string; anamToken?: string; avatarFout?: string }
+  | {
+      type: 'ready';
+      sampleRate: number;
+      avatar: string;
+      anamToken?: string;
+      avatarFout?: string;
+      micGateRms?: number;
+      micGateCloseMs?: number;
+    }
   | { type: 'turn'; client: string; assistant: string; hud: string; interrupted?: boolean }
   | { type: 'facts'; completeness: number; topicsTouched?: number; topicsRelevant?: number }
   | { type: 'skipped'; reden: string }
@@ -114,12 +122,26 @@ interface AnamClient {
  * De drempel staat laag en het sluiten heeft vertraging: zachte spraak afknippen zou
  * dataverlies zijn, en dat is wat risico 2 verbiedt. Liever ruis doorlaten dan een woord.
  */
-const POORT_DREMPEL = 0.005;
-const POORT_SLUIT_NA_MS = 120;
+/*
+ * De poortdrempels, met de server als bron.
+ *
+ * Deze twee bepalen mede wanneer de assistent iets hóórt, en dat is gedrag dat alleen op gehoor
+ * is af te stellen. Ze staan hier als terugval en worden overschreven door wat het
+ * `ready`-bericht meldt (`MIC_GATE_RMS`, `MIC_GATE_CLOSE_MS` in de worker) — anders vraagt elke
+ * poging een nieuwe webdeploy terwijl de rest van het pad in Railway verstelbaar is.
+ *
+ * De terugval blijft staan en is geen stille aanname: hij is precies gelijk aan de standaard in
+ * `drempels.ts`, dus een `ready` zonder deze velden verandert niets aan het gedrag.
+ */
+const POORT_DREMPEL_STANDAARD = 0.005;
+const POORT_SLUIT_NA_MS_STANDAARD = 120;
 const BLOKGROOTTE = 2048;
 
 export class ConversationClient {
   private ws: WebSocket | null = null;
+  /** Overschreven door `ready`; zie de toelichting bij POORT_DREMPEL_STANDAARD. */
+  private poortDrempel = POORT_DREMPEL_STANDAARD;
+  private poortSluitNaMs = POORT_SLUIT_NA_MS_STANDAARD;
   private ctxIn: AudioContext | null = null;
   private ctxUit: AudioContext | null = null;
   private proc: ScriptProcessorNode | null = null;
@@ -257,6 +279,10 @@ export class ConversationClient {
 
   private async opReady(bericht: Extract<ServerBericht, { type: 'ready' }>): Promise<void> {
     if (bericht.sampleRate) this.uitRate = bericht.sampleRate;
+    // Geen `||`: 0 is een geldige drempel — dan staat de poort altijd open, en dat is een
+    // proefstand die iemand bewust kan willen zetten.
+    if (typeof bericht.micGateRms === 'number') this.poortDrempel = bericht.micGateRms;
+    if (typeof bericht.micGateCloseMs === 'number') this.poortSluitNaMs = bericht.micGateCloseMs;
 
     /*
      * Op de PROVIDER beslissen, niet op de aanwezigheid van een token.
@@ -367,9 +393,9 @@ export class ConversationClient {
       const rms = Math.sqrt(som / data.length);
 
       const nu = performance.now();
-      if (rms > POORT_DREMPEL) stilSinds = null;
+      if (rms > this.poortDrempel) stilSinds = null;
       else stilSinds ??= nu;
-      const poortDicht = stilSinds !== null && nu - stilSinds >= POORT_SLUIT_NA_MS;
+      const poortDicht = stilSinds !== null && nu - stilSinds >= this.poortSluitNaMs;
 
       const ruw = new Int16Array(data.length);
       if (!poortDicht) {

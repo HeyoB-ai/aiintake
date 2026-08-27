@@ -18,6 +18,7 @@ import { AnamAvatarProvider, type AnamPersona } from '../src/avatar/anam';
 import type { OrgConfig } from '@intake/domain';
 import { IntakeSession } from '../src/intake-session';
 import { mediaConfigFrom, startEchoSession } from '../src/echo-session';
+import { drempelBanner, leesDrempels, DrempelFout, type Drempels } from '../src/drempels';
 import { formatHudLine } from '../src/metrics';
 import type { AgentEnv } from '../src/env';
 import { magAfsluitenWegensStilte } from '../src/inactiviteit';
@@ -111,6 +112,26 @@ const env = process.env as Partial<AgentEnv>;
  */
 const media = mediaConfigFrom(env);
 console.log(`  TTS: ${media.tts.keuze} · ${media.tts.sampleRate / 1000} kHz (standaard)`);
+
+/*
+ * De drempels, en hier al gelezen zodat een typefout meteen knalt.
+ *
+ * Een verkeerde stand hoor je pas in een gesprek en niet in een foutmelding. Liever een worker
+ * die niet start met een leesbare reden, dan een worker die draait op iets wat iemand verkeerd
+ * heeft ingetypt — en waarvan het gevolg pas in een intake met een echte cliënt opvalt.
+ */
+let drempels: Drempels;
+try {
+  drempels = leesDrempels(process.env);
+} catch (fout) {
+  if (fout instanceof DrempelFout) {
+    console.error(`
+  ${fout.message}
+`);
+    process.exit(1);
+  }
+  throw fout;
+}
 
 /**
  * De mediaketen voor deze verbinding.
@@ -861,6 +882,7 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
   try {
     sessie = await startEchoSession({
       media: mediaketen,
+      drempels,
       language: 'nl',
       respond: intake.responseSource(),
       avatarProvider: browserAvatar(new NullAvatarProvider(() => performance.now()), ws),
@@ -983,6 +1005,10 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
   stuur({
     type: 'ready',
     sampleRate: mediaketen.tts.sampleRate,
+    // De microfoonpoort staat in de browser maar hoort bij dezelfde afstelronde. Zonder deze
+    // twee is de helft van het pad niet te verstellen zonder een nieuwe webdeploy.
+    micGateRms: drempels.micGateRms,
+    micGateCloseMs: drempels.micGateCloseMs,
     avatar: AVATAR,
     ...(anamToken ? { anamToken } : {}),
     ...(avatarFout ? { avatarFout } : {}),
@@ -1031,8 +1057,11 @@ process.stdin.on('data', (d) => {
 
 server.listen(POORT, () => {
   console.log(`\n  Praat met de intake:  ${METTLS ? 'https' : 'http'}://localhost:${POORT}\n`);
+  console.log('  drempels (* = afwijkend van de standaard):');
+  for (const regel of drempelBanner(drempels)) console.log(regel);
   console.log(
-    `  model ${env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001'} · ${media.tts.sampleRate} Hz`,
+    `
+  model ${env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001'} · ${media.tts.sampleRate} Hz`,
   );
   console.log(
     // Deze regel wordt pas bereikt als het sessietoken er echt gekomen is; zie

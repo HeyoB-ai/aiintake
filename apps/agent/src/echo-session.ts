@@ -3,6 +3,7 @@ import { NullAvatarProvider } from '@intake/provider-avatar';
 import { DeepgramSttProvider, keytermsFor } from '@intake/provider-stt';
 import { maakTtsProvider, ttsConfigFrom, ttsKeuzeVan, type TtsConfig } from './tts-fabriek';
 import type { Language } from '@intake/domain';
+import type { Drempels } from './drempels';
 import type { AgentEnv } from './env';
 import { log } from './log';
 import { TurnLoop, type CompletedTurn, type ResponseSource } from './turn-loop';
@@ -75,6 +76,14 @@ export interface EchoSessionOptions {
   readonly onTurnError?: (error: unknown) => void;
   readonly onSkippedTurn?: (reason: string) => void;
   readonly onTurn?: (turn: CompletedTurn) => void;
+  /**
+   * Afwijkende drempels voor onderbreken en endpointing.
+   *
+   * Zonder dit draait alles op de constanten uit `@intake/domain` en de standaarden van de
+   * Deepgram-adapter. Zie drempels.ts: dit gedrag is alleen op gehoor af te stellen, en een
+   * deploy per poging maakt dat onmogelijk.
+   */
+  readonly drempels?: Drempels;
   /** De STT kapte de cliënt af. Dataverlies-signaal; zie RISICOS.md risico 2. */
   readonly onPrematureCut?: (
     fullUtterance: string,
@@ -119,6 +128,12 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
   const stt = await new DeepgramSttProvider({
     apiKey: media.deepgramApiKey,
     ...(media.deepgramModel ? { model: media.deepgramModel } : {}),
+    ...(options.drempels
+      ? {
+          endpointingMs: options.drempels.endpointingMs,
+          utteranceEndMs: options.drempels.utteranceEndMs,
+        }
+      : {}),
   }).connect({ language, keyterms: keytermsFor(language) });
 
   // Welke leverancier dit is, staat in media.tts. TTS_TRIM_LEADING=0 zet het snijden van
@@ -144,6 +159,15 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     avatar,
     language,
     now,
+    ...(options.drempels
+      ? {
+          bargeIn: {
+            interruptMinSpeechMs: options.drempels.interruptMinSpeechMs,
+            interruptMinWords: options.drempels.interruptMinWords,
+            backchannelMaxMs: options.drempels.backchannelMaxMs,
+          },
+        }
+      : {}),
     respond: options.respond ?? echoResponse,
     onTurn: (turn) => options.onTurn?.(turn),
     onSkippedTurn: (reason) => {

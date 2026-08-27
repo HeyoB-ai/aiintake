@@ -2,7 +2,7 @@ import { truncateToSpoken, type Language } from '@intake/domain';
 import type { AvatarSession } from '@intake/provider-avatar';
 import type { SttStream } from '@intake/provider-stt';
 import { SentenceFlusher, type TtsStream } from '@intake/provider-tts';
-import { classifySpeech, type SpeechEvidence } from './barge-in';
+import { classifySpeech, type BargeInDrempels, type SpeechEvidence } from './barge-in';
 import { TurnMetricsRecorder, type TurnMetrics } from './metrics';
 
 /**
@@ -69,6 +69,8 @@ export interface TurnLoopOptions {
   readonly respond: ResponseSource;
   readonly language: Language;
   readonly now: () => number;
+  /** Afwijkende barge-in-drempels; zonder dit gelden de domeinconstanten. */
+  readonly bargeIn?: BargeInDrempels;
   readonly onTurn: (turn: CompletedTurn) => void | Promise<void>;
   /** Optimistisch dempen op de client; omkeerbaar, dus niet hetzelfde als interrupt. */
   readonly onDuck?: (ducked: boolean) => void;
@@ -232,7 +234,7 @@ export class TurnLoop {
   async onClientSpeech(evidence: SpeechEvidence): Promise<void> {
     if (this.state !== 'responding') return;
 
-    const decision = classifySpeech(evidence, this.o.language);
+    const decision = classifySpeech(evidence, this.o.language, this.o.bargeIn);
 
     if (decision.kind === 'backchannel') {
       // Niet onderbreken. Wel doorgeven: "ja" op het juiste moment is informatie.

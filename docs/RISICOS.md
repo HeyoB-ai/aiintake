@@ -1468,7 +1468,43 @@ reparatie op de juiste snelheid en toonhoogte; wat daarvan in de microfoon lekt,
 verstaanbaar Nederlands en daarvóór anderhalf keer te traag en een kwint te laag. Dat is met
 bestanden niet te meten — daar zijn een echte luidspreker en microfoon voor nodig.
 
-**Wat een oplossing zou moeten doen** (niet doorgevoerd; dit is een voorstel, geen reparatie):
+### 21b. Verstelbaar gemaakt, niet gerepareerd
+
+**27 augustus 2026.** De zeven drempels in dit pad zijn af te stellen zonder deploy, want dit is
+gedrag dat alleen op gehoor te beoordelen is. Dat is uitdrukkelijk **geen** oplossing voor wat
+hierboven staat: `speechMs` blijft netwerkretour meten in plaats van spraakduur, en geen enkele
+waarde repareert dat. Het maakt de vraag onderzoekbaar.
+
+| variabele                   | standaard | wat het doet                                     |
+| --------------------------- | --------- | ------------------------------------------------ |
+| `INTERRUPT_MIN_SPEECH_MS`   | 180       | duurtak van `classifySpeech`                     |
+| `INTERRUPT_MIN_WORDS`       | 2         | woordtak van `classifySpeech`                    |
+| `BACKCHANNEL_MAX_MS`        | 400       | de enige rem op "ja" en "mm-hm"                  |
+| `DEEPGRAM_ENDPOINTING_MS`   | 300       | hoe snel de beurt van de cliënt sluit            |
+| `DEEPGRAM_UTTERANCE_END_MS` | 1000      | het vangnet, én het venster van de afkapdetector |
+| `MIC_GATE_RMS`              | 0.005     | de microfoonpoort in de browser                  |
+| `MIC_GATE_CLOSE_MS`         | 120       | idem                                             |
+
+De laatste twee staan in de browser en gaan mee in het `ready`-bericht. Zonder dat zou de helft
+van het pad een webdeploy per poging kosten terwijl de rest in Railway te verzetten is.
+
+**De standaard blijft de standaard.** De constanten in `@intake/domain` veranderen niet; een
+variabele is een afwijking. Leeg laten — wat Railway doet als je een waarde wist in plaats van
+verwijdert — telt als niet gezet, anders zou `Number('')` er stilzwijgend een nul van maken.
+
+**Weigeren bij onzin.** Een verkeerde stand hoor je pas in een gesprek en niet in een
+foutmelding, dus de worker start niet en noemt álle klachten tegelijk met de reden van de grens
+erbij. Wie drie variabelen zet, wil niet drie keer opnieuw deployen om ze een voor een te horen.
+
+**De opstartbanner** toont alle zeven met een `*` bij wat afwijkt en de standaard erachter.
+Zonder dat is "welke stand stond er tijdens dat gesprek" achteraf niet te beantwoorden, en dan
+is het afstellen zelf niets waard.
+
+**De eerste proef die de moeite waard is:** `BACKCHANNEL_MAX_MS` op ongeveer 2000. Gemeten komt
+een bevestiging rond 1570 ms binnen, dus dat is de enige waarde die de rem laat aanslaan.
+
+**Wat een echte oplossing zou moeten doen** (niet doorgevoerd; dit is een voorstel, geen
+reparatie):
 
 - De duurtak voeden met de werkelijke spraakduur uit Deepgram's woordtijdstempels (`start` en
   `duration` op het resultaat) in plaats van met de wandklok, of hem laten vervallen en alleen

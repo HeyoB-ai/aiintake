@@ -92,8 +92,21 @@ export const BACKCHANNEL_MAX_MS = 400;
 export const INTERRUPT_MIN_SPEECH_MS = 180;
 export const INTERRUPT_MIN_WORDS = 2;
 
-export function isBackchannel(text: string, durationMs: number, language: 'nl' | 'en'): boolean {
-  if (durationMs >= BACKCHANNEL_MAX_MS) return false;
+/**
+ * `maxMs` is optioneel en valt terug op de constante hierboven.
+ *
+ * De parameter bestaat zodat de worker hem uit de omgeving kan afwijken zonder deploy — het
+ * gedrag is alleen op gehoor af te stellen. Het domein leest die omgeving niet zelf: dan zou
+ * een rekenregel afhangen van waar hij toevallig draait, en meet een test iets anders dan
+ * productie. Zie apps/agent/src/drempels.ts.
+ */
+export function isBackchannel(
+  text: string,
+  durationMs: number,
+  language: 'nl' | 'en',
+  maxMs: number = BACKCHANNEL_MAX_MS,
+): boolean {
+  if (durationMs >= maxMs) return false;
   const list: readonly string[] = language === 'nl' ? BACKCHANNELS_NL : BACKCHANNELS_EN;
   const normalised = text
     .trim()

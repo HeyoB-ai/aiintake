@@ -1,4 +1,5 @@
 import {
+  BACKCHANNEL_MAX_MS,
   INTERRUPT_MIN_SPEECH_MS,
   INTERRUPT_MIN_WORDS,
   isBackchannel,
@@ -34,26 +35,56 @@ export type BargeInDecision =
   | { readonly kind: 'backchannel'; readonly text: string }
   | { readonly kind: 'ignore'; readonly reason: 'te_kort' };
 
-export function classifySpeech(evidence: SpeechEvidence, language: Language): BargeInDecision {
+/**
+ * De drie waarden die dit besluit dragen.
+ *
+ * Optioneel, met de domeinconstanten als terugval: zonder afwijking gedraagt deze functie zich
+ * precies zoals hij deed. De worker vult ze uit de omgeving (`drempels.ts`), zodat het gedrag
+ * zonder deploy is af te stellen — het is alleen op gehoor af te stellen.
+ */
+export interface BargeInDrempels {
+  readonly interruptMinSpeechMs: number;
+  readonly interruptMinWords: number;
+  readonly backchannelMaxMs: number;
+}
+
+const STANDAARD: BargeInDrempels = {
+  interruptMinSpeechMs: INTERRUPT_MIN_SPEECH_MS,
+  interruptMinWords: INTERRUPT_MIN_WORDS,
+  backchannelMaxMs: BACKCHANNEL_MAX_MS,
+};
+
+export function classifySpeech(
+  evidence: SpeechEvidence,
+  language: Language,
+  drempels: BargeInDrempels = STANDAARD,
+): BargeInDecision {
   const text = evidence.text?.trim() ?? '';
 
   // Eerst de backchannel, en bewust vóór de duurdrempel: "precies" duurt langer dan
   // 180 ms en zou anders alsnog onderbreken.
-  if (text.length > 0 && isBackchannel(text, evidence.speechMs, language)) {
+  if (
+    text.length > 0 &&
+    isBackchannel(text, evidence.speechMs, language, drempels.backchannelMaxMs)
+  ) {
     return { kind: 'backchannel', text };
   }
 
   const words = text.length > 0 ? text.split(/\s+/u).filter(Boolean).length : 0;
-  if (words >= INTERRUPT_MIN_WORDS) {
+  if (words >= drempels.interruptMinWords) {
     return { kind: 'interrupt', reason: 'word_count' };
   }
-  if (evidence.speechMs >= INTERRUPT_MIN_SPEECH_MS) {
+  if (evidence.speechMs >= drempels.interruptMinSpeechMs) {
     return { kind: 'interrupt', reason: 'speech_duration' };
   }
 
   return { kind: 'ignore', reason: 'te_kort' };
 }
 
-export function shouldInterrupt(evidence: SpeechEvidence, language: Language): boolean {
-  return classifySpeech(evidence, language).kind === 'interrupt';
+export function shouldInterrupt(
+  evidence: SpeechEvidence,
+  language: Language,
+  drempels: BargeInDrempels = STANDAARD,
+): boolean {
+  return classifySpeech(evidence, language, drempels).kind === 'interrupt';
 }
