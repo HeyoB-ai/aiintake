@@ -1,3 +1,4 @@
+import { TIJDZONE_TERUGVAL } from '@intake/domain';
 import { redirect } from 'next/navigation';
 import { ROLE_RANK, type Role } from '@intake/domain';
 import { createClient } from './supabase/server';
@@ -15,6 +16,14 @@ export interface Membership {
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
+  /**
+   * De tijdzone van het kantoor, uit `organizations.time_zone`.
+   *
+   * Elke tijd die een gebruiker te zien krijgt, wordt hierin uitgedrukt. Niet in de zone van
+   * de server (die is op Netlify UTC) en niet in die van de browser: een advocaat die vanuit
+   * Lissabon een dossier opent, hoort de tijden van zijn kantoor te zien. Zie tijd.ts.
+   */
+  timeZone: string;
   role: Role;
 }
 
@@ -34,7 +43,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   const { data, error } = await supabase
     .from('organization_users')
-    .select('role, organizations(id, name, slug)')
+    .select('role, organizations(id, name, slug, time_zone)')
     .is('deleted_at', null);
 
   if (error) {
@@ -69,6 +78,9 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
         organizationId: org.id as string,
         organizationName: org.name as string,
         organizationSlug: org.slug as string,
+        // De kolom heeft een NOT NULL DEFAULT, dus dit hoort er te staan. De terugval dekt
+        // een rij die van vóór die migratie komt; zie TIJDZONE_TERUGVAL.
+        timeZone: (org.time_zone as string | null) ?? TIJDZONE_TERUGVAL,
         role: row.role as Role,
       },
     ];

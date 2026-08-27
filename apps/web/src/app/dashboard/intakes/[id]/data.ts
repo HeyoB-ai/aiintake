@@ -224,10 +224,14 @@ export async function laadIntake(id: string): Promise<IntakeDetail> {
     // ingedeeld en is "Bewijsstuk" eerlijker dan een gok op de bestandsnaam.
     category: 'Bewijsstuk',
     size: omvang(d.size_bytes),
-    uploadedAt: new Date(d.uploaded_at).toLocaleString('nl-NL', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    }),
+    /*
+     * Ruw doorgeven, niet hier formatteren.
+     *
+     * Deze laag kent de tijdzone van het kantoor niet, en hem hier alsnog uitrekenen was
+     * precies de tweede plek waardoor de dossierpagina twee uur verschilde van het transcript.
+     * De pagina formatteert; zie tijd.ts.
+     */
+    uploadedAt: d.uploaded_at,
     status: analyseStatus(d.analysis_status),
     summary: '',
     extractedFacts: [],

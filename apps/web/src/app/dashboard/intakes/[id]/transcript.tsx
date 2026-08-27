@@ -1,5 +1,6 @@
 'use client';
 
+import { alleenTijd, type Tijdzone } from '@intake/domain';
 import { TranscriptView, type ConversationMessage } from '@intake/ui';
 
 /**
@@ -19,6 +20,7 @@ import { TranscriptView, type ConversationMessage } from '@intake/ui';
 
 export function Transcript({
   berichten,
+  zone,
 }: {
   readonly berichten: readonly {
     readonly id: string;
@@ -28,6 +30,14 @@ export function Transcript({
     readonly interrupted_at_char: number | null;
     readonly created_at: string;
   }[];
+  /*
+   * De zone komt van de server mee en wordt hier niet bepaald.
+   *
+   * Dit is een clientcomponent. `toLocaleTimeString` zonder zone nam hier de zone van de
+   * browser, terwijl de servercomponent ernaast die van Netlify nam — UTC. Dezelfde
+   * uitdrukking, twee antwoorden, twee uur uit elkaar. Zie tijd.ts.
+   */
+  readonly zone: Tijdzone;
 }) {
   if (berichten.length === 0) {
     return (
@@ -44,7 +54,7 @@ export function Transcript({
       b.interrupted_at_char !== null && b.intended_content
         ? `${b.content}… (onderbroken; de cliënt hoorde de rest niet: “${b.intended_content.slice(b.interrupted_at_char)}”)`
         : b.content,
-    timestamp: new Date(b.created_at).toLocaleTimeString('nl-NL'),
+    timestamp: alleenTijd(b.created_at, zone),
   }));
 
   /*

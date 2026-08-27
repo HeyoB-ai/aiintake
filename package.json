@@ -17,6 +17,7 @@
     "db:check": "node scripts/check-migrations.mjs",
     "db:status": "node scripts/check-db-status.mjs",
     "samplerate:check": "node scripts/check-samplerate.mjs",
+    "tijd:check": "node scripts/check-tijdweergave.mjs",
     "typecheck:dekking": "node scripts/check-typecheck-dekking.mjs",
     "worker:start-check": "pnpm --filter @intake/agent build:worker && node scripts/check-worker-start.mjs",
     "db:seed": "node scripts/seed.mjs",

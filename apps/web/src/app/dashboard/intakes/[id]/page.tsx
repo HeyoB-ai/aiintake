@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { TIJDZONE_TERUGVAL, datumTijd, datumTijdSeconden, type Tijdzone } from '@intake/domain';
 import { requireUser } from '@/lib/auth';
 import { laadIntake, logInzage } from './data';
 import { DossierPaneel } from './dossier-paneel';
@@ -62,7 +63,10 @@ const CONFLICT_LABEL: Record<string, string> = {
 };
 
 export default async function IntakeDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
+  // De zone van het kantoor. Zie de toelichting in tijd.ts: dit draait op de server, en die
+  // staat op UTC.
+  const zone = user.memberships[0]?.timeZone ?? TIJDZONE_TERUGVAL;
   const { id } = await params;
 
   const detail = await laadIntake(id);
@@ -99,13 +103,7 @@ export default async function IntakeDetailPage({ params }: { params: Promise<{ i
         </div>
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
           <Kerngegeven label="Status" waarde={STATUS_LABEL[intake.status] ?? intake.status} />
-          <Kerngegeven
-            label="Ontvangen"
-            waarde={new Date(intake.created_at).toLocaleString('nl-NL', {
-              dateStyle: 'short',
-              timeStyle: 'short',
-            })}
-          />
+          <Kerngegeven label="Ontvangen" waarde={datumTijd(intake.created_at, zone)} />
           <Kerngegeven
             label="Behandelaar"
             waarde={intake.assignee?.full_name ?? intake.assignee?.email ?? 'Niet toegewezen'}
@@ -190,26 +188,27 @@ export default async function IntakeDetailPage({ params }: { params: Promise<{ i
           {/* 3. Tijdlijn: wat er wanneer gebeurde, los van wat er is gezegd. */}
           <Blok titel="Tijdlijn">
             <ol className="space-y-2 text-sm">
-              <Moment tijd={intake.created_at} tekst="Intake gestart door de cliënt" />
+              <Moment tijd={intake.created_at} tekst="Intake gestart door de cliënt" zone={zone} />
               {documents.map((d) => (
                 <Moment
                   key={d.id}
                   tijdTekst={d.uploadedAt}
                   tekst={`Document geüpload: ${d.name}`}
+                  zone={zone}
                 />
               ))}
               {intake.completed_at && (
-                <Moment tijd={intake.completed_at} tekst="Gesprek afgerond" />
+                <Moment tijd={intake.completed_at} tekst="Gesprek afgerond" zone={zone} />
               )}
               {samenvatting && (
-                <Moment tijd={samenvatting.created_at} tekst="Samenvatting gemaakt" />
+                <Moment tijd={samenvatting.created_at} tekst="Samenvatting gemaakt" zone={zone} />
               )}
             </ol>
           </Blok>
 
           {/* 4. Het transcript. Onderaan, want het is controlemateriaal en geen leeswerk. */}
           <Blok titel="Transcript">
-            <Transcript berichten={berichten} />
+            <Transcript berichten={berichten} zone={zone} />
           </Blok>
 
           {/* 5. Auditlog. */}
@@ -221,10 +220,7 @@ export default async function IntakeDetailPage({ params }: { params: Promise<{ i
                 {auditlog.map((regel) => (
                   <li key={regel.id} className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-mono text-xs" style={{ color: 'var(--muted)' }}>
-                      {new Date(regel.created_at).toLocaleString('nl-NL', {
-                        dateStyle: 'short',
-                        timeStyle: 'medium',
-                      })}
+                      {datumTijdSeconden(regel.created_at, zone)}
                     </span>
                     <span>{AUDIT_LABEL[regel.action] ?? regel.action}</span>
                     <span className="text-xs" style={{ color: 'var(--muted)' }}>
@@ -286,12 +282,18 @@ function Leeg({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Moment({ tijd, tijdTekst, tekst }: { tijd?: string; tijdTekst?: string; tekst: string }) {
-  const wanneer =
-    tijdTekst ??
-    (tijd
-      ? new Date(tijd).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })
-      : '');
+function Moment({
+  tijd,
+  tijdTekst,
+  tekst,
+  zone,
+}: {
+  tijd?: string;
+  tijdTekst?: string;
+  tekst: string;
+  zone: Tijdzone;
+}) {
+  const wanneer = tijdTekst ?? (tijd ? datumTijd(tijd, zone) : '');
   return (
     <li className="flex flex-wrap items-baseline gap-x-3">
       <span className="font-mono text-xs" style={{ color: 'var(--muted)' }}>

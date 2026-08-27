@@ -1697,3 +1697,55 @@ beschrijven.
    het levert een onderwerp op dat een advocaat kan nagaan.
 
 Tot dat er is, hoort de kolom leeg te blijven en niet gevuld met een gok.
+
+## 25. Dezelfde tijd werd op twee plekken anders uitgerekend
+
+**Status: opgelost op 27 augustus 2026.**
+
+De dossierpagina toonde _"Ontvangen 27-08-2026, 11:53"_ voor een gesprek van 13:53. De
+transcriptregels ernaast toonden 13:53:38.
+
+**De oorzaak is niet de ontbrekende tijdzone.** Die stond op geen van de zes plekken. Wat het
+verschil maakte, is wáár de code draaide:
+
+| plek                                       | soort component         | zone die hij nam   |
+| ------------------------------------------ | ----------------------- | ------------------ |
+| `page.tsx` (Ontvangen, tijdlijn, auditlog) | server                  | UTC, want Netlify  |
+| `transcript.tsx`                           | client (`'use client'`) | die van de browser |
+| `dashboard/page.tsx`                       | server                  | UTC                |
+| `data.ts` (uploadedAt)                     | server                  | UTC                |
+
+`new Date(x).toLocaleString('nl-NL')` neemt zonder `timeZone` de zone van de omgeving. Dezelfde
+uitdrukking gaf dus twee antwoorden, en welke je kreeg hing af van een architectuurdetail dat
+niets met tijd te maken heeft. Dat is erger dan een verkeerde zone: een verkeerde zone is
+overal even verkeerd en valt daardoor op.
+
+**Waarom dit meer is dan cosmetiek.** Twee uur is bij een tijdstip een ongemak. Bij een
+vervaltermijn is het soms een dag: dinsdag 00:30 Amsterdamse tijd is in UTC maandag 22:30, en
+dan telt een advocaat een dag verkeerd op een termijn die niet meeschuift met een weergavefout.
+
+**Wat er nu staat.**
+
+- `packages/domain/src/tijd.ts` — vier functies (`datumTijd`, `datumTijdSeconden`, `alleenDatum`,
+  `alleenTijd`) met **`timeZone` als verplicht argument**. Geen standaardwaarde: een parameter
+  met een terugval is precies de vorm waarin dit stil misgaat. Dezelfde afweging als bij
+  `AvatarSessionOptions.sampleRate`.
+- De zone komt uit `organizations.time_zone` en loopt via `Membership.timeZone` naar elke
+  pagina. Een kantoor in een andere zone ziet zijn eigen tijd; een advocaat die vanuit Lissabon
+  inlogt, ziet kantoortijd en niet de zijne.
+- `data.ts` formatteert niet meer zelf maar geeft de ruwe waarde door — dat was de tweede plek.
+  `transcript.tsx` krijgt de zone als prop mee in plaats van hem af te leiden.
+- `pnpm tijd:check`, vóór elke push. Hij vangt `toLocaleDateString`, `toLocaleTimeString`,
+  `Intl.DateTimeFormat` en een `toLocaleString` op iets datumachtigs, overal behalve in de bron.
+- `tijd.test.ts`: hetzelfde moment in drie zones, en het geval waarin twee uur een dag scheelt.
+
+**Wat de controle níét kan.** Hij leest tekst en ziet dat er geen tweede rekenwijze bijkomt —
+niet of de zone die wordt doorgegeven de juiste is. De eerste versie sloeg bovendien aan op
+`arithmetic.ts`, dat `toLocaleString` op een **getal** gebruikt om een bedrag leesbaar te maken.
+Een detector die getallen voor tijden aanziet, wordt uitgezet; vandaar dat `toLocaleString`
+alleen telt als er op dezelfde regel iets datumachtigs staat. Waterdicht is dat niet, en dat
+staat in het bestand.
+
+**De vorm om te onthouden.** Dit is risico 19 opnieuw: één grootheid, meerdere plekken die hem
+zelf uitrekenen, en niets dat rood wordt als er een bijkomt. Daar was het de samplerate op drie
+plekken, hier de tijdzone op zes. Vierde keer dat deze vorm iets kost.

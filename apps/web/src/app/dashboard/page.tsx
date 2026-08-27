@@ -1,6 +1,14 @@
 import Link from 'next/link';
 import { formatCompleteness, URGENCY_STYLES } from '@intake/ui';
-import { DEMO_LABEL, isDemoId, type IntakeStatus, type UrgencyLevel } from '@intake/domain';
+import {
+  DEMO_LABEL,
+  TIJDZONE_TERUGVAL,
+  alleenDatum,
+  isDemoId,
+  type Tijdzone,
+  type IntakeStatus,
+  type UrgencyLevel,
+} from '@intake/domain';
 import { requireUser } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 
@@ -55,6 +63,14 @@ export default async function DashboardPage() {
       />
     );
   }
+
+  /*
+   * De zone van het kantoor, niet die van de server.
+   *
+   * Op Netlify draait dit in UTC. Zonder deze regel toont het dashboard twee uur te vroeg —
+   * en bij een gesprek van na middernacht een dag te vroeg. Zie tijd.ts.
+   */
+  const zone = user.memberships[0]?.timeZone ?? TIJDZONE_TERUGVAL;
 
   const supabase = await createClient();
   // Geen organization_id-filter nodig: RLS levert alleen intakes van kantoren waar
@@ -149,7 +165,7 @@ export default async function DashboardPage() {
           body="Zodra een cliënt de intakepagina van uw kantoor doorloopt, verschijnt de intake hier."
         />
       ) : (
-        <IntakeTable rows={intakes} behandelaars={behandelaars} />
+        <IntakeTable rows={intakes} behandelaars={behandelaars} zone={zone} />
       )}
     </div>
   );
@@ -175,9 +191,12 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
 function IntakeTable({
   rows,
   behandelaars,
+  zone,
 }: {
   rows: IntakeRow[];
   behandelaars: Map<string, Behandelaar>;
+  /** De zone van het kantoor, doorgegeven en niet zelf bepaald. Zie tijd.ts. */
+  zone: Tijdzone;
 }) {
   return (
     <div
@@ -224,7 +243,7 @@ function IntakeTable({
                   prefetch={false}
                   className="block underline-offset-2 hover:underline"
                 >
-                  {new Date(row.created_at).toLocaleDateString('nl-NL')}
+                  {alleenDatum(row.created_at, zone)}
                 </Link>
               </Td>
               <Td>
