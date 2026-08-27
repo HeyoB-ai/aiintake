@@ -83,8 +83,10 @@ describe('onderwerpen tellen voor het cliëntscherm', () => {
   it('komt nooit boven het aantal relevante onderwerpen uit', () => {
     // Alles beantwoorden wat er is. De teller mag dan gelijk zijn aan de noemer, niet hoger —
     // en een categorie die niet relevant is, hoort ook niet mee te tellen als hij gevuld is.
-    const alles: CaseFactMap = {};
-    for (const f of EMPLOYMENT_CATALOG.facts) alles[f.key] = feit(f.key, 'iets');
+    // `CaseFactMap` is readonly; opbouwen en dan pas als zodanig doorgeven.
+    const alles: CaseFactMap = Object.fromEntries(
+      EMPLOYMENT_CATALOG.facts.map((f) => [f.key, feit(f.key, 'iets')]),
+    );
 
     const r = scoreCompleteness(alles, EMPLOYMENT_TEMPLATE, EMPLOYMENT_CATALOG);
     expect(r.topicsTouched).toBeLessThanOrEqual(r.topicsRelevant);
