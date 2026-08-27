@@ -12,6 +12,7 @@ import {
   type FactDefinition,
   resolveWeekdag,
   vindWeekdagVerwijzing,
+  lijktOnafgerond,
   openingsZin,
 } from '@intake/domain';
 import {
@@ -281,6 +282,13 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
           isResuming: isHervatting,
           isClosing,
           narrativePhase,
+          /*
+           * Alleen als er een cliëntuitspraak is. Bij de opening en de hervatting is er niets
+           * om aan af te lezen, en dan hoort er ook geen uitnodiging te komen.
+           */
+          onafgerondeUitspraak: input.lastClientUtterance
+            ? lijktOnafgerond(input.lastClientUtterance)
+            : false,
           clientName: input.clientName ?? null,
           // De klok zit al in `input.now`; de groet hoort daaruit te volgen en niet uit
           // het model, dat er geen heeft en "Goedemorgen" om acht uur 's avonds koos.

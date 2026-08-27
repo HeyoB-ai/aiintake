@@ -185,6 +185,13 @@ async function meet(arm: Arm, pcm: Int16Array, run: number): Promise<Meting> {
   const stt = await new DeepgramSttProvider({
     apiKey: nodig('DEEPGRAM_API_KEY'),
     ...(process.env['DEEPGRAM_MODEL'] ? { model: process.env['DEEPGRAM_MODEL'] } : {}),
+    // Dezelfde omgevingsvariabelen als productie, zodat deze proef meet wat daar draait.
+    ...(process.env['DEEPGRAM_ENDPOINTING_MS']
+      ? { endpointingMs: Number(process.env['DEEPGRAM_ENDPOINTING_MS']) }
+      : {}),
+    ...(process.env['DEEPGRAM_UTTERANCE_END_MS']
+      ? { utteranceEndMs: Number(process.env['DEEPGRAM_UTTERANCE_END_MS']) }
+      : {}),
   }).connect({ language: 'nl', keyterms: keytermsFor('nl') });
 
   // De klok begint bij het eerste frame ván het fragment, niet bij de aanloopstilte: anders

@@ -133,6 +133,20 @@ export class DeepgramSttStream implements SttStream {
       utterance_end_ms: String(this.config.utteranceEndMs),
     });
 
+    /*
+     * De waarden die werkelijk de URL in gaan, niet die uit de configuratie.
+     *
+     * "Staat de drempel aan?" was alleen te beantwoorden door de code te lezen: de
+     * opstartbanner toont wat er is gelezen, en daartussen zitten drie doorgeefpunten. Dit is
+     * het laatste moment waarop het nog te veranderen is, dus wat hier staat is wat Deepgram
+     * krijgt. Geen sleutel in het log — die zit in de querystring en hoort daar te blijven.
+     */
+    // eslint-disable-next-line no-console
+    console.log(
+      `  STT: ${this.config.model} · endpointing ${this.config.endpointingMs} ms · ` +
+        `utterance_end ${this.config.utteranceEndMs} ms · ${this.config.sampleRate} Hz`,
+    );
+
     // Keyterm prompting voor juridisch jargon. Deepgram accepteert het parameter
     // meerdere keren; wordt het genegeerd voor deze taal, dan kost het niets.
     for (const term of this.options.keyterms) params.append('keyterm', term);
