@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ConversationClient, type Fase, type FaseStand } from '@intake/client';
+import { laatsteVraag } from '@intake/domain';
 import { Sparkles, Square } from 'lucide-react';
 
 /**
@@ -25,9 +26,18 @@ import { Sparkles, Square } from 'lucide-react';
  * ## De actuele vraag staat apart, en niet onderin het transcript
  *
  * Een scrollende lijst zet de nieuwste regel het verst van het beeld af. Wie de vraag niet
- * verstond, moet hem meteen kunnen lezen. Daarom staat de laatste assistentregel vast onder de
- * video, en komt hij pas in het transcript terecht zodra er een volgende beurt is. Zo staat
- * dezelfde zin nooit twee keer op het scherm.
+ * verstond, moet hem meteen kunnen lezen. Daarom staat de vraag vast onder de video, en komt de
+ * volledige beurt pas in het transcript terecht zodra er een volgende beurt is.
+ *
+ * **Bovenaan staat alleen de vraagzin, niet de hele beurt.** Hier stond eerst `beurt.assistant`
+ * in zijn geheel, en bij de opening is dat vier zinnen — groet, wie ze is, de disclaimer, en dan
+ * pas de vraag. Die vier zinnen kwamen daarna ook in het transcript te staan, en dan lijkt het
+ * transcript er twee keer te staan. Erger: het vak dat "wat werd me gevraagd?" moet beantwoorden,
+ * gaf de hele begroeting.
+ *
+ * `laatsteVraag()` knipt dat deterministisch; zie vraagzin.ts voor waarom de laatste zin de
+ * vraag is. Het transcript houdt de volledige beurt — wie de disclaimer wil nalezen, vindt hem
+ * daar.
  *
  * ## Voortgang: onderwerpen, geen percentage
  *
@@ -167,9 +177,15 @@ export function Gesprek({ organisatieNaam, wsUrl, micStream, onAfgerond }: Gespr
           if (beurt.client.trim()) erbij.push({ wie: 'U', tekst: beurt.client.trim() });
           return erbij.length > 0 ? [...eerder, ...erbij] : eerder;
         });
+        /*
+         * Bovenaan alleen de vraag, in het transcript de hele beurt.
+         *
+         * `vraagRef` houdt de volledige beurt vast, want dát is wat het transcript hoort te
+         * tonen. `setVraag` krijgt alleen de vraagzin.
+         */
         const nieuw = beurt.assistant.trim();
         vraagRef.current = nieuw || null;
-        setVraag(nieuw || null);
+        setVraag(nieuw ? laatsteVraag(nieuw) : null);
       },
       onVoortgang: (aangeraakt, relevant) => {
         if (levend && relevant > 0) setVoortgang({ aangeraakt, relevant });

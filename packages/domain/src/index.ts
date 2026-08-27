@@ -6,6 +6,7 @@ export * from './affirmation';
 export * from './weekdag';
 export * from './demodata';
 export * from './tijd';
+export * from './vraagzin';
 export * from './erkenning';
 export * from './wanhoop';
 export * from './hervatting';
