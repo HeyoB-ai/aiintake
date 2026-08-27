@@ -213,7 +213,10 @@ export async function startIntake(
     return {
       ok: false,
       fout: teVaak
-        ? 'Er zijn te veel pogingen vanaf dit adres. Probeer het over een kwartier opnieuw.'
+        ? // Het venster is een uur (`p_max_per_hour`, `date_trunc('hour', now())`). Hier stond
+          // "een kwartier"; wie dat las kwam terug en werd opnieuw geweigerd, zonder te weten
+          // waarom. Geen getal noemen dat niet uit de regel volgt.
+          'Er zijn te veel pogingen vanaf dit adres. Probeer het over een uur opnieuw.'
         : 'Het gesprek kon niet worden gestart. Probeer het later opnieuw.',
     };
   }

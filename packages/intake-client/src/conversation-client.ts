@@ -44,7 +44,7 @@ export type ServerBericht =
     }
   | { type: 'turn'; client: string; assistant: string; hud: string; interrupted?: boolean }
   | { type: 'facts'; completeness: number; topicsTouched?: number; topicsRelevant?: number }
-  | { type: 'skipped'; reden: string }
+  | { type: 'skipped'; reden: string; dataverlies?: boolean }
   | { type: 'clear' }
   | { type: 'endturn' }
   | { type: 'stop'; reden?: string }
@@ -89,6 +89,14 @@ export interface ConversationClientOptions {
   /** Ingangsniveau 0..1, voor een meter. Loopt op audioframe-tempo. */
   readonly onNiveau?: (niveau: number, poortDicht: boolean) => void;
   readonly onSpreekt?: (aanHetWoord: 'assistent' | 'cliënt' | 'stil') => void;
+  /**
+   * De cliënt heeft iets gezegd dat niet is aangekomen.
+   *
+   * Bestaat omdat het cliëntscherm alleen "U" en "Assistent" kende: de melding die de advocaat
+   * in het transcript ziet, bereikte de cliënt zelf niet. Die merkte dus niet dat er iets van
+   * hem was weggevallen — en herhaalde het niet.
+   */
+  readonly onNietVerstaan?: () => void;
   readonly onGestopt?: (reden: string) => void;
   readonly onFout?: (waar: string, wat: string) => void;
 }
@@ -259,11 +267,19 @@ export class ConversationClient {
         }
         break;
       }
-      case 'skipped':
-        this.opties.onSysteem?.(
-          `beurt overgeslagen — ${(bericht as { reden?: string }).reden ?? 'onbekend'}`,
-        );
+      case 'skipped': {
+        const s = bericht as Extract<ServerBericht, { type: 'skipped' }>;
+        this.opties.onSysteem?.(`beurt overgeslagen — ${s.reden ?? 'onbekend'}`);
+        /*
+         * Alleen bij écht verlies, en langs een eigen callback.
+         *
+         * `onSysteem` draagt de technische reden en is voor ontwikkelweergaven. Wat de cliënt
+         * te zien krijgt is een leesbare zin, en alleen als de herkenner woorden zág en de lus
+         * ze niet kreeg — een kuch hoort geen melding op te leveren.
+         */
+        if (s.dataverlies) this.opties.onNietVerstaan?.();
         break;
+      }
       case 'stop':
         this.stop((bericht as { reden?: string }).reden ?? 'door de server beëindigd');
         break;

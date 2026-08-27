@@ -61,6 +61,32 @@ export function truncateToSpoken(
 }
 
 /**
+ * De andere helft van dezelfde afspraak: wat de cliënt júíst niet meer heeft gehoord.
+ *
+ * ## Waarom dit hier staat en niet in het scherm
+ *
+ * Het stond in `transcript.tsx`, als een losse `intended_content.slice(interrupted_at_char)`
+ * midden in een React-component. Dat is dezelfde conventie als hierboven, een tweede keer
+ * opgeschreven — en op de plek waar een advocaat leest wat de cliënt wél en niet heeft
+ * meegekregen.
+ *
+ * Verschuift de betekenis van `interruptedAtChar` ooit een teken, dan zegt het dossier dat de
+ * cliënt iets heeft gehoord dat hij niet hoorde, of andersom. Bij een intake die juridisch
+ * wordt beoordeeld is dat geen weergavefoutje: het bepaalt of een vraag als gesteld geldt.
+ *
+ * De twee horen dus bij elkaar en zijn samen te toetsen. `truncateToSpoken(x).content +
+ * nietGehoord(x)` is weer `x` — die eis staat in de test en is er niet aan af te lezen zolang
+ * de helften in verschillende pakketten wonen.
+ *
+ * Leeg als er niets is afgekapt.
+ */
+export function nietGehoord(intended: string | null, interruptedAtChar: number | null): string {
+  if (intended === null || interruptedAtChar === null) return '';
+  if (interruptedAtChar < 0 || interruptedAtChar >= intended.length) return '';
+  return intended.slice(interruptedAtChar);
+}
+
+/**
  * Korte bevestigingen die het gesprek NIET onderbreken (§7). Ze gaan als
  * bevestigingssignaal naar de engine.
  */

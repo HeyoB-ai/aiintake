@@ -32,6 +32,7 @@ export type { RenderedPrompt };
 import { scoreCompleteness } from './completeness';
 import { evaluate } from './conditions';
 import { planQuestions } from './planner';
+import { isBeantwoord, isRelevant, relevanteCategorieen } from './relevantie';
 import { evaluateRules } from './rules';
 import type {
   LadingOordeel,
@@ -823,11 +824,17 @@ function corrigeerWeekdagen(
 }
 
 function gezochteFeiten(catalog: FactCatalog, facts: CaseFactMap): readonly FactDefinition[] {
-  const relevanteCategorieen = new Set(
-    catalog.categories.filter((c) => evaluate(c.relevantWhen, facts)).map((c) => c.key),
-  );
+  /*
+   * De categorie én het feit zelf, en dat tweede stond hier niet.
+   *
+   * `planner.ts` en `completeness.ts` toetsten allebei ook `fact.relevantWhen`; deze functie
+   * alleen de categorie. De extractie zocht daardoor naar feiten uit takken die de planner
+   * nooit vraagt en die de score nooit meetelt — en die dan wél in `case_facts` belanden.
+   * Zie relevantie.ts.
+   */
+  const categorieen = relevanteCategorieen(catalog, facts);
   return catalog.facts.filter((f) => {
-    if (!relevanteCategorieen.has(f.category)) return false;
+    if (!isRelevant(f, facts, categorieen)) return false;
     const bestaand = facts[f.key];
     if (!bestaand) return true;
     /*
@@ -842,7 +849,18 @@ function gezochteFeiten(catalog: FactCatalog, facts: CaseFactMap): readonly Fact
      *
      * `confirmed` en `inferred` zijn vastgesteld; `unknown` en `contradicted` niet.
      */
-    return bestaand.status === 'contradicted' || bestaand.status === 'unknown';
+    /*
+     * Hier stond `contradicted || unknown`, en dat sprak `isBeantwoord` tegen.
+     *
+     * De planner en de score rekenden `unknown` als beantwoord — met een uitgeschreven reden:
+     * "dat weet ik niet" is een antwoord, en er twee keer naar terugvragen maakt van een
+     * gesprek een formulier. Deze regel deed het omgekeerde, zonder toelichting. Het gevolg
+     * was dat de score "klaar" zei terwijl de assistent bleef doorvragen.
+     *
+     * Nu één predicaat. `contradicted` blijft wél terugkomen: daarover sprak de cliënt
+     * zichzelf tegen, en dat is iets anders dan niet weten.
+     */
+    return !isBeantwoord(facts, f.key);
   });
 }
 

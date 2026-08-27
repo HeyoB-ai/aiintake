@@ -10,6 +10,7 @@ import {
 } from '@intake/domain';
 import type { QuestionCandidate } from './types';
 import { evaluate } from './conditions';
+import { isBeantwoord, isRelevant, relevanteCategorieen } from './relevantie';
 import { ruleFires, ruleIsUndecidable } from './rules';
 
 /**
@@ -77,9 +78,7 @@ export function planQuestions(input: PlannerInput): PlannerResult {
 
   // Welke categorieën doen er überhaupt toe? Een conditionele categorie waarvan de
   // voorwaarde niet aanslaat, bestaat voor dit gesprek niet.
-  const relevanteCategorieen = new Set(
-    catalog.categories.filter((c) => evaluate(c.relevantWhen, facts)).map((c) => c.key),
-  );
+  const categorieen = relevanteCategorieen(catalog, facts);
 
   // Welke feiten kan een nog-onbeslisbare regel bevestigen of uitsluiten? Alleen regels
   // die nog niet zijn afgegaan én nog niet zijn uitgesloten trekken iets naar voren.
@@ -97,8 +96,7 @@ export function planQuestions(input: PlannerInput): PlannerResult {
   const openMustHaves: string[] = [];
 
   for (const fact of catalog.facts) {
-    if (!relevanteCategorieen.has(fact.category)) continue;
-    if (!evaluate(fact.relevantWhen, facts)) continue;
+    if (!isRelevant(fact, facts, categorieen)) continue;
     if (isBeantwoord(facts, fact.key)) continue;
     if (uitDocument.has(fact.key)) continue;
 
@@ -179,23 +177,6 @@ export function planQuestions(input: PlannerInput): PlannerResult {
     shouldClose: compleet || candidates.length === 0,
     closeReason: compleet ? 'complete' : candidates.length === 0 ? 'max_turns' : null,
   };
-}
-
-/**
- * Geldt een feit als beantwoord?
- *
- * `unknown` telt mee, en dat is een bewuste keuze. "Dat weet ik niet" is een antwoord.
- * Er daarna nog twee keer naar vragen is precies het gedrag dat een gesprek in een
- * formulier verandert — en de advocaat ziet in de samenvatting alsnog dat het feit
- * ontbreekt, met de reden erbij.
- *
- * `contradicted` telt níét mee: een feit waarover de cliënt zichzelf tegensprak, moet
- * juist opnieuw langskomen.
- */
-function isBeantwoord(facts: CaseFactMap, key: string): boolean {
-  const fact = facts[key];
-  if (!fact) return false;
-  return fact.status === 'confirmed' || fact.status === 'inferred' || fact.status === 'unknown';
 }
 
 /** De categorie van het laatst binnengekomen feit; stuurt de samenhang van het gesprek. */

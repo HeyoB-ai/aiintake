@@ -1852,3 +1852,68 @@ de cliënt hoort.
 Bij het verplaatsen zijn negentien tests herschreven en geen enkele garantie geschrapt. Het dode
 sjabloon is uit de prompt verwijderd in plaats van te blijven staan: een instructie die niemand
 leest, is de vorm waarin een afspraak stilletjes verandert zonder dat er iets rood wordt.
+
+## 28. Dezelfde grootheid op meerdere plekken — de inventarisatie
+
+**27 augustus 2026.** Vijf keer deze week kostte dezelfde vorm iets: één grootheid, meerdere
+plekken die hem zelf uitrekenen, en niets dat rood wordt als er een bijkomt. Sample rate (3
+plekken), tijdzone (6), `spokenMs` (4), de openingszin, de barge-in-drempels.
+
+Wat die vorm zo lastig maakt om aan te zien komen, staat het scherpst bij `spokenMs`: er waren
+vier wegen en **drie deden het al goed**. Vanaf elke gezonde weg zag het er correct uit.
+
+Daarom een sweep over de hele repo. Hieronder wat er is aangepakt en wat er blijft liggen — dat
+laatste staat hier zodat het niet zoekraakt en niet omdat het onbelangrijk is.
+
+### Aangepakt
+
+| wat                             | waar het stond                                                                                     | wat er nu staat                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| "Zijn we klaar met dit feit?"   | `planner.ts` en `completeness.ts` identiek (`unknown` telt mee), `engine.ts` het tegenovergestelde | één `isBeantwoord` in `relevantie.ts`                  |
+| "Doet dit feit er toe?"         | planner en completeness toetsten categorie én feit, engine alleen de categorie                     | één `isRelevant`                                       |
+| Wat de cliënt níét hoorde       | `truncateToSpoken` in het domein, een eigen `slice` in `transcript.tsx`                            | `nietGehoord()` ernaast, met een test op het paar      |
+| Urgentierangorde                | SQL-`case` en `URGENCY_RANK`                                                                       | pariteitstest in `schema-parity.test.ts`               |
+| Rolrangorde                     | `app.role_rank` en `ROLE_RANK`                                                                     | idem                                                   |
+| "Kwartier" tegen een uurvenster | `actions.ts`                                                                                       | tekst gecorrigeerd                                     |
+| De melding "niet verstaan"      | alleen in het transcript van de advocaat                                                           | `NIET_VERSTAAN` in het domein, ook op het cliëntscherm |
+| samples → milliseconden         | negen plekken                                                                                      | `pnpm samples:check` telt ze; een tiende faalt         |
+| Twee zinsgrensregels            | flusher gretig, vraagscheider behoedzaam                                                           | test die vastlegt dát ze verschillen en waarom         |
+
+De eerste twee waren niet in beeld toen deze inventarisatie begon en zijn ernstiger dan de
+dubbeling waarvoor hij bedoeld was: samen verklaren ze waarom het volledigheidspercentage niet
+bij het gesprek paste. De score zei "klaar" terwijl de assistent doorvroeg, en de extractie
+zocht naar feiten die niemand vraagt en die nooit meetellen. Dat is de maat waarop een advocaat
+besluit of een dossier af is.
+
+### Blijft liggen — bewust, en hier vastgelegd
+
+**Kost een avond, beschadigt niets blijvend:**
+
+- `apps/agent/live/page.html` mist `naarPcm16k`: de dev-pagina heeft nog de iOS-bug die
+  `conversation-client.ts` oplost. Je stemt dus af op iets anders dan productie.
+- De ruispoort staat op vier plekken (`drempels.ts`, `conversation-client.ts`, `page.html`,
+  en de serverzijdige spraakdetector in `server.ts`), en `page.html` leest `micGateRms` uit
+  `ready` niet. `MIC_GATE_RMS` verzetten doet daar dus niets.
+- Standaardtijdzone `'Europe/Amsterdam'` op vijf plekken — risico 25, één laag hoger.
+- Sessielimieten in zod, SQL, seed én env; de worker leest `inactivityTimeoutSeconds` niet. Een
+  kantoor dat 300 s instelt, wordt na 90 s afgekapt.
+- `ELEVENLABS_SPEED`-bereik op drie plekken, en de functie die het bereik in zijn foutmelding
+  _noemt_ handhaaft het niet.
+
+**Hinderlijk, geen schade:** percentages (5×), `STATUS_LABEL` verbatim dubbel, enumlijsten met
+de hand gespiegeld (LLM-purpose op 5 plekken), `parseJson` drie keer byte-identiek, base64url
+drie keer, mm:ss twee keer, een `Math.round`-helper dubbel in één bestand, de resample-clamp
+twee keer, Float32↔Int16 twee keer.
+
+**Twee die eigenlijk gedrag zijn en apart aandacht vragen** — zie het antwoord daarover, en
+niet in deze lijst thuishoren omdat ze niet over opmaak gaan maar over wat de assistent doet:
+het woordtellen op drie manieren, en de backchannel-lijsten die uiteenlopen.
+
+### Twee claims uit de sweep die ik heb bijgesteld
+
+- **Consentversie.** De sweep meldde dat `?? '1.0'` een verkeerde versie in de audittrail zet.
+  De kolom is `not null default 'v1'`, dus die terugval kan in de praktijk niet afgaan; alleen
+  het TypeScript-type zegt ten onrechte `| null`. Latent, geen actieve fout.
+- **Tokenhash.** De sweep noemde divergentie tussen TS en SQL een totale uitval zonder bewaking.
+  `agent-token.test.ts` pint de TS-kant op vaste SHA-256-vectoren, dus de SQL-kant moet die ook
+  halen. Zwakker dan een echte pariteitstest, sterker dan niets.

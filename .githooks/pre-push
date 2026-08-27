@@ -38,5 +38,6 @@
 pnpm db:status || exit 1
 pnpm samplerate:check || exit 1
 pnpm tijd:check || exit 1
+pnpm samples:check || exit 1
 pnpm typecheck:dekking || exit 1
 exec pnpm worker:start-check

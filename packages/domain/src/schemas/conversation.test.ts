@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isBackchannel, truncateToSpoken } from './conversation';
+import { isBackchannel, nietGehoord, truncateToSpoken } from './conversation';
 
 /**
  * De truncatietest uit §11. Dit is de belangrijkste regel van de realtime-lus: sla in
@@ -45,6 +45,43 @@ describe('transcript-truncatie na barge-in', () => {
   it('valt niet om bij een totaalduur van nul', () => {
     const result = truncateToSpoken(intended, 0, 0);
     expect(result.content).toBe(intended);
+  });
+});
+
+describe('de twee helften van de truncatie passen op elkaar', () => {
+  /*
+   * `truncateToSpoken` bepaalt wat de cliënt hóórde; `nietGehoord` wat hij juist niet meer
+   * meekreeg. Die tweede stond als losse `slice` in `transcript.tsx` — dezelfde conventie, een
+   * tweede keer opgeschreven, op de plek waar een advocaat het leest.
+   *
+   * Deze tests toetsen ze als paar. Verschuift de betekenis van `interruptedAtChar` ooit een
+   * teken, dan valt dat hier om in plaats van in een dossier.
+   */
+  const ZIN = 'Wanneer heeft u de vaststellingsovereenkomst ontvangen?';
+
+  it('samen vormen ze weer de hele zin', () => {
+    for (const spoken of [0, 120, 500, 900, 1500]) {
+      const { content, interruptedAtChar } = truncateToSpoken(ZIN, spoken, 1500);
+      expect(content + nietGehoord(ZIN, interruptedAtChar), `bij ${spoken} ms`).toBe(ZIN);
+    }
+  });
+
+  it('geeft niets terug als er niets is afgekapt', () => {
+    // `truncateToSpoken` zet `interruptedAtChar` dan op de lengte van de zin.
+    const { interruptedAtChar } = truncateToSpoken(ZIN, 2000, 1500);
+    expect(nietGehoord(ZIN, interruptedAtChar)).toBe('');
+  });
+
+  it('valt niet om op een ontbrekende bedoelde tekst', () => {
+    // In het dossier is `intended_content` nul zodra er niets is afgekapt.
+    expect(nietGehoord(null, 12)).toBe('');
+    expect(nietGehoord(ZIN, null)).toBe('');
+  });
+
+  it('geeft niets terug bij een index buiten de zin', () => {
+    // Liever leeg dan een brokstuk: een advocaat leest hier wat de cliënt niet heeft gehoord.
+    expect(nietGehoord(ZIN, -1)).toBe('');
+    expect(nietGehoord(ZIN, ZIN.length + 5)).toBe('');
   });
 });
 

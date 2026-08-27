@@ -898,7 +898,12 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
       avatarProvider: browserAvatar(new NullAvatarProvider(() => performance.now()), ws),
       onPrematureCut: (_volledig, gapMs, detectedBy) => stuur({ type: 'cut', gapMs, detectedBy }),
       onSkippedTurn: (reden, meta) => {
-        stuur({ type: 'skipped', reden });
+        /*
+         * `reden` is voor de HUD en het log en draagt technische tekst; `dataverlies` is het
+         * signaal waarop het cliëntscherm een leesbare regel toont. Geen transcriptfragment
+         * mee (§14) — alleen dát het gebeurde.
+         */
+        stuur({ type: 'skipped', reden, dataverlies: meta?.dataverlies ?? false });
         /*
          * Alleen echt verlies belandt in het transcript.
          *

@@ -3,6 +3,7 @@ import {
   kiesErkenning,
   wanhoopReactie,
   ERKENNING_MARKERING,
+  NIET_VERSTAAN,
   type WanhoopReactie,
   type ErkenningKeuze,
   type ErkenningStand,
@@ -759,10 +760,8 @@ export class IntakeSession {
      * waar het gesprek op dit moment staat, en dat is precies de plek waar het gat hoort.
      */
     const turnIndex = this.history.length;
-    const tekst =
-      'Hier heeft de cliënt iets gezegd dat niet is verstaan. ' +
-      'De spraakherkenning ving wel geluid op maar leverde geen tekst; ' +
-      'wat op dit punt is gezegd, ontbreekt in dit transcript.';
+    // Eén tekst, gedeeld met het cliëntscherm. Zie niet-verstaan.ts.
+    const tekst = NIET_VERSTAAN[this.options.language ?? 'nl'];
 
     if (!this.options.rpc) {
       this.options.onBericht?.({

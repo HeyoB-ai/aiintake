@@ -1,6 +1,6 @@
 'use client';
 
-import { alleenTijd, type Tijdzone } from '@intake/domain';
+import { alleenTijd, nietGehoord, type Tijdzone } from '@intake/domain';
 import { TranscriptView, type ConversationMessage } from '@intake/ui';
 
 /**
@@ -51,8 +51,10 @@ export function Transcript({
     id: b.id,
     speaker: b.role === 'assistant' ? 'ASSISTENT' : b.role === 'client' ? 'U' : 'SYSTEEM',
     text:
-      b.interrupted_at_char !== null && b.intended_content
-        ? `${b.content}… (onderbroken; de cliënt hoorde de rest niet: “${b.intended_content.slice(b.interrupted_at_char)}”)`
+      // De omkering van `truncateToSpoken`, uit het domein. Hier stond een eigen `slice` op
+      // dezelfde conventie — twee plekken die bepalen wat de cliënt heeft gehoord.
+      nietGehoord(b.intended_content, b.interrupted_at_char)
+        ? `${b.content}… (onderbroken; de cliënt hoorde de rest niet: “${nietGehoord(b.intended_content, b.interrupted_at_char)}”)`
         : b.content,
     timestamp: alleenTijd(b.created_at, zone),
   }));

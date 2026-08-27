@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ConversationClient, type Fase, type FaseStand } from '@intake/client';
-import { laatsteVraag } from '@intake/domain';
+import { laatsteVraag, NIET_VERSTAAN_CLIENT } from '@intake/domain';
 import { Sparkles, Square } from 'lucide-react';
 
 /**
@@ -93,7 +93,13 @@ const TOESTAND_TEKST: Record<Toestand, string> = {
 };
 
 interface Regel {
-  readonly wie: 'U' | 'Assistent';
+  /**
+   * `Systeem` bestaat omdat het cliëntscherm het niet had.
+   *
+   * De advocaat zag in het transcript wél dat er iets niet was verstaan; de cliënt zelf niet.
+   * Die merkte dus niet dat er iets van hem was weggevallen, en herhaalde het niet.
+   */
+  readonly wie: 'U' | 'Assistent' | 'Systeem';
   readonly tekst: string;
 }
 
@@ -186,6 +192,12 @@ export function Gesprek({ organisatieNaam, wsUrl, micStream, onAfgerond }: Gespr
         const nieuw = beurt.assistant.trim();
         vraagRef.current = nieuw || null;
         setVraag(nieuw ? laatsteVraag(nieuw) : null);
+      },
+      onNietVerstaan: () => {
+        if (!levend) return;
+        // Meteen zichtbaar, niet pas bij de volgende beurt: de cliënt moet nú weten dat hij
+        // het kan herhalen.
+        setRegels((eerder) => [...eerder, { wie: 'Systeem', tekst: NIET_VERSTAAN_CLIENT.nl }]);
       },
       onVoortgang: (aangeraakt, relevant) => {
         if (levend && relevant > 0) setVoortgang({ aangeraakt, relevant });

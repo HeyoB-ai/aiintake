@@ -15,7 +15,9 @@ import {
   LLM_PURPOSES,
   MESSAGE_ROLES,
   PRACTICE_AREAS,
+  ROLE_RANK,
   ROLES,
+  URGENCY_RANK,
   URGENCY_LEVELS,
   VALUE_TYPES,
 } from '@intake/domain';
@@ -91,6 +93,58 @@ const CASES: readonly [string, string, readonly string[]][] = [
   ['documents', 'analysis_status', DOCUMENT_ANALYSIS_STATUSES],
   ['audit_log', 'action', AUDIT_ACTIONS],
 ];
+
+/**
+ * Een rangorde die twee keer is opgeschreven, in twee talen.
+ *
+ * `agent_set_risk_flag` bepaalt `intakes.urgency_level` met een `case`-expressie in SQL; het
+ * domein heeft `URGENCY_RANK`; en `DossierSidebar` herrekent het hoogste niveau nog eens
+ * client-side uit de vlaggen. Drie antwoorden op "welke urgentie wint".
+ *
+ * Ze zijn het vandaag eens. Lopen ze uiteen — een vijfde niveau, een andere volgorde — dan
+ * toont de lijst een andere urgentie dan de detailpagina, en dat is precies het signaal waarop
+ * een advocaat zijn werkvoorraad sorteert.
+ *
+ * Deze test leest de SQL en legt hem naast het domein. Hij kan niet zien of de client-side
+ * herberekening klopt; die gebruikt `URGENCY_RANK` en is daarmee aan het domein vast.
+ */
+describe('de urgentierangorde in SQL spiegelt het domein', () => {
+  it('geeft dezelfde volgorde als URGENCY_RANK', () => {
+    // De expressie: `when 'CRITICAL' then 3 when 'HIGH' then 2 when 'MEDIUM' then 1 else 0 end`
+    const blok = /order by case f\.level([\s\S]*?)end desc/.exec(SQL);
+    expect(blok, 'de rangorde-expressie staat niet meer in de migraties').not.toBeNull();
+
+    const uitSql: Record<string, number> = { LOW: 0 };
+    for (const [, niveau, rang] of blok![1]!.matchAll(/when '([A-Z]+)'\s+then\s+(\d+)/g)) {
+      uitSql[niveau!] = Number(rang);
+    }
+
+    expect(uitSql).toEqual(URGENCY_RANK);
+  });
+});
+
+/**
+ * `ROLE_RANK` staat in TypeScript en als `app.role_rank` in SQL, met een toelichting die zegt
+ * dat ze elkaar spiegelen. Niets dwong dat af.
+ *
+ * De UI poort erop (`requireRole`), elke RLS-policy ook. Lopen ze uiteen, dan toont het scherm
+ * een actie die de database daarna weigert — of, erger, andersom.
+ */
+describe('de rolrangorde in SQL spiegelt het domein', () => {
+  it('geeft dezelfde rangen als ROLE_RANK', () => {
+    // Tot het SLUITENDE $$: de eerste is het begin van de body, en dan is er niets gevangen.
+    const blok = /create or replace function app\.role_rank[\s\S]*?as \$\$([\s\S]*?)\$\$/.exec(SQL);
+    expect(blok, 'app.role_rank staat niet meer in de migraties').not.toBeNull();
+
+    const uitSql: Record<string, number> = {};
+    // `\s+`, want de SQL lijnt de getallen uit met meerdere spaties.
+    for (const [, rol, rang] of blok![1]!.matchAll(/when '([A-Z_]+)'\s+then\s+(\d+)/g)) {
+      uitSql[rol!] = Number(rang);
+    }
+
+    expect(uitSql).toEqual(ROLE_RANK);
+  });
+});
 
 describe('SQL-constraints spiegelen de domeinenums', () => {
   it.each(CASES)('%s.%s', (table, column, expected) => {

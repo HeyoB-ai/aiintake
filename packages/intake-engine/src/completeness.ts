@@ -4,7 +4,7 @@ import {
   type FactCatalog,
   type IntakeTemplate,
 } from '@intake/domain';
-import { evaluate } from './conditions';
+import { isBeantwoord, isRelevant, relevanteCategorieen } from './relevantie';
 
 /**
  * De volledigheidsscore.
@@ -47,9 +47,7 @@ export function scoreCompleteness(
   template: IntakeTemplate,
   catalog: FactCatalog = EMPLOYMENT_CATALOG,
 ): CompletenessResult {
-  const relevanteCategorieen = new Set(
-    catalog.categories.filter((c) => evaluate(c.relevantWhen, facts)).map((c) => c.key),
-  );
+  const categorieen = relevanteCategorieen(catalog, facts);
 
   let behaald = 0;
   let maximum = 0;
@@ -59,8 +57,7 @@ export function scoreCompleteness(
   const aangeraakteCategorieen = new Set<string>();
 
   for (const fact of catalog.facts) {
-    if (!relevanteCategorieen.has(fact.category)) continue;
-    if (!evaluate(fact.relevantWhen, facts)) continue;
+    if (!isRelevant(fact, facts, categorieen)) continue;
 
     const isRequired = template.requiredFactKeys.includes(fact.key) || fact.required;
     const gewicht = isRequired ? GEWICHT_REQUIRED : GEWICHT_OPTIONEEL;
@@ -92,12 +89,6 @@ export function scoreCompleteness(
     answered,
     relevant,
     topicsTouched: aangeraakteCategorieen.size,
-    topicsRelevant: relevanteCategorieen.size,
+    topicsRelevant: categorieen.size,
   };
-}
-
-function isBeantwoord(facts: CaseFactMap, key: string): boolean {
-  const fact = facts[key];
-  if (!fact) return false;
-  return fact.status === 'confirmed' || fact.status === 'inferred' || fact.status === 'unknown';
 }
