@@ -35,6 +35,7 @@ import { naarPcm16k } from '@intake/audio';
 export type ServerBericht =
   | { type: 'ready'; sampleRate: number; avatar: string; anamToken?: string; avatarFout?: string }
   | { type: 'turn'; client: string; assistant: string; hud: string; interrupted?: boolean }
+  | { type: 'facts'; completeness: number; topicsTouched?: number; topicsRelevant?: number }
   | { type: 'skipped'; reden: string }
   | { type: 'clear' }
   | { type: 'endturn' }
@@ -64,6 +65,18 @@ export interface ConversationClientOptions {
   readonly onStatus?: (tekst: string) => void;
   readonly onFase?: (fase: Fase, stand: FaseStand, fout?: string) => void;
   readonly onBeurt?: (beurt: GespreksBeurt) => void;
+  /**
+   * Voortgang per onderwerp, na elke beurt.
+   *
+   * **Alleen de tellers, niet de feiten.** Het `facts`-bericht van de worker draagt ook de
+   * gevonden waarden — salaris, datums, werkgever. Die horen op het scherm van de advocaat en
+   * niet op dat van de cliënt: ze aan de cliënt terugtonen maakt van een intake een formulier
+   * dat hij gaat corrigeren, en de dossierkolommen zijn bovendien een juridisch oordeel.
+   *
+   * Die grens staat hier en niet in het scherm, zodat een volgend scherm hem niet per ongeluk
+   * kan overschrijden: wat deze callback niet doorgeeft, kan de cliënt niet zien.
+   */
+  readonly onVoortgang?: (aangeraakt: number, relevant: number) => void;
   readonly onSysteem?: (tekst: string) => void;
   /** Ingangsniveau 0..1, voor een meter. Loopt op audioframe-tempo. */
   readonly onNiveau?: (niveau: number, poortDicht: boolean) => void;
@@ -215,6 +228,13 @@ export class ConversationClient {
           hud: t.hud,
         });
         this.opties.onSpreekt?.('assistent');
+        break;
+      }
+      case 'facts': {
+        const f = bericht as Extract<ServerBericht, { type: 'facts' }>;
+        if (typeof f.topicsTouched === 'number' && typeof f.topicsRelevant === 'number') {
+          this.opties.onVoortgang?.(f.topicsTouched, f.topicsRelevant);
+        }
         break;
       }
       case 'skipped':

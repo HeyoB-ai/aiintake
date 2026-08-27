@@ -150,6 +150,18 @@ export interface ObservationResult {
   readonly completeness: number;
   readonly missingRequiredKeys: readonly string[];
   /**
+   * Voortgang per onderwerp: hoeveel categorieën aangeraakt van hoeveel relevante.
+   *
+   * Bestaat voor het gespreksscherm van de cliënt. Die weet nu niet of dit vijf of
+   * vijfentwintig minuten duurt, en stilte daarover is het slechtste antwoord.
+   *
+   * Bewust dit en niet `completeness`: dat is een gewogen score met een afkapping voor
+   * openstaande must-haves, en die als percentage tonen zou een precisie suggereren die er
+   * niet is. Een teller van onderwerpen is grof en klopt.
+   */
+  readonly topicsTouched: number;
+  readonly topicsRelevant: number;
+  /**
    * Feiten die de hallucinatiecheck heeft geweigerd, met de reden.
    *
    * Dit veld bestaat omdat een controle die stilzwijgend weggooit niet te onderscheiden

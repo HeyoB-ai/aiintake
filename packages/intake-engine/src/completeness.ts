@@ -27,6 +27,19 @@ export interface CompletenessResult {
   /** Aantal relevante feiten dat is beantwoord, en hoeveel er relevant waren. */
   readonly answered: number;
   readonly relevant: number;
+  /**
+   * Hetzelfde, maar per onderwerp: hoeveel categorieën zijn aangeraakt van hoeveel relevante.
+   *
+   * Grover dan de feitentelling, en dat is met opzet. Dit is het getal dat een cliënt te zien
+   * krijgt, en "vier van de zeven onderwerpen" is iets wat iemand kan plaatsen. "Elf van de
+   * negenentwintig gegevens" suggereert een precisie die er niet is: of een feit relevant is,
+   * hangt af van feiten die nog moeten komen, dus de noemer beweegt tijdens het gesprek.
+   *
+   * Een categorie telt als aangeraakt zodra er één feit uit beantwoord is. Dat is een
+   * bescheiden claim — het zegt "hierover is gesproken", niet "dit is afgerond".
+   */
+  readonly topicsTouched: number;
+  readonly topicsRelevant: number;
 }
 
 export function scoreCompleteness(
@@ -43,6 +56,7 @@ export function scoreCompleteness(
   let answered = 0;
   let relevant = 0;
   const missingRequiredKeys: string[] = [];
+  const aangeraakteCategorieen = new Set<string>();
 
   for (const fact of catalog.facts) {
     if (!relevanteCategorieen.has(fact.category)) continue;
@@ -56,6 +70,7 @@ export function scoreCompleteness(
     if (isBeantwoord(facts, fact.key)) {
       behaald += gewicht;
       answered += 1;
+      aangeraakteCategorieen.add(fact.category);
     } else if (isRequired) {
       missingRequiredKeys.push(fact.key);
     }
@@ -76,6 +91,8 @@ export function scoreCompleteness(
     missingRequiredKeys,
     answered,
     relevant,
+    topicsTouched: aangeraakteCategorieen.size,
+    topicsRelevant: relevanteCategorieen.size,
   };
 }
 

@@ -500,6 +500,8 @@ function beoordeel(
     })),
     completeness: completeness.score,
     missingRequiredKeys: completeness.missingRequiredKeys,
+    topicsTouched: completeness.topicsTouched,
+    topicsRelevant: completeness.topicsRelevant,
   };
 }
 

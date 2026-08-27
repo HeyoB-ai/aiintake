@@ -915,6 +915,11 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
             stuur({
               type: 'facts',
               completeness: r.completeness,
+              // Voortgang voor het cliëntscherm. Bewust onderwerpen en geen percentage:
+              // `completeness` is een gewogen score met een afkapping voor openstaande
+              // must-haves, en die als percentage tonen suggereert precisie die er niet is.
+              topicsTouched: r.topicsTouched,
+              topicsRelevant: r.topicsRelevant,
               facts: Object.entries(intake.knownFacts()).map(([k, v]) => ({
                 key: k,
                 value: String(v?.value ?? '—'),
