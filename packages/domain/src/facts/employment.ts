@@ -731,9 +731,20 @@ export const EMPLOYMENT_FACTS: readonly FactDefinition[] = [
     priority: 54,
     required: false,
     label: { nl: 'Arbeidsovereenkomst beschikbaar', en: 'Employment contract available' },
+    /*
+     * Hier stond "om te uploaden", en dat was de bron van een belofte die het systeem niet
+     * waarmaakt.
+     *
+     * De hint gaat als kandidaatvraag naar het model, dus dat woord kwam letterlijk in het
+     * gesprek terecht: de assistent bood aan een brief te ontvangen terwijl er geen enkele weg
+     * bestaat waarlangs een cliënt een bestand kan aanleveren. Zie RISICOS.md risico 22.
+     *
+     * Het feit zelf blijft, want of iemand zijn contract heeft, is bruikbaar voor de advocaat.
+     * Alleen de toezegging kan niet.
+     */
     hint: {
-      nl: 'Heeft de cliënt de arbeidsovereenkomst bij de hand om te uploaden?',
-      en: 'Does the client have the employment contract at hand to upload?',
+      nl: 'Heeft de cliënt de arbeidsovereenkomst zelf in bezit?',
+      en: 'Does the client have the employment contract themselves?',
     },
     validator: z.boolean(),
   },

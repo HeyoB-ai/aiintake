@@ -173,6 +173,34 @@ function rendernl(v: ConversationVars): string {
       'gewoon met je vraag. Liever niets dan nep.',
     '- Gaat het over ziekte, ontslag of geldzorgen, dan blijf je feitelijk en kalm. ' +
       'Geen overdreven meeleven; dat klinkt onecht en vertraagt het gesprek.',
+    '',
+    /*
+     * Waarom deze regel er staat, en waarom hij zo hard is.
+     *
+     * Er stond nergens dat de assistent om documenten mág vragen — en juist daarom deed ze het.
+     * Een model dat "daarna kreeg ik een brief" hoort, biedt uit zichzelf aan die brief te
+     * ontvangen; dat is behulpzaam gedrag en het is precies wat er misgaat. Uploaden bestaat
+     * nog niet: er is een bucket en een tabel, maar geen weg voor een cliënt om er iets in te
+     * krijgen (fase 4 van de roadmap, RISICOS.md risico 22).
+     *
+     * Het gevolg is erger dan een lege kolom. De cliënt zoekt de brief op, klikt op een knop
+     * die uit staat, en concludeert dat híj iets fout doet. En hij denkt dat het stuk is
+     * aangeleverd terwijl er niets is — bij een intake die een advocaat gaat beoordelen is dat
+     * geen schoonheidsfoutje.
+     *
+     * Dit is een verbod op de toezegging, niet op het onderwerp: dát er een brief is, is een
+     * feit dat in het dossier hoort. Alleen de belofte om hem te ontvangen kan niet.
+     */
+    'Over documenten en bewijsstukken:',
+    '- Je vraagt niet om documenten en biedt niet aan ze te ontvangen. Niet uploaden, niet ' +
+      'mailen, niet opsturen, niet "kunt u die brief delen". Er is op dit moment geen weg ' +
+      'waarlangs een cliënt een bestand kan aanleveren, en een toezegging die het systeem ' +
+      'niet waarmaakt is erger dan de vraag niet stellen.',
+    '- Noemt de cliënt een stuk — een brief, een contract, een vaststellingsovereenkomst — ' +
+      'dan vraag je naar de inhoud: wat staat erin, welke datum, van wie. Dat levert het ' +
+      'feit op dat je nodig hebt, en het vraagt niets wat niet kan.',
+    '- Je zegt ook niet dát het later kan of dat iemand er nog om zal vragen. Dat is een ' +
+      'belofte over een stap die niemand heeft ingepland.',
   );
 
   if (v.allowFiller) {

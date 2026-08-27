@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ConversationClient, type Fase, type FaseStand } from '@intake/client';
-import { Sparkles, Square, Upload } from 'lucide-react';
+import { Sparkles, Square } from 'lucide-react';
 
 /**
  * Scherm 3 — het gesprek.
@@ -347,25 +347,23 @@ export function Gesprek({ organisatieNaam, wsUrl, micStream, onAfgerond }: Gespr
         </p>
       )}
 
-      <div className="mt-auto flex shrink-0 flex-col gap-3 pt-1 sm:flex-row">
-        <button
-          type="button"
-          disabled
-          title="Documenten uploaden komt in de volgende stap"
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-base font-medium disabled:opacity-50"
-          style={{
-            backgroundColor: 'var(--app-card)',
-            borderColor: 'var(--app-border)',
-            color: 'var(--app-text)',
-          }}
-        >
-          <Upload className="h-4 w-4" aria-hidden />
-          Document uploaden
-        </button>
+      {/*
+       * Hier stond een knop "Document uploaden", permanent `disabled`.
+       *
+       * Hij was nooit aangesloten: er bestaat in de hele repo geen enkele aanroep die een
+       * bestand naar opslag schrijft, en er is geen weg voor een cliënt om er een in te
+       * krijgen (RISICOS.md risico 22, roadmap fase 4). De `title` die dat uitlegde verschijnt
+       * op een telefoon nooit — daar bleef een grijze knop over die niets doet en niets zegt.
+       *
+       * Weg is eerlijker dan uit. Een uitgeschakelde knop adverteert een functie; de cliënt die
+       * zijn ontslagbrief erbij zoekt en er niets mee kan, concludeert dat hij zelf iets fout
+       * doet. Hij komt terug wanneer er iets achter zit.
+       */}
+      <div className="mt-auto flex shrink-0 flex-col gap-3 pt-1">
         <button
           type="button"
           onClick={() => clientRef.current?.stop('door de cliënt beëindigd')}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold"
+          className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-base font-semibold"
           style={{
             backgroundColor: 'var(--urgency-critical-bg)',
             color: 'var(--urgency-critical)',

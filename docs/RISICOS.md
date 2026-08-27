@@ -1512,3 +1512,76 @@ reparatie):
 - `isBackchannel()` op diezelfde echte duur laten oordelen, anders blijft de rem dood.
 - Beslissen wat er moet gebeuren als er geen interim komt maar meteen een final — dat pad
   bestaat vandaag niet en is de helft van de korte uitingen.
+
+## 22. De assistent vroeg om een document dat nergens naartoe kan
+
+**Status: de belofte is weg, het uploaden bestaat nog niet. Vastgesteld 27 augustus 2026.**
+
+De assistent vroeg een cliënt of hij zijn ontslagbrief kon uploaden. Dat kan niet, en het is
+nooit gebouwd.
+
+**Wat er wél is.** Een tabel `documents` met alle beperkingen erop, een tabel
+`document_analysis`, een privé bucket `intake-documents` (20 MB, vier mime-types), zeven
+RLS-policies, `agent_context` dat een documentenlijst teruggeeft, TypeScript-typen, twee
+UI-componenten waarvan er één een echte `<input type="file">` heeft, een "Bewijsstukken"-sectie
+op de dossierpagina, en drie auditacties.
+
+**Wat er niet is.** Eén enkele aanroep die een bestand naar opslag schrijft. `.storage.from(`
+komt nul keer voor in de hele repo. Geen upload-RPC in enige migratie, geen route of
+serveractie die een bestand aanneemt, geen magic-byte-validatie, geen `insert into documents`
+buiten de demo-seed. `DocumentUploadSection` — de component mét het bestandsveld — wordt
+nergens in `apps/web` gemonteerd; hij bestaat alleen in de etalage en in zijn eigen tests.
+
+De migratie zegt zelf hoe het bedoeld was, en waarom het zo niet werkt:
+
+> De cliënt uploadt niet rechtstreeks naar storage: de server valideert eerst magic bytes en
+> schrijft daarna met een service-role client. Daarom géén anon-policy.
+
+Die server bestaat niet. De policies staan op `to authenticated` en vragen `INTAKE_STAFF`; een
+cliënt is anoniem. Er is dus geen pad, en dat is een ontwerpkeuze die alleen nooit is afgemaakt
+— documenten staan in fase 4 van de roadmap.
+
+**De knop.** Op het gespreksscherm stond "Document uploaden", permanent `disabled`, met een
+`title` die uitlegde dat het later komt. Op een telefoon verschijnt die tooltip nooit. Wat
+overbleef was een grijze knop die niets doet en niets zegt — en de cliënt die zijn brief erbij
+zoekt, concludeert dat hij zelf iets fout doet. De knop is weggehaald; hij komt terug wanneer
+er iets achter zit.
+
+**Waar de vraag vandaan kwam, en dit was de verrassing.** Niet uit de gespreksprompt — daar
+staat het woord document niet in. Uit de **feitcatalogus**:
+
+> `has_employment_contract`, hint nl: _"Heeft de cliënt de arbeidsovereenkomst bij de hand om
+> te uploaden?"_
+
+Die hint gaat als kandidaatvraag naar het model, dus het woord kwam letterlijk uit de code. De
+hint is nu _"Heeft de cliënt de arbeidsovereenkomst zelf in bezit?"_ — het feit blijft, want of
+iemand zijn contract heeft is bruikbaar voor de advocaat; alleen de toezegging kan niet.
+
+**Wat er nu tegen staat.**
+
+- Een regel in de gespreksprompt die uitdrukkelijk verbiedt om documenten te vragen, aan te
+  bieden ze te ontvangen, of te zeggen dat het later kan. Met de vervangende gedragslijn erbij:
+  noemt de cliënt een stuk, vraag dan naar de inhoud — wat staat erin, welke datum, van wie.
+- `geen-uploadbelofte.test.ts`: geen enkel label of hint in de catalogus mag de cliënt om een
+  bestand vragen. Met een test die aantoont dat de detector kan afgaan, want anders is "nul
+  overtreders" niet te onderscheiden van een test die niets aanraakt.
+
+**Wat hiermee niet is opgelost, en het is meer dan het lijkt.**
+
+- `apps/agent/src/intake-session.ts` geeft `documents: []` hardgecodeerd aan de engine. Ook als
+  er ooit een document ligt, ziet het gesprek het niet.
+- `knownFromDocuments` in de planner — bedoeld om niet opnieuw te vragen wat al uit een stuk
+  blijkt — wordt door geen enkele aanroeper gevuld. Dode code.
+- De dossierpagina zet `summary: ''` en `extractedFacts: []` hardgecodeerd; `document_analysis`
+  wordt nooit gejoind. Het tabblad "feiten" in de documentweergave is dus structureel leeg,
+  zelfs met een rij in de database.
+- Er zijn twee zaadrijen in `documents` die naar opslagpaden wijzen waar **nul objecten**
+  achter zitten. Een demo-intake toont daarmee "Bewijsstukken (2)" zonder bestand.
+- `purge_after` en `documentRetentionDays` worden nergens afgedwongen.
+- De seed registreert een prompt `document.analysis` waarvoor geen sjabloon bestaat en die
+  niemand aanroept.
+
+**De vorm om te onthouden.** Dit is dezelfde als risico 15 (zeven ongebruikte RPC's) en risico
+18 (een schakelaar die niemand uitleest): infrastructuur die er af uitziet omdat het schema, de
+policies en de UI er zijn, terwijl het stuk dat ze verbindt ontbreekt. Het verschil is dat het
+hier niet bij een lege kolom bleef — de assistent deed er een toezegging over aan een cliënt.
