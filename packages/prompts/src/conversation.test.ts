@@ -27,40 +27,19 @@ const BASIS: ConversationVars = {
 const openingNl = (v: Partial<ConversationVars>) =>
   conversationPrompt.render({ ...BASIS, ...v }, 'nl');
 
-describe('opening met naam', () => {
-  it('zet de naam achter de groet', () => {
-    const tekst = openingNl({ clientName: 'Sanne de Vries' });
-    expect(tekst).toContain('Goedemiddag, Sanne de Vries.');
-  });
-
-  it('instrueert de naam letterlijk over te nemen', () => {
-    const tekst = openingNl({ clientName: 'Sanne de Vries' });
-    // Geen verzonnen aanhef: "meneer"/"mevrouw" raden we niet, want we weten het niet.
-    expect(tekst).toContain('niet inkorten');
-    expect(tekst).toMatch(/geen aanhef/i);
-  });
-
-  it('verzint geen naam als hij ontbreekt', () => {
-    const tekst = openingNl({ clientName: null });
-    expect(tekst).toContain('Goedemiddag. ');
-    expect(tekst).toContain('De naam van de cliënt is niet bekend');
-  });
-
-  it('laat de groet weg midden in de nacht, ook mét naam', () => {
-    // groet is null tussen middernacht en zes uur; dan is er niets om de naam achter te
-    // plakken en begint de assistent gewoon met wie ze is.
-    const tekst = openingNl({ greeting: null, clientName: 'Sanne de Vries' });
-    expect(tekst).toContain('Ik ben de AI-intake-assistent van Kantoor De Vries.');
-    expect(tekst).not.toContain('Goedemiddag');
-  });
-
-  it('noemt de naam niet in een gewone beurt', () => {
-    // Alleen de opening spreekt aan. Elke beurt met een naam ervoor klinkt als een
-    // callcenter dat zijn script afwerkt.
-    const tekst = openingNl({ isOpening: false, clientName: 'Sanne de Vries' });
-    expect(tekst).not.toContain('Sanne de Vries');
-  });
-});
+/*
+ * Hier stond `describe('opening met naam')`, met vier tests op de instructie: dat de naam
+ * achter de groet komt, dat het model hem letterlijk moet overnemen, dat het er geen mag
+ * verzinnen, en dat de groet 's nachts wegblijft.
+ *
+ * Die vier gingen over een sjabloon dat het model moest volgen. De opening is sinds
+ * 27 augustus 2026 een vaste zin die helemaal niet meer langs een model gaat, en dat sjabloon
+ * is uit deze prompt verdwenen — een instructie die niemand leest, is de vorm waarin een
+ * afspraak stilletjes verandert.
+ *
+ * De vier garanties zijn niet vervallen maar verplaatst, naar waar ze nu te meten zijn in
+ * plaats van te hopen: `packages/domain/src/opening.test.ts`, onder "de invulplekken".
+ */
 
 describe('hervatting', () => {
   const hervat = (v: Partial<ConversationVars>) =>

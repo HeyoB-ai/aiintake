@@ -1780,11 +1780,15 @@ Vijfde keer deze week.
 20 702 ms, ofwel 61,2 ms per teken. Dat is 6 procent verschil en valt binnen de spreiding die
 diezelfde proef liet zien. Het getal is dus juist en alleen het type was fout.
 
-**Wat er wél uit die rekensom volgt, en dat is een aparte bevinding.** De canonieke opening is
-225 tekens; deze beurt was er 338. Het model levert dus een langere opening dan ontworpen, en
-de cliënt wacht daardoor **twintig seconden** voordat hij aan het woord komt. Dat is geen
-typefout maar een gespreksprobleem, en het is met deze meting voor het eerst hard: elke honderd
-tekens extra kosten bijna zes seconden stilte aan het begin.
+**Wat er wél uit die rekensom volgt, en dat is een aparte bevinding.** De cliënt wacht
+**twintig seconden** voordat hij aan het woord komt. Dat is geen typefout maar een
+gespreksprobleem: elke honderd tekens kosten bijna zes seconden stilte aan het begin.
+
+> **Correctie.** Hier stond eerst dat de canonieke opening 225 tekens is en het model er 338
+> levert — dus dat het model uitliep. Dat klopt niet. Die 225 was mijn eigen diagnosezin uit
+> `diag:tts-tekst`, niet het ontwerp. Het sjabloon in de prompt is, ingevuld met kantoornaam en
+> cliëntnaam, **exact 338 tekens**. Het model week geen teken af; het ontwerp was zelf te lang.
+> Zie risico 27.
 
 **Wat er nu staat.**
 
@@ -1803,3 +1807,48 @@ openingsbeurt ontbrak. Dat viel op omdat iemand toevallig in het log keek. Een m
 transcriptregel hoort zichtbaar te zijn zonder logboek — vergelijk risico 2b, waar een
 overgeslagen beurt inmiddels wél een regel in het transcript krijgt. Voor een mislukte
 schrijfactie bestaat dat nog niet.
+
+## 27. De opening kwam van een model dat een vaste tekst reproduceerde
+
+**Status: opgelost op 27 augustus 2026.**
+
+**De meting.** Het sjabloon in `conversation.ts`, ingevuld met "Van Dijk Arbeidsrecht" en "Heyo
+Beentje", is 338 tekens. Wat er in productie werd weggeschreven was 338 tekens. Het model week
+dus geen teken af — er ging een modelaanroep uit om een vaste tekst terug te krijgen.
+
+**Waarom dat drie dingen kost.** Latency op de beurt waar de cliënt het langst wacht. Tokens
+voor iets wat we al weten. En een risico zonder winst ertegenover: een model dat één keer níét
+reproduceert, zwakt de disclaimer af of laat hem weg — precies de zin waarvoor de cliënt op het
+toestemmingsscherm tekent (risico 17).
+
+Er was bovendien geen lengtegrens. `maxSentences` staat op 4 voor de opening; dat is een
+zinsgrens en geen tekengrens, en het sjabloon telt er zelf 5.
+
+**En het sjabloon overtrad zijn eigen regel.** Twee regels eronder stond: _"Niet 'X, en ik ben
+geen advocaat' — een komma met 'en' plakt twee mededelingen aan elkaar die elk op zichzelf
+moeten landen."_ Het sjabloon zei: _"Ik ben geen advocaat en ben aangesteld om de gegevens van
+uw zaak vast te leggen"_. Precies dat.
+
+**Wat er nu staat.** `openingsZin()` in `@intake/domain`, hetzelfde patroon als
+`hervattingsZin()`, `erkenning.ts` en `wanhoop.ts`: het model beoordeelt, de woorden liggen
+vast. Hier valt er niet eens iets te beoordelen — dat dit de opening is, weet de lus zelf.
+`engine.respond()` keert eerder om en doet voor die beurt **geen** aanroep.
+
+Ingekort van 338 naar 285 tekens, ongeveer 19,5 → 16,4 seconde. Wat eraf ging is herhaling: het
+kantoor werd twee keer genoemd en "uw zaak" ook. Geen van de vier mededelingen is afgezwakt, en
+de twee disclaimerzinnen staan nu los in plaats van met "en" aan de taak geplakt.
+
+**Wat dit niet oplost.** De opening blijft lang. De ondergrens wordt bepaald door wat er gezegd
+móét worden, niet door de formulering — verder inkorten betekent een mededeling schrappen, en
+dat is een besluit van het kantoor. Op `ELEVENLABS_SPEED=1.2` zakt het naar ongeveer 15
+seconden.
+
+**De winst die niet in de tabel staat.** De vier mededelingen waren tot nu toe bewaakt met tests
+op de _instructie_: staat de opdracht er onvoorwaardelijk in? Wat het model ervan maakte, was
+niet te toetsen. Nu de tekst vastligt, staan die tests op de tekst zelf — in `opening.test.ts`
+en in `de openingsbeurt` in `engine.test.ts`. Van hopen dat het model gehoorzaamt naar meten wat
+de cliënt hoort.
+
+Bij het verplaatsen zijn negentien tests herschreven en geen enkele garantie geschrapt. Het dode
+sjabloon is uit de prompt verwijderd in plaats van te blijven staan: een instructie die niemand
+leest, is de vorm waarin een afspraak stilletjes verandert zonder dat er iets rood wordt.

@@ -97,14 +97,24 @@ describe('IntakeSession — geen lege berichten naar het model', () => {
     }
   });
 
-  it('geeft de openingsbeurt een aanleiding in plaats van een lege lijst', async () => {
+  it('doet voor de openingsbeurt helemaal geen modelaanroep', async () => {
+    /*
+     * Hier stond: "geeft de openingsbeurt een aanleiding in plaats van een lege lijst". Die
+     * test bewaakte dat het model bij de opening een niet-lege gebruikersboodschap kreeg,
+     * want een lege berichtenlijst wordt door de API geweigerd met
+     * `messages.0: user messages must have non-empty content`.
+     *
+     * Sinds de opening een vaste zin is, kan die fout daar niet meer ontstaan: er gaat geen
+     * verzoek uit. Dat is een sterkere garantie dan de oude, en dit is de meting ervan.
+     *
+     * De oude garantie blijft nodig voor de hervatting — ook een beurt zonder cliëntuitspraak,
+     * en die gáát wél langs het model. Dat pad staat elders in deze suite.
+     */
     const llm = vangLlm();
     const s = sessie(llm);
     await leeg(s.responseSource(), '');
 
-    const berichten = laatsteGesprek(llm).messages;
-    expect(berichten).toHaveLength(1);
-    expect(berichten[0]!.role).toBe('user');
-    expect(berichten[0]!.content.trim().length).toBeGreaterThan(0);
+    const gesprek = llm.verzoeken.filter((r) => !r.system.includes('"lading"'));
+    expect(gesprek).toHaveLength(0);
   });
 });

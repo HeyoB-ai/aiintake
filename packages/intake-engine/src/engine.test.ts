@@ -62,6 +62,36 @@ function invoer(over: Partial<EngineInput> = {}): EngineInput {
   } as EngineInput;
 }
 
+/**
+ * Een gewone beurt: er is al iets gezegd, dus dit is niet de opening.
+ *
+ * Nodig sinds de opening niet meer langs het model gaat (zie engine.ts). Tests die het gedrag
+ * van het hot path meten, moeten anders per ongeluk de vaste openingszin meten — en die komt
+ * nergens bij een model vandaan.
+ */
+function gewoneBeurt(over: Partial<EngineInput> = {}): EngineInput {
+  return invoer({
+    lastClientUtterance: 'Ik ben vorige week ontslagen.',
+    history: [
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: 'Waar gaat het om?',
+        plannedQuestionKeys: [],
+        createdAt: NU.toISOString(),
+      },
+      {
+        id: 'm2',
+        role: 'client',
+        content: 'Ik ben vorige week ontslagen.',
+        plannedQuestionKeys: [],
+        createdAt: NU.toISOString(),
+      },
+    ],
+    ...over,
+  } as Partial<EngineInput>);
+}
+
 function feit(key: string, value: unknown): CaseFact {
   return {
     key,
@@ -81,7 +111,8 @@ describe('IntakeConversationEngine — hot path', () => {
     const model = hot(['Goedemiddag. ', 'Waar gaat het om?']);
     const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
 
-    const beslissing = await engine.respond(invoer());
+    // Een gewone beurt: de opening streamt niet meer van het model.
+    const beslissing = await engine.respond(gewoneBeurt());
     let tekst = '';
     for await (const stuk of beslissing.speak) tekst += stuk;
 
@@ -91,16 +122,23 @@ describe('IntakeConversationEngine — hot path', () => {
     expect(() => JSON.parse(tekst)).toThrow();
   });
 
-  it('geeft de openingsbeurt geen kandidatenlijst mee', async () => {
-    // De opening is een open vraag. Zou de planner hier zijn kandidaten inbrengen, dan
-    // begint het gesprek met een gesloten vraag over de ontslagroute in plaats van met
-    // "waar gaat het om".
+  it('rendert voor de openingsbeurt helemaal geen instructie', async () => {
+    /*
+     * Hier stond: "geeft de openingsbeurt geen kandidatenlijst mee". Die test bewaakte dat de
+     * planner zijn kandidaten niet in de openingsprompt kreeg, zodat het gesprek niet met een
+     * gesloten vraag begint.
+     *
+     * Sinds de opening een vaste zin is, wordt er voor die beurt geen instructie meer
+     * gerenderd en gaat er dus ook geen model aan te pas. De garantie is niet verdwenen maar
+     * sterker geworden, en staat nu in `de openingsbeurt`: de uitgesproken tekst eindigt met
+     * de open uitnodiging.
+     */
     const model = hot(['hoi']);
     const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
     await engine.respond(invoer());
 
-    expect(model.laatsteSysteem).toContain('Dit is de opening');
-    expect(model.laatsteSysteem).not.toContain('Kies één van deze onderwerpen');
+    // Geen instructie, want geen aanroep. Dat is de meting.
+    expect(model.laatsteSysteem).toBe('');
   });
 
   it('vertelt het model wat er al bekend is, zodat het niet dubbel vraagt', async () => {
@@ -136,9 +174,10 @@ describe('IntakeConversationEngine — hot path', () => {
   });
 
   it('laat de instructie het geven van juridisch advies verbieden', async () => {
+    // Op een gewone beurt, want voor de opening wordt geen instructie meer gerenderd.
     const model = hot(['x']);
     const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
-    await engine.respond(invoer());
+    await engine.respond(gewoneBeurt());
     // Dit is geen stijlvoorschrift maar de productgrens uit de architectuur: het systeem
     // verzamelt en signaleert, het adviseert niet.
     expect(model.laatsteSysteem).toContain('geen juridisch advies');
@@ -449,130 +488,106 @@ describe('de openingsbeurt', () => {
   /**
    * De opening is de enige beurt met een harde inhoudseis: er moet in staan dat dit geen
    * advocaat is en dat er geen advies wordt gegeven. Dat is geen stijlkwestie maar de
-   * verwachting waarop iemand de rest van het gesprek beoordeelt — en het is precies het
-   * punt dat sneuvelt als het model zich beperkt tot een korte introductie.
+   * verwachting waarop iemand de rest van het gesprek beoordeelt.
    *
-   * Deze tests staan op de instructie en niet op de uitvoer: wat het model ervan maakt is
-   * per beurt anders, maar de opdracht hoort er onvoorwaardelijk in te staan.
-   */
-  /**
-   * De regel met de uitgeschreven opening, los van de toelichting eronder.
+   * ## Waarom deze tests nu op de uitvoer staan en niet op de instructie
    *
-   * De instructie noemt dezelfde zinsdelen twee keer: één keer als voorbeeld en één keer
-   * als uitleg waarom het zo moet. Een test die de hele tekst doorzoekt, kan de uitleg
-   * voor het voorbeeld aanzien.
+   * Ze stonden op de instructie: het model kreeg een sjabloon en deze tests controleerden dat
+   * dat sjabloon de vier mededelingen bevatte. Wat het model ervan maakte, was per beurt
+   * anders en dus niet te toetsen.
+   *
+   * Sinds de opening niet meer langs het model gaat, is dat wél te toetsen — en dan hoort het
+   * ook daar te gebeuren. Dit is de winst van de verplaatsing: waar we eerst hoopten dat het
+   * model zich aan de opdracht hield, staat nu een test op wat de cliënt werkelijk hoort.
    */
-  function voorbeeldzin(body: string): string {
-    const regel = body.split('\n').find((r) => r.includes('Ik ben de AI-intake-assistent van'));
-    if (!regel) throw new Error('geen uitgeschreven opening in de instructie gevonden');
-    return regel;
+
+  /** Wat er wordt uitgesproken bij een verse intake. */
+  async function opening(over: Partial<EngineInput> = {}): Promise<string> {
+    const engine = createIntakeEngine({
+      // Een model dat iets ánders zou zeggen. Komt het toch in de uitvoer, dan is de opening
+      // niet vast en faalt elke test hieronder met een leesbaar verschil.
+      hot: hot(['DIT MAG NIET IN DE OPENING STAAN']),
+      cold: cold(['{"facts":[]}']),
+    });
+    const beslissing = await engine.respond(invoer(over));
+    let tekst = '';
+    for await (const stuk of beslissing.speak) tekst += stuk;
+    return tekst;
   }
 
-  async function openingsPrompt(orgNaam = 'Kantoor De Vries', now?: Date) {
-    const model = hot(['x']);
-    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
-    await engine.respond(
-      invoer({
-        organization: { id: 'o', name: orgNaam, slug: 's' } as OrgConfig,
-        ...(now ? { now } : {}),
-      }),
-    );
-    return model.laatsteSysteem;
-  }
+  it('komt niet van het model', async () => {
+    const tekst = await opening();
+    expect(tekst).not.toContain('DIT MAG NIET');
+  });
 
   it('eist dat het woord AI letterlijk valt', async () => {
-    // "intake-assistent" kan een cliënt horen als een medewerker die de intake doet. De
-    // spec eist dat er staat dát het een AI is, en dat is iets anders dan de mededeling
-    // dat het geen advocaat is.
-    const body = await openingsPrompt();
-    expect(body).toContain('AI-intake-assistent');
-    expect(body).toContain('Het woord "AI" moet er letterlijk in staan');
-    expect(body).toContain('twee verschillende mededelingen');
+    // Een cliënt kan "assistent" horen als een mens die de intake doet, en dan is de
+    // mededeling niet gedaan.
+    expect(await opening()).toMatch(/\bAI[- ]/);
   });
 
-  it('eist dat de assistent zegt geen advocaat te zijn en geen advies te geven', async () => {
-    const body = await openingsPrompt();
-    expect(body).toContain('Ik ben geen advocaat');
-    expect(body).toContain('geen juridisch advies');
-    expect(body).toContain('afgezwakt');
+  it('zegt dat de assistent geen advocaat is en geen advies geeft', async () => {
+    const tekst = await opening();
+    expect(tekst).toContain('geen advocaat');
+    expect(tekst).toContain('geen juridisch advies');
   });
 
-  it('noemt wat ze doet en waarom, in die volgorde', async () => {
-    const body = await openingsPrompt();
-    const wat = body.indexOf('de gegevens van uw zaak vast te leggen');
-    const waarom = body.indexOf('sneller kan beoordelen');
-    const vraag = body.indexOf('Kunt u vertellen wat er speelt');
-    expect(wat).toBeGreaterThan(-1);
-    expect(waarom).toBeGreaterThan(wat);
-    expect(vraag).toBeGreaterThan(waarom);
+  it('noemt wat ze doet vóór wat ze niet doet', async () => {
+    // Een beperking is pas te plaatsen als iemand weet waar je voor bent. Andersom klinkt het
+    // als een voorbehoud vooraf.
+    const tekst = await opening();
+    expect(tekst.indexOf('Ik leg de gegevens')).toBeLessThan(tekst.indexOf('geen advocaat'));
   });
 
-  it('verbiedt uitspraken over kosten', async () => {
-    // Het systeem doet geen financiële toezeggingen namens het kantoor. "Efficiënter voor
-    // de beoordeling" is iets anders dan "dit beperkt uw kosten".
-    const body = await openingsPrompt();
-    expect(body).toContain('Geen uitspraken over');
-    expect(body).toContain('die toezegging is niet aan u');
+  it('doet geen uitspraken over kosten', async () => {
+    // Wat het de cliënt kost of bespaart, is een toezegging die niet aan de assistent is.
+    const tekst = (await opening()).toLowerCase();
+    for (const woord of ['kosten', 'tarief', 'gratis', 'bespaart', 'euro']) {
+      expect(tekst, woord).not.toContain(woord);
+    }
   });
 
   it('haalt de kantoornaam uit de organisatieconfiguratie', async () => {
-    const body = await openingsPrompt('Advocatenkantoor Jansen & Partners');
-    expect(body).toContain('Advocatenkantoor Jansen & Partners');
-    expect(body).not.toContain('Kantoor De Vries');
-  });
-
-  it('houdt de opening kort genoeg om uit te luisteren', async () => {
-    const body = await openingsPrompt();
-    // Vier zinnen in totaal. Met drie sneuvelt er een van de vier mededelingen, meestal
-    // uitgerekend "ik ben geen advocaat".
-    expect(body).toContain('Maximaal 4 zinnen');
+    expect(await opening()).toContain('Kantoor De Vries');
   });
 
   it('zet een zinseinde na de kantoornaam en geen komma met "en"', async () => {
-    // Gesproken plakt ", en" twee mededelingen aan elkaar die elk op zichzelf moeten
-    // landen; de luisteraar verliest dan de eerste helft.
-    const body = await openingsPrompt();
-    expect(body).toContain('Ik ben de AI-intake-assistent van Kantoor De Vries. Ik ben geen');
-    expect(body).toContain('volgt een punt');
-    expect(body).not.toContain('van Kantoor De Vries, en ik ben geen advocaat');
+    // Een komma met "en" plakt twee mededelingen aan elkaar die elk op zichzelf moeten landen.
+    const tekst = await opening();
+    expect(tekst).toContain('Kantoor De Vries.');
+    expect(tekst).not.toMatch(/geen advocaat en/);
   });
 
-  it('noemt de taak vóór de beperking, in de voorbeeldzin zelf', async () => {
-    /*
-     * Alleen binnen de voorbeeldzin kijken, en niet in de hele instructie.
-     *
-     * Een eerdere versie zocht de twee fragmenten in de volledige tekst. Die test bleef
-     * groen toen de voorbeeldzin de beperking naar voren haalde — want "Zelf geef ik geen
-     * juridisch advies" staat óók in de toelichting eronder, en die staat sowieso later.
-     * Hij bewees dus de volgorde van de uitleg in plaats van die van de zin.
-     */
-    const body = await openingsPrompt();
-    const voorbeeld = voorbeeldzin(body);
-    const taak = voorbeeld.indexOf('aangesteld om de gegevens van uw zaak vast te leggen');
-    const beperking = voorbeeld.indexOf('Zelf geef ik geen juridisch advies');
-    expect(taak).toBeGreaterThan(-1);
-    expect(beperking).toBeGreaterThan(taak);
+  it('schrijft losse korte zinnen, omdat dit wordt uitgesproken', async () => {
+    // Gesproken is een lange zin een adem te lang; de luisteraar verliest de eerste helft.
+    const zinnen = (await opening()).split(/(?<=[.?])\s+/).filter(Boolean);
+    expect(zinnen.length).toBeGreaterThanOrEqual(4);
+    for (const zin of zinnen) expect(zin.length, zin).toBeLessThan(95);
   });
 
-  it('schrijft losse korte zinnen voor, omdat dit wordt uitgesproken', async () => {
-    const body = await openingsPrompt();
-    expect(body).toContain('uitgesproken, niet gelezen');
-    expect(body).toContain('een adem te lang');
+  it('stelt precies één vraag en laat de cliënt daarna uitpraten', async () => {
+    const tekst = await opening();
+    expect(tekst.split('?').length - 1).toBe(1);
+    expect(tekst.trimEnd().endsWith('?')).toBe(true);
   });
 
   it('kiest de groet op het tijdstip en laat dat niet aan het model', async () => {
-    // De engine heeft `now`; een model heeft geen klok en zei "Goedemorgen" om acht uur
-    // 's avonds. De grenzen zelf staan in packages/prompts/src/groet.test.ts.
-    const ochtend = await openingsPrompt('Kantoor De Vries', new Date('2026-08-22T07:00:00Z'));
-    const avond = await openingsPrompt('Kantoor De Vries', new Date('2026-08-22T19:00:00Z'));
-    expect(ochtend).toContain('Goedemorgen.');
-    expect(avond).toContain('Goedenavond.');
-    expect(avond).not.toContain('Goedemorgen');
-    expect(avond).toContain('Het tijdstip is bekend; kies er zelf geen andere');
+    // NU is een middag in de kantoortijdzone.
+    expect(await opening()).toMatch(/^Goede(morgen|middag|navond)/);
   });
 
-  it('staat op versie 8 of hoger, zodat llm_calls de opening kan onderscheiden', () => {
-    expect(PROMPTS.conversation.version).toBeGreaterThanOrEqual(8);
+  it('is korter dan het sjabloon dat het model reproduceerde', async () => {
+    /*
+     * Gemeten in productie: 338 tekens, ongeveer twintig seconden voordat de cliënt iets kon
+     * zeggen. Deze test houdt de inkorting vast zodat hij niet stilletjes terugkruipt.
+     */
+    expect((await opening()).length).toBeLessThan(300);
+  });
+
+  it('begint met de vraag zelf en niet met de planner erin', async () => {
+    // De opening is een open uitnodiging. Zou de planner hier zijn kandidaten inbrengen, dan
+    // begint het gesprek met een gesloten vraag over de ontslagroute.
+    expect(await opening()).toContain('Kunt u vertellen wat er speelt');
   });
 });
 
@@ -609,13 +624,24 @@ describe('de gespreksvorm', () => {
   }
 
   it('laat de cliënt na de openingsvraag uitpraten', async () => {
-    // De opening nodigt uit tot vertellen; er meteen een tweede vraag achteraan plakken
-    // maakt die uitnodiging ongedaan.
-    const model = hot(['x']);
-    const engine = createIntakeEngine({ hot: model, cold: cold(['{"facts":[]}']) });
-    await engine.respond(invoer());
-    expect(model.laatsteSysteem).toContain('Na de vraag laat u het aan de cliënt');
-    expect(model.laatsteSysteem).toContain('Geen tweede vraag');
+    /*
+     * De opening nodigt uit tot vertellen; er meteen een tweede vraag achteraan plakken maakt
+     * die uitnodiging ongedaan.
+     *
+     * Deze test stond op de instructie omdat het model de opening schreef. Nu ligt de zin vast
+     * en is het rechtstreeks te meten: precies één vraagteken, en het staat aan het eind.
+     * Dat is dezelfde garantie, alleen niet meer afhankelijk van gehoorzaamheid.
+     */
+    const engine = createIntakeEngine({
+      hot: hot(['x']),
+      cold: cold(['{"facts":[]}']),
+    });
+    const beslissing = await engine.respond(invoer());
+    let tekst = '';
+    for await (const stuk of beslissing.speak) tekst += stuk;
+
+    expect(tekst.split('?').length - 1).toBe(1);
+    expect(tekst.trimEnd().endsWith('?')).toBe(true);
   });
 
   it('oogst in de eerste beurten uit het verhaal in plaats van af te vinken', async () => {

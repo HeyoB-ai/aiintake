@@ -10,3 +10,4 @@ export * from './vraagzin';
 export * from './erkenning';
 export * from './wanhoop';
 export * from './hervatting';
+export * from './opening';

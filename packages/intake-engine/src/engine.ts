@@ -12,6 +12,7 @@ import {
   type FactDefinition,
   resolveWeekdag,
   vindWeekdagVerwijzing,
+  openingsZin,
 } from '@intake/domain';
 import {
   dagdeelGroet,
@@ -289,6 +290,39 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         input.language,
       );
       deps.onPrompt?.(prompt);
+
+      /*
+       * De opening gaat niet langs het model.
+       *
+       * De prompt gaf het model een letterlijk sjabloon en het reproduceerde dat teken voor
+       * teken: 338 tekens gemeten in productie, 338 in het sjabloon. Er werd dus een aanroep
+       * gedaan om een vaste tekst terug te krijgen — op de beurt waarop de cliënt het langst
+       * wacht, en met het risico dat een model dat één keer níét reproduceert de disclaimer
+       * afzwakt of weglaat (risico 17).
+       *
+       * Dezelfde redenering als bij de erkenning, de wanhoopsreactie en de hervatting: het
+       * model beoordeelt, de woorden liggen vast. Hier valt er niet eens iets te beoordelen —
+       * dat dit de opening is, weet de lus zelf. Zie @intake/domain/opening.ts.
+       */
+      if (isOpening) {
+        const zin = openingsZin(
+          {
+            greeting: dagdeelGroet(input.now, input.language, input.organization.timeZone),
+            clientName: input.clientName ?? null,
+            organisationName: input.organization.name,
+          },
+          input.language,
+        );
+        return {
+          isResuming: false,
+          intent: 'ask',
+          speak: (async function* () {
+            yield zin;
+          })(),
+          plannedQuestionKeys: plan.candidates.map((c) => c.factKey),
+          pacing: { allowFiller, maxSentences },
+        };
+      }
 
       const speak = deps.hot.stream({
         system: prompt.body,

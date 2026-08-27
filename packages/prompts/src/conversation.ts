@@ -240,55 +240,23 @@ function rendernl(v: ConversationVars): string {
   }
 
   if (v.isOpening) {
-    regels.push(
-      '',
-      'Dit is de opening. Dit wordt uitgesproken, niet gelezen: korte losse zinnen, ' +
-        'elk één mededeling. Zinnen die met "en" aan elkaar geplakt zijn, zijn gesproken ' +
-        'een adem te lang — de luisteraar verliest de eerste helft.',
-      '',
-      'Volg deze opbouw:',
-      '',
-      `${v.greeting ? `${v.greeting}${v.clientName ? `, ${v.clientName}` : ''}. ` : ''}` +
-        `Ik ben de AI-intake-assistent van ` +
-        `${v.organisationName}. Ik ben geen advocaat en ben aangesteld om de gegevens van ` +
-        `uw zaak vast te leggen, zodat een advocaat van ${v.organisationName} uw zaak ` +
-        'sneller kan beoordelen. Zelf geef ik geen juridisch advies. Kunt u vertellen wat ' +
-        'er speelt en waarom u contact opneemt?',
-      '',
-      'Wat daarin vastligt:',
-      `- Na de naam van het kantoor volgt een punt. Niet "${v.organisationName}, en ik ben ` +
-        'geen advocaat" — een komma met "en" plakt twee mededelingen aan elkaar die elk ' +
-        'op zichzelf moeten landen.',
-      '- Het woord "AI" moet er letterlijk in staan. Niet "intake-assistent", niet ' +
-        '"digitale assistent", niet "virtuele medewerker" — een cliënt kan "assistent" ' +
-        'horen als een mens die de intake doet, en dan is de mededeling niet gedaan.',
-      '- Eerst wat u wél doet, daarna pas wat u niet doet. "Zelf geef ik geen juridisch ' +
-        'advies" komt ná uw taak, want een beperking is pas te plaatsen als iemand weet ' +
-        'waar u voor bent. Andersom klinkt het als een voorbehoud vooraf.',
-      '- "Ik ben geen advocaat" en "ik geef geen juridisch advies" zijn twee verschillende ' +
-        'mededelingen; de een vervangt de ander niet en geen van beide mag worden ' +
-        'afgezwakt. Dit is waar iemand zijn verwachting op baseert.',
-      `- Waarom: zodat een advocaat van ${v.organisationName} de zaak sneller kan ` +
-        'beoordelen. Zeg het als efficiëntie voor de beoordeling. Geen uitspraken over ' +
-        'kosten, tarieven of wat het de cliënt bespaart — die toezegging is niet aan u.',
-      '- De uitnodiging is open: "Kunt u vertellen wat er speelt en waarom u contact ' +
-        'opneemt?" Niet "Waar gaat het om?" — dat vraagt om één zin, en u wilt een verhaal.',
-      v.clientName
-        ? `- De cliënt heet "${v.clientName}". Neem die naam letterlijk over: niet inkorten, ` +
-            'geen aanhef als "meneer" of "mevrouw" erbij verzinnen, en de naam één keer ' +
-            'gebruiken. Weet u niet zeker hoe hij wordt uitgesproken, zeg hem dan gewoon zoals ' +
-            'hij er staat — hem weglaten is erger dan hem onhandig uitspreken.'
-        : '- De naam van de cliënt is niet bekend. Groet dan zonder naam en verzin er geen.',
-      v.greeting
-        ? `- De groet is "${v.greeting}". Het tijdstip is bekend; kies er zelf geen andere.`
-        : '- Geen groet. Het is midden in de nacht, en dan is "goedenacht" een afscheid en ' +
-            '"goedenavond" vreemd. Begin direct met wie u bent.',
-      '',
-      'Kleine variaties in bewoording mogen. De volgorde, de zinsgrenzen en de vier ' +
-        'mededelingen niet.',
-      'Na de vraag laat u het aan de cliënt. Geen tweede vraag, geen lijstje, geen ' +
-        'aansporing, geen verkooppraat.',
-    );
+    /*
+     * Hier stond het volledige sjabloon van de openingszin, met vier regels erover.
+     *
+     * Het model reproduceerde dat teken voor teken: 338 tekens gemeten in productie, 338 in
+     * het sjabloon. Er ging dus een aanroep uit om een vaste tekst terug te krijgen — op de
+     * beurt waarop de cliënt het langst wacht, en met het risico dat een model dat één keer
+     * níét reproduceert de disclaimer afzwakt of weglaat (risico 17).
+     *
+     * De opening komt nu uit `openingsZin()` in @intake/domain en gaat helemaal niet meer
+     * langs een model; `engine.respond()` keert er eerder om. Deze tak wordt dus niet meer
+     * bereikt met `isOpening` — en dat is precies waarom het sjabloon hier weg is en niet
+     * blijft staan "voor het geval dat". Een instructie die niemand leest, is de vorm waarin
+     * een afspraak stilletjes verandert zonder dat er iets rood wordt.
+     *
+     * De vier mededelingen staan nu in tests op de uitgesproken tekst zelf: opening.test.ts
+     * in het domein en `de openingsbeurt` in engine.test.ts.
+     */
   } else if (v.isClosing) {
     regels.push(
       '',

@@ -98,7 +98,15 @@ describe('QuestionPlanner', () => {
       },
       'nl',
     );
-    expect(body).toContain('Dit is de opening');
+    /*
+     * De aanname onder de volgordetest hieronder: de opening gebruikt de kandidatenlijst niet,
+     * dus mag de planner bij een leeg dossier gerust `termination_route` vooraan zetten.
+     *
+     * Die aanname is sterker geworden. De opening is een vaste zin en gaat helemaal niet meer
+     * langs een model — `engine.respond()` keert eerder om, en `conversationPrompt` wordt er
+     * niet meer voor gerenderd. De kandidaten kunnen de opening dus niet meer bereiken, ook
+     * niet per ongeluk. Wat hier overblijft is de controle dat ze er niet alsnog in sluipen.
+     */
     expect(body).not.toContain('Ontslagroute');
     expect(body).not.toContain('Kies één van deze onderwerpen');
   });
