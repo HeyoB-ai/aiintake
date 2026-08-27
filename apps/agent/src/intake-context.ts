@@ -53,6 +53,13 @@ export interface IntakeContext {
   /** Het transcript tot nu toe; bij een eerste gesprek leeg. */
   readonly history: Turn[];
   readonly pendingLawyerRequests: readonly string[];
+  /**
+   * Feitsleutels die de cliënt op het toestemmingsscherm heeft ingevuld.
+   *
+   * Voor `client_full_name` staat de waarde erbij (als gezaaid feit); voor e-mail en telefoon
+   * weet de worker alleen dát ze zijn ingevuld. Zie de toelichting bij `haalIntakeContext`.
+   */
+  readonly knownFromForm: readonly string[];
 }
 
 export interface ContextOptions {
@@ -156,6 +163,43 @@ export async function haalIntakeContext(opties: ContextOptions): Promise<IntakeC
     };
   }
 
+  /*
+   * Wat de cliënt zelf heeft ingevuld, telt als feit.
+   *
+   * Zonder dit vroeg de assistent naar een naam die ze net had uitgesproken. Gemeten:
+   * "Volle naam van u — hoe heet u precies?" gevolgd door "Dat weet je toch?".
+   *
+   * De naam staat op `intakes.client_name` en komt via `agent_context` binnen; de planner
+   * kijkt naar `case_facts` en zag daar niets. Nu zit hij er wél in, met `client_form` als
+   * herkomst — geen `client_statement`, want er is geen citaat en dat hoort er ook niet te
+   * komen. Zie de migratie van 27 augustus 2026.
+   *
+   * E-mail en telefoon gaan bewust níét mee in deze RPC: de worker heeft ze niet nodig om een
+   * gesprek te voeren, en wat hij niet krijgt kan hij niet in een prompt laten belanden. Ze
+   * worden daarom niet als feit gezaaid maar overgeslagen door de planner — zie
+   * `alReedsIngevuld` hieronder.
+   */
+  const contact = (context as { clientContact?: { hasEmail?: boolean; hasPhone?: boolean } })
+    .clientContact;
+  const uitFormulier: string[] = [];
+  if (contact?.hasEmail) uitFormulier.push('client_email');
+  if (contact?.hasPhone) uitFormulier.push('client_phone');
+
+  if (naam !== '') {
+    uitFormulier.push('client_full_name');
+    facts['client_full_name'] = {
+      key: 'client_full_name',
+      value: naam,
+      valueType: 'string',
+      status: 'confirmed',
+      confidence: 1,
+      source: 'client_form',
+      sourceRef: null,
+      llmCallId: null,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   return {
     rpc,
     sessionId: context.sessionId,
@@ -165,5 +209,6 @@ export async function haalIntakeContext(opties: ContextOptions): Promise<IntakeC
     facts,
     history: naarGeschiedenis(context.history),
     pendingLawyerRequests: context.pendingLawyerRequests,
+    knownFromForm: uitFormulier,
   };
 }

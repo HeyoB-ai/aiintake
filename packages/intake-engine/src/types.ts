@@ -41,6 +41,15 @@ export interface EngineInput {
   /** Alleen wat DAADWERKELIJK is uitgesproken of gelezen. Zie truncateToSpoken(). */
   readonly history: readonly Turn[];
   readonly documents: readonly DocumentSummary[];
+  /**
+   * Feitsleutels die de cliënt zelf op het toestemmingsscherm heeft ingevuld.
+   *
+   * Niet opnieuw vragen. Voor de naam gebeurt dat via een gezaaid feit met bron `client_form`;
+   * voor e-mail en telefoon kán dat niet — die waarden komen bewust niet bij de worker, want
+   * wat hij niet krijgt kan hij niet in een prompt laten belanden. Van die twee weet hij alleen
+   * dát ze zijn ingevuld, en dat is genoeg om er niet naar te vragen.
+   */
+  readonly knownFromForm?: readonly string[];
   readonly pendingLawyerRequests: readonly string[];
   readonly language: Language;
   /**
@@ -76,6 +85,15 @@ export interface DocumentSummary {
 
 export interface EngineDecision {
   readonly intent: 'ask' | 'acknowledge' | 'clarify' | 'close' | 'handoff';
+  /**
+   * Waarom er wordt afgesloten, als er wordt afgesloten.
+   *
+   * `intent: 'close'` bestond al en werd door niemand gelezen — de lus sprak de afsluitzin uit
+   * en luisterde daarna gewoon door. Dit veld bestaat zodat de aanroeper niet alleen weet dát
+   * het einde is, maar ook of het dossier af is of dat het beurtenplafond is geraakt. Die twee
+   * horen niet dezelfde status te krijgen.
+   */
+  readonly closeReason?: 'complete' | 'max_turns' | null;
   /**
    * Gestreamd, per zin. De engine wacht nooit op de complete respons: je kunt geen
    * JSON naar TTS streamen, dus het hot path levert platte tekst die per zinsafsluiting

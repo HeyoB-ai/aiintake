@@ -25,7 +25,18 @@ export type CaseFact = z.infer<typeof CaseFactSchema>;
  * van de regel uit §10: elke bewering in de samenvatting is herleidbaar.
  */
 export const TraceableCaseFactSchema = CaseFactSchema.refine(
-  (fact) => fact.status === 'unknown' || fact.sourceRef !== null,
+  /*
+   * `client_form` hoeft geen `sourceRef`, en dat is geen versoepeling.
+   *
+   * Een `sourceRef` wijst naar het bericht waarin het is gezegd, zodat een advocaat de
+   * bewering kan terugvinden in het transcript. Een veld dat de cliënt zelf op het
+   * toestemmingsscherm heeft ingetypt, staat niet in het transcript — er ís geen bericht om
+   * naar te wijzen, en er een verzinnen zou de herleidbaarheid juist ondermijnen.
+   *
+   * De herkomst is er wél: `source = 'client_form'` zegt precies waar het vandaan komt, en dat
+   * is voor dit geval de hele herleiding.
+   */
+  (fact) => fact.status === 'unknown' || fact.source === 'client_form' || fact.sourceRef !== null,
   {
     message: 'Een confirmed/inferred/contradicted feit vereist een sourceRef',
     path: ['sourceRef'],

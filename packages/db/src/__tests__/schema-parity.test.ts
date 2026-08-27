@@ -65,6 +65,28 @@ function tableBody(table: string): string {
 
 /** Haalt de toegestane waarden uit `check (<column> in ('a','b',...))`. */
 function checkValues(table: string, column: string): string[] {
+  /*
+   * Eerst kijken of een latere migratie de constraint heeft vervangen.
+   *
+   * Deze functie las alleen het oorspronkelijke `create table`-blok. Een constraint die later
+   * is vervangen — `drop constraint` gevolgd door `add constraint` — bleef daardoor
+   * onzichtbaar: de test meldde een verschil dat er niet was, en had bij de omgekeerde
+   * wijziging een verschil gemist dat er wél was.
+   *
+   * De laatste `add constraint` wint, want dat is wat er in de database staat nadat alle
+   * migraties zijn afgespeeld. `allMigrationSql()` leest ze op bestandsnaam, en dat is
+   * dezelfde volgorde als waarin Supabase ze toepast.
+   */
+  const alterPatroon = new RegExp(
+    `alter\\s+table\\s+(?:public\\.)?${table}\\s+add\\s+constraint[\\s\\S]*?` +
+      `check\\s*\\(\\s*${column}\\s+in\\s*\\(([^)]*)\\)`,
+    'gis',
+  );
+  const uitAlter = [...SQL.matchAll(alterPatroon)].at(-1);
+  if (uitAlter?.[1] !== undefined) {
+    return [...uitAlter[1].matchAll(/'([^']*)'/g)].map((m) => m[1] as string);
+  }
+
   const body = tableBody(table);
   const pattern = new RegExp(`check\\s*\\(\\s*${column}\\s+in\\s*\\(([^)]*)\\)`, 'is');
   const match = body.match(pattern);

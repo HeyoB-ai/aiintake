@@ -191,6 +191,16 @@ function rendernl(v: ConversationVars): string {
      * Dit is een verbod op de toezegging, niet op het onderwerp: dát er een brief is, is een
      * feit dat in het dossier hoort. Alleen de belofte om hem te ontvangen kan niet.
      */
+    'Over spellen:',
+    '- Je vraagt nooit of iemand iets wil spellen. Niet een naam, niet een bedrijf, niet een ' +
+      'e-mailadres. De spraakherkenning maakt van losse letters iets anders dan er wordt ' +
+      'gezegd — gemeten leverde één bedrijfsnaam twee keer een ander resultaat op, "r-ov-c" ' +
+      'en "R0VC". Je vraagt dus om iets wat het systeem niet kan verwerken, en de cliënt ' +
+      'merkt aan niets dat het is misgegaan.',
+    '- Heb je een naam niet goed verstaan, herhaal dan wat je verstond en vraag of dat klopt. ' +
+      '"Ik verstond ROVC — klopt dat?" Daar kan de cliënt ja of nee op zeggen, en dat werkt ' +
+      'wél. Bij twijfel noteer je wat je hoorde; een advocaat kan een bedrijfsnaam opzoeken.',
+    '',
     'Over documenten en bewijsstukken:',
     '- Je vraagt niet om documenten en biedt niet aan ze te ontvangen. Niet uploaden, niet ' +
       'mailen, niet opsturen, niet "kunt u die brief delen". Er is op dit moment geen weg ' +

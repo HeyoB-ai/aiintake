@@ -208,6 +208,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
         language: input.language,
         now: input.now,
         pendingLawyerRequests: input.pendingLawyerRequests,
+        ...(input.knownFromForm ? { knownFromForm: input.knownFromForm } : {}),
       });
 
       // Deterministisch, vóór het model. Twaalf maal twaalfduizend is
@@ -359,6 +360,7 @@ export function createIntakeEngine(deps: EngineDeps): IntakeConversationEngine {
       return {
         isResuming: isHervatting,
         ...(ladingBelofte ? { lading: ladingBelofte } : {}),
+        ...(isClosing && plan.closeReason ? { closeReason: plan.closeReason } : {}),
         intent: isClosing
           ? 'close'
           : isOpening

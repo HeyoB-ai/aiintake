@@ -638,6 +638,7 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     clientName: context?.clientName ?? null,
     language: context?.language ?? 'nl',
     initialFacts: context?.facts ?? {},
+    ...(context ? { knownFromForm: context.knownFromForm } : {}),
     initialHistory: context?.history ?? [],
     hotModel: env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001',
     coldModel: env.LLM_COLD_MODEL ?? 'claude-haiku-4-5-20251001',
@@ -715,8 +716,9 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
   let afgesloten = false;
 
   /** Waar een afsluiting vandaan kwam. Vier routes, en ze horen uit elkaar te houden zijn. */
-  type Route = 'tab' | 'server' | 'klok' | 'stopknop';
+  type Route = 'tab' | 'server' | 'klok' | 'stopknop' | 'afgerond';
   const routeTekst: Record<Route, string> = {
+    afgerond: 'gesprek afgerond door de assistent',
     tab: 'tab weg / socket dicht',
     server: 'server stopt',
     klok: 'inactiviteitsklok',
@@ -729,7 +731,35 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
     server: 'error',
     klok: 'timeout',
     stopknop: 'completed',
+    afgerond: 'completed',
   } as const;
+
+  /**
+   * Het gesprek netjes eindigen nadat de assistent afscheid heeft genomen.
+   *
+   * Drie dingen, in deze volgorde: de status van de intake, een bericht aan de cliënt, en pas
+   * daarna de verbinding. Andersom sluit je de deur voordat je hebt gezegd dat het klaar is.
+   *
+   * `complete` en `max_turns` krijgen niet dezelfde status. Bij `complete` is het dossier af
+   * genoeg voor een advocaat; bij `max_turns` is het beurtenplafond geraakt en is er dus
+   * juist géén oordeel te vellen — dat wordt `NEEDS_HUMAN_CHECK`. De agent beslist nooit over
+   * acceptatie (§6); dit is de grens van wat hij mag zetten.
+   */
+  async function rondAf(reden: 'complete' | 'max_turns'): Promise<void> {
+    const status = reden === 'complete' ? 'READY_FOR_REVIEW' : 'NEEDS_HUMAN_CHECK';
+    try {
+      await context?.rpc.updateProgress({ status });
+      console.log(`  gesprek afgerond · ${reden} · status ${status}`);
+    } catch (fout) {
+      // Niet stil: een intake die op IN_PROGRESS blijft staan, ziet er voor een advocaat uit
+      // als een gesprek dat nog loopt.
+      console.log(`  status NIET gezet (${status}): ${String(fout).slice(0, 160)}`);
+    }
+
+    // De cliënt hoort te weten dat het klaar is, en niet dat de verbinding wegviel.
+    stuur({ type: 'stop', reden: 'het gesprek is afgerond' });
+    await beeindig('afgerond');
+  }
 
   async function beeindig(route: Route, detail = ''): Promise<void> {
     if (afgesloten) return;
@@ -958,6 +988,20 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
           .catch((fout: unknown) => {
             console.log(`  transcript NIET weggeschreven: ${String(fout).slice(0, 200)}`);
           });
+        /*
+         * Het einde van het gesprek, en dat bestond niet.
+         *
+         * `intent: 'close'` werd door niemand gelezen. De assistent zei "een advocaat kijkt
+         * ernaar", de lus luisterde daarna gewoon door, de intake bleef op IN_PROGRESS staan
+         * met `completed_at` leeg, en de sessie eindigde pas doordat iets ánders hem sloot.
+         * Wat een cliënt daarvan merkt is dat het stilvalt en de verbinding weggaat — het
+         * laatste wat hij van dit product meemaakt.
+         *
+         * Ná `persistTurn` en ná de audio: de afsluitzin moet eerst zijn uitgesproken.
+         */
+        const afsluiting = intake.afsluiting();
+        if (afsluiting) void rondAf(afsluiting);
+
         void intake
           .observe()
           .then((r) => {

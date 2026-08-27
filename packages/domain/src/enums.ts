@@ -51,7 +51,20 @@ export const FACT_STATUSES = ['confirmed', 'inferred', 'unknown', 'contradicted'
 export const FactStatusSchema = z.enum(FACT_STATUSES);
 export type FactStatus = z.infer<typeof FactStatusSchema>;
 
-export const FACT_SOURCES = ['client_statement', 'document', 'lawyer_input'] as const;
+/**
+ * Waar een feit vandaan komt.
+ *
+ * `client_form` is wat de client zelf op het toestemmingsscherm heeft ingevuld. Bewust apart
+ * van `client_statement`: dat laatste betekent "in het gesprek gezegd" en draagt een citaat,
+ * en een formulierveld heeft er geen. Voor een advocaat is dat verschil inhoudelijk — ingetypt
+ * is anders geverifieerd dan verstaan.
+ */
+export const FACT_SOURCES = [
+  'client_statement',
+  'document',
+  'lawyer_input',
+  'client_form',
+] as const;
 export const FactSourceSchema = z.enum(FACT_SOURCES);
 export type FactSource = z.infer<typeof FactSourceSchema>;
 

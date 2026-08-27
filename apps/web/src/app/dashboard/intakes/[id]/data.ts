@@ -125,7 +125,15 @@ export async function laadIntake(id: string): Promise<IntakeDetail> {
         .from('messages')
         .select('id, turn_index, role, content, intended_content, interrupted_at_char, created_at')
         .eq('intake_id', id)
-        .order('turn_index'),
+        /*
+         * Twee sleutels, want er staan meerdere rijen per beurt.
+         *
+         * Alleen op `turn_index` sorteren laat de volgorde binnen een beurt aan Postgres, en
+         * die gaf consequent de assistent vóór de cliënt — precies omgekeerd aan de
+         * schrijfvolgorde. Elk vraag-antwoordpaar stond daardoor gespiegeld in het transcript.
+         */
+        .order('turn_index')
+        .order('created_at'),
       supabase
         .from('summaries')
         .select('sections, not_established, grounding_ok, ungrounded_claims, created_at')

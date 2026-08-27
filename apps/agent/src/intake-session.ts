@@ -64,6 +64,8 @@ export interface IntakeSessionOptions {
   readonly language?: Language;
   /** Feiten uit eerdere beurten van deze intake, uit `agent_context`. */
   readonly initialFacts?: Readonly<Record<string, CaseFact>>;
+  /** Feitsleutels uit het toestemmingsscherm; de planner vraagt er niet naar. */
+  readonly knownFromForm?: readonly string[];
   /** Het transcript tot nu toe, uit `agent_context`. */
   readonly initialHistory?: readonly Turn[];
   readonly hotModel: string;
@@ -176,6 +178,7 @@ export class IntakeSession {
   private laatstePrompt: RenderedPrompt | null = null;
   private erkenningStand: ErkenningStand = { gebruikt: [], laatsteBeurt: null };
   private laatsteErkenning: string | null = null;
+  private laatsteAfsluiting: 'complete' | 'max_turns' | null = null;
   /** De erkenning van de lopende beurt; wordt bij het wegschrijven afgesplitst. */
   private erkenningVanBeurt: string | null = null;
   private laatsteOordeel: LadingOordeel | null = null;
@@ -300,6 +303,9 @@ export class IntakeSession {
       const self = this;
       return (async function* () {
         const beslissing = await self.engine.respond(self.invoer(input));
+        // Vastleggen vóórdat er iets wordt uitgesproken: de aanroeper leest dit ná de beurt.
+        self.laatsteAfsluiting =
+          beslissing.intent === 'close' ? (beslissing.closeReason ?? 'complete') : null;
 
         /*
          * De erkenning gaat vóór het antwoord, maar houdt het nooit op.
@@ -441,6 +447,18 @@ export class IntakeSession {
         `NIET VASTGELEGD: ${fout instanceof Error ? fout.message : String(fout)}`,
       );
     }
+  }
+
+  /**
+   * Heeft de engine deze beurt het gesprek afgesloten, en waarom?
+   *
+   * `null` zolang er niets is afgesloten. `intent: 'close'` werd tot nu toe door niemand
+   * gelezen: de lus sprak de afsluitzin uit en luisterde daarna gewoon verder. Wat een cliënt
+   * daarvan merkt is dat het gesprek stilvalt en de verbinding op een willekeurig moment weggaat
+   * — het laatste wat hij meemaakt.
+   */
+  afsluiting(): 'complete' | 'max_turns' | null {
+    return this.laatsteAfsluiting;
   }
 
   /** De erkenning die deze beurt is uitgesproken, of `null`. */
@@ -756,10 +774,14 @@ export class IntakeSession {
     /*
      * De index komt van de sessie zelf en niet van de aanroeper.
      *
-     * De beurt is nooit voltooid, dus de lus heeft er geen nummer voor. `history.length` is
-     * waar het gesprek op dit moment staat, en dat is precies de plek waar het gat hoort.
+     * De beurt is nooit voltooid, dus de lus heeft er geen nummer voor.
+     *
+     * `history.length` was fout: die lijst bevat twee regels per beurt — de cliëntuitspraak en
+     * het antwoord — dus de melding belandde op ongeveer het dubbele. In een gesprek van 31
+     * beurten kwam hij op index 54 te staan, ver achter het einde, terwijl het gat bij beurt 27
+     * viel. Precies de plek waar hij hoorde te staan, was de plek waar hij níét stond.
      */
-    const turnIndex = this.history.length;
+    const turnIndex = Math.floor(this.history.length / 2);
     // Eén tekst, gedeeld met het cliëntscherm. Zie niet-verstaan.ts.
     const tekst = NIET_VERSTAAN[this.options.language ?? 'nl'];
 
@@ -811,6 +833,7 @@ export class IntakeSession {
       template: EMPLOYMENT_TEMPLATE,
       rules: EMPLOYMENT_RULES,
       facts: this.facts,
+      ...(this.options.knownFromForm ? { knownFromForm: this.options.knownFromForm } : {}),
       history: this.history,
       documents: [],
       pendingLawyerRequests: [],

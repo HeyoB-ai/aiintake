@@ -39,6 +39,14 @@ export interface PlannerInput {
   readonly pendingLawyerRequests?: readonly string[];
   /** Feitsleutels die al uit een document zijn gehaald; niet opnieuw vragen. */
   readonly knownFromDocuments?: readonly string[];
+  /**
+   * Feitsleutels die de cliënt zelf op het toestemmingsscherm heeft ingevuld.
+   *
+   * Zelfde behandeling als een feit uit een document: niet opnieuw vragen. Bestaat apart omdat
+   * de waarden er niet bij zitten — voor e-mail en telefoon weet de worker alléén dát ze zijn
+   * ingevuld, en dat is met opzet. Zie types.ts.
+   */
+  readonly knownFromForm?: readonly string[];
 }
 
 export interface PlannerResult {
@@ -74,7 +82,10 @@ export function planQuestions(input: PlannerInput): PlannerResult {
   const catalog = input.catalog ?? EMPLOYMENT_CATALOG;
   const { facts, template, rules, now } = input;
   const lawyerRequests = new Set(input.pendingLawyerRequests ?? []);
-  const uitDocument = new Set(input.knownFromDocuments ?? []);
+  const uitDocument = new Set([
+    ...(input.knownFromDocuments ?? []),
+    ...(input.knownFromForm ?? []),
+  ]);
 
   // Welke categorieën doen er überhaupt toe? Een conditionele categorie waarvan de
   // voorwaarde niet aanslaat, bestaat voor dit gesprek niet.
