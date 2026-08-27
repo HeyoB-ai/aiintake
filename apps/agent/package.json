@@ -17,6 +17,7 @@
     "diag:netwerk": "tsx --env-file=../../.env bakeoff/netwerk-diagnose.ts",
     "dev:live": "tsx --env-file=../../.env live/server.ts --zonder-token",
     "diag:speechfinal": "tsx --env-file=../../.env bakeoff/speechfinal-diagnose.ts",
+    "diag:bargein": "tsx --env-file=../../.env bakeoff/bargein-diagnose.ts",
     "diag:gespreksvorm": "tsx --env-file=../../.env bakeoff/gespreksvorm-diagnose.ts",
     "diag:stilte": "tsx --env-file=../../.env bakeoff/stilte-diagnose.ts",
     "anam:persona": "tsx --env-file=../../.env bakeoff/anam-persona.ts",

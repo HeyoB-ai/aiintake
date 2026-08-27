@@ -1391,3 +1391,88 @@ een ander pad neemt dan productie, en daardoor groen wordt over iets anders dan 
 Drie keer nu. De remedie is elke keer dezelfde geweest — laat de poort het echte pad nemen —
 en de kosten van hem niet nemen ook: een deploy die stukgaat op iets wat lokaal in seconden
 zichtbaar was.
+
+## 21. `speechMs` meet niet wat de naam zegt, en daardoor werkt geen van de barge-in-drempels
+
+**Status: open, gemeten 27 augustus 2026 met `pnpm diag:bargein`.**
+
+**De aanleiding.** De assistent onderbrak vaker, en dat begon rond de samplerate-reparatie. De
+hypothese: `INTERRUPT_MIN_SPEECH_MS = 180` stond effectief anderhalf keer ruimer toen de audio
+te traag liep, en vuurt nu op de bedoelde tijd.
+
+**Die hypothese klopt niet.** In `echo-session.ts` staat:
+
+```ts
+stt.on('start_of_turn', () => {
+  speechStartedAt = now();
+});
+stt.on('partial', (text) =>
+  loop.onClientSpeech({
+    speechMs: Math.round(now() - speechStartedAt),
+    text,
+  }),
+);
+```
+
+`now()` is `performance.now()` — wandklok. De microfoonketen loopt op 16 kHz en is door de
+samplerate-reparatie nooit geraakt; die zat aan de afspeelkant. De drempels zijn dus niet
+meegeschaald.
+
+**Wat er wél aan de hand is, en het is erger.** `speechMs` is niet de duur van de spraak. Het
+is de wandkloktijd tussen Deepgram's `SpeechStarted` en de aankomst van het eerste
+interim-resultaat: netwerkretour plus hun interim-cadans. De naam zegt "hoe lang praat de
+cliënt al"; de waarde zegt "hoe lang deed de leverancier erover om iets terug te sturen".
+
+Gemeten, zes runs per arm, op ware snelheid met stilte eromheen:
+
+| arm                                          | partial gekregen | `speechMs`   | besluit                          |
+| -------------------------------------------- | ---------------- | ------------ | -------------------------------- |
+| zin — "Wacht even, dat klopt niet helemaal." | 6/6              | 565–973 ms   | interrupt, `word_count`          |
+| één woord — "Wacht."                         | 3/6              | 2741–2778 ms | interrupt, `speech_duration`     |
+| backchannel — "Ja."                          | 3/6              | 1568–1594 ms | **interrupt**, `speech_duration` |
+| ruis — energie zonder taal                   | 0/6              | —            | komt nooit bij `classifySpeech`  |
+
+**Drie dingen volgen hieruit, en ze zijn alle drie ernstig.**
+
+_1. De drempel is niet te verhogen; de grootheid is verkeerd._ De waarde is **omgekeerd
+evenredig** met hoeveel er gesproken is: een hele zin geeft ~600 ms, één woord ~2750 ms, omdat
+Deepgram bij weinig spraak langer wacht voordat hij een interim stuurt. Wie
+`INTERRUPT_MIN_SPEECH_MS` verhoogt om kort geluid te weren, maakt het juist makkelijker voor
+kort geluid en moeilijker voor een echte zin. Er bestaat geen waarde die doet wat bedoeld is.
+
+_2. De backchannel-rem is dood._ `isBackchannel()` weigert zodra `durationMs >= 400`, en die
+`durationMs` is dezelfde verkeerde grootheid. Gemeten voor "ja": 1568 ms. De lijst met
+"ja", "mm-hm", "precies" wordt dus wel doorlopen maar slaat nooit aan — **elke bevestiging is
+een harde onderbreking**. Dat is precies het gedrag dat de toelichting bij `barge-in.ts` zegt
+te willen voorkomen: "hij valt stil bij elk 'ja'".
+
+_3. Of één woord onderbreekt, is een muntworp._ Bij korte uitingen stuurt Deepgram in de helft
+van de runs helemaal geen interim maar meteen een final, en dan bereikt het `classifySpeech`
+nooit. 3 van de 6.
+
+**Wat er níét misgaat.** Kuchen en ademen leiden niet tot een harde onderbreking: er komt geen
+transcript, dus geen `partial`, dus geen besluit. Ze wekken wel `SpeechStarted` en dempen de
+avatar via `duck()` — en dat is omkeerbaar, zoals bedoeld.
+
+**Waar de getallen vandaan komen.** `INTERRUPT_MIN_SPEECH_MS`, `INTERRUPT_MIN_WORDS` en
+`BACKCHANNEL_MAX_MS` staan in de eerste domeincommit (`da6800e`), met een verwijzing naar §7
+van de spec. Er is geen meting die ze onderbouwt — dezelfde herkomst als het latencybudget,
+waarvan ADR-0012 al zegt dat het een aanname is.
+
+**Wat dit niet verklaart.** De timing. De drempels stonden vóór de samplerate-reparatie precies
+zo verkeerd als erna, dus dit verklaart de gevoeligheid maar niet waarom het gedrag toen is
+veranderd. Eén kandidaat, niet getest: de microfoon staat open terwijl de assistent praat — de
+poort in `conversation-client.ts` is een ruisdrempel op RMS en geen demping tijdens het spreken
+— en de enige bescherming is de echo-onderdrukking van de browser. Haar audio klinkt sinds de
+reparatie op de juiste snelheid en toonhoogte; wat daarvan in de microfoon lekt, is nu
+verstaanbaar Nederlands en daarvóór anderhalf keer te traag en een kwint te laag. Dat is met
+bestanden niet te meten — daar zijn een echte luidspreker en microfoon voor nodig.
+
+**Wat een oplossing zou moeten doen** (niet doorgevoerd; dit is een voorstel, geen reparatie):
+
+- De duurtak voeden met de werkelijke spraakduur uit Deepgram's woordtijdstempels (`start` en
+  `duration` op het resultaat) in plaats van met de wandklok, of hem laten vervallen en alleen
+  op woorden beslissen.
+- `isBackchannel()` op diezelfde echte duur laten oordelen, anders blijft de rem dood.
+- Beslissen wat er moet gebeuren als er geen interim komt maar meteen een final — dat pad
+  bestaat vandaag niet en is de helft van de korte uitingen.
