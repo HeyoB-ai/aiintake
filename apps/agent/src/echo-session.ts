@@ -6,7 +6,12 @@ import type { Language } from '@intake/domain';
 import type { Drempels } from './drempels';
 import type { AgentEnv } from './env';
 import { log } from './log';
-import { TurnLoop, type CompletedTurn, type ResponseSource } from './turn-loop';
+import {
+  TurnLoop,
+  type CompletedTurn,
+  type OnafgerondeWacht,
+  type ResponseSource,
+} from './turn-loop';
 
 /**
  * De echo-agent: de volledige realtime-lus met echte leveranciers, maar zonder model.
@@ -95,6 +100,8 @@ export interface EchoSessionOptions {
    * deploy per poging maakt dat onmogelijk.
    */
   readonly drempels?: Drempels;
+  /** De lus houdt een onafgeronde zin in, of laat hem los. Zie onafgerond.ts. */
+  readonly onOnafgerondeWacht?: (gebeurtenis: OnafgerondeWacht) => void;
   /** De STT kapte de cliënt af. Dataverlies-signaal; zie RISICOS.md risico 2. */
   readonly onPrematureCut?: (
     fullUtterance: string,
@@ -177,6 +184,7 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
             interruptMinWords: options.drempels.interruptMinWords,
             backchannelMaxMs: options.drempels.backchannelMaxMs,
           },
+          onafgerondWachtMs: options.drempels.onafgerondWachtMs,
         }
       : {}),
     respond: options.respond ?? echoResponse,
@@ -198,6 +206,21 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
         tekens: fullUtterance.length,
       });
       options.onPrematureCut?.(fullUtterance, gapMs, detectedBy);
+    },
+    onOnafgerondeWacht: (g) => {
+      /*
+       * Op `info` en niet op `debug`: dit is de enige plek waar het inhouden zichtbaar is, en
+       * het is precies wat er nodig is om `ONAFGEROND_WACHT_MS` op gehoor af te stellen. Hoe
+       * vaak is er gewacht (`wacht`), en hoe vaak leverde dat wachten iets op (`vervolg`
+       * tegenover `verlopen`)? Alleen lengtes, geen tekst — §14.
+       */
+      log.info('onafgeronde zin', {
+        fase: g.fase,
+        tekens: g.tekens,
+        segmenten: g.segmenten,
+        gewachtMs: g.gewachtMs,
+      });
+      options.onOnafgerondeWacht?.(g);
     },
   });
 
@@ -240,6 +263,10 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
       (stt as { finalise?: () => void }).finalise?.();
     },
     close: async () => {
+      // Eerst de lus: een ingehouden zin die nu nog losgelaten wordt, gaat naar een STT en
+      // een TTS die zo dicht zijn. `sluit()` meldt hem als dataverlies in plaats van hem
+      // stilletjes te laten verdampen.
+      loop.sluit();
       await Promise.allSettled([stt.close(), tts.close(), avatar.disconnect()]);
     },
   };

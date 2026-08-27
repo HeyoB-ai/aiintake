@@ -1,4 +1,4 @@
-import { truncateToSpoken, type Language } from '@intake/domain';
+import { lijktOnafgerond, truncateToSpoken, type Language } from '@intake/domain';
 import type { AvatarSession } from '@intake/provider-avatar';
 import type { SttStream } from '@intake/provider-stt';
 import { SentenceFlusher, type TtsStream } from '@intake/provider-tts';
@@ -59,6 +59,15 @@ export interface CompletedTurn {
    * bij een zachte inzet.
    */
   readonly trimmedLeadingMs: number;
+  /**
+   * Hoe lang de lus deze beurt heeft ingehouden omdat hij onafgerond klonk.
+   *
+   * Staat hier omdat die stilte in de metrics anders als vertraging verschijnt zonder dat
+   * iemand kan zien waar hij vandaan komt. `metrics.speechEnd` krijgt het einde van de
+   * spraak, dus het wachten zit gewoon in de latency van deze beurt — en dat hoort ook zo,
+   * want de cliënt heeft het gewacht. Maar dan moet wél af te lezen zijn dat het opzet was.
+   */
+  readonly wachttijdOnafgerondMs: number;
   readonly metrics: TurnMetrics;
 }
 
@@ -71,6 +80,24 @@ export interface TurnLoopOptions {
   readonly now: () => number;
   /** Afwijkende barge-in-drempels; zonder dit gelden de domeinconstanten. */
   readonly bargeIn?: BargeInDrempels;
+  /**
+   * Extra stilte voordat de assistent reageert op een beurt die onafgerond klinkt.
+   *
+   * 0 of weglaten zet het uit, en dat is bewust de stand waarmee je op gehoor kunt
+   * vergelijken. Zie `ONAFGEROND_WACHT_MS` in drempels.ts en onafgerond.ts voor waarom dit
+   * zwijgen is en geen aanmoediging.
+   */
+  readonly onafgerondWachtMs?: number;
+  /**
+   * De lus houdt een beurt in, of laat hem los.
+   *
+   * Zonder dit is het inhouden van buitenaf niet te onderscheiden van een lus die vastzit —
+   * en dat is precies het gedrag dat je bij het afstellen wilt kunnen aflezen: hoe vaak er
+   * gewacht is, en hoe vaak dat wachten iets opleverde.
+   *
+   * Geen tekst in de melding: §14 laat alleen lengtes toe.
+   */
+  readonly onOnafgerondeWacht?: (gebeurtenis: OnafgerondeWacht) => void;
   readonly onTurn: (turn: CompletedTurn) => void | Promise<void>;
   /** Optimistisch dempen op de client; omkeerbaar, dus niet hetzelfde als interrupt. */
   readonly onDuck?: (ducked: boolean) => void;
@@ -118,6 +145,31 @@ export interface TurnLoopOptions {
   readonly onTurnError?: (error: unknown) => void;
 }
 
+export interface OnafgerondeWacht {
+  /**
+   * `wacht` — de beurt wordt ingehouden.
+   * `vervolg` — er kwam alsnog tekst; het wachten heeft iets opgeleverd.
+   * `verlopen` — de tijd is om en de assistent gaat antwoorden op wat er lag.
+   */
+  readonly fase: 'wacht' | 'vervolg' | 'verlopen';
+  /** Aantal tekens dat wordt vastgehouden. Nooit de tekst zelf — §14. */
+  readonly tekens: number;
+  /** Hoeveel losse beurten er inmiddels zijn samengevoegd. */
+  readonly segmenten: number;
+  /** Verstreken wachttijd. Bij `wacht` is dat nul. */
+  readonly gewachtMs: number;
+}
+
+/**
+ * Hoe vaak het wachten mag worden verlengd door een vervolg dat zélf onafgerond klinkt.
+ *
+ * Zonder grens houdt "en… en… en…" de assistent voor altijd stil, en dan is een stotterende
+ * cliënt genoeg om het gesprek te laten hangen. Twee verlengingen betekent ten hoogste drie
+ * keer de ingestelde wachttijd; daarna antwoordt ze op wat er ligt. Er is geen tweede
+ * omgevingsvariabele voor, want dan zijn er twee knoppen voor één gedrag.
+ */
+const MAX_VERLENGINGEN = 2;
+
 type State = 'idle' | 'responding' | 'interrupting';
 
 export class TurnLoop {
@@ -155,6 +207,22 @@ export class TurnLoop {
    * interrupt binnenkomt, is per definitie de uitspraak waarmee de cliënt onderbrak.
    */
   private lopendeInterrupt: Promise<void> | null = null;
+  /**
+   * De ingehouden beurt, als de lus er een vasthoudt.
+   *
+   * `null` is de normale toestand. Zit hier iets in, dan heeft de cliënt een zin uitgesproken
+   * die grammaticaal niet af was en zwijgt de assistent tot de tijd om is of tot er een
+   * vervolg binnenkomt.
+   */
+  private wacht: {
+    segmenten: string[];
+    timer: ReturnType<typeof setTimeout>;
+    begonnenOp: number;
+    speechEndedAt: number | undefined;
+    verlengingen: number;
+  } | null = null;
+  /** Wachttijd van de beurt die nu wordt afgehandeld; gaat mee in `CompletedTurn`. */
+  private wachttijdVanDezeBeurt = 0;
 
   constructor(private readonly o: TurnLoopOptions) {
     this.metrics = new TurnMetricsRecorder(o.now);
@@ -175,10 +243,11 @@ export class TurnLoop {
         return;
       }
       this.endedBy = meta?.endedBy ?? 'speech_final';
-      this.handleTurn(text, meta?.speechEndedAt).catch((error: unknown) => {
-        this.state = 'idle';
-        o.onTurnError?.(error);
-      });
+
+      // Klinkt de zin onafgerond, dan zwijgt de lus eerst. Zie houdVast().
+      if (this.houdVast(text, meta?.speechEndedAt)) return;
+
+      this.startBeurt(text, meta?.speechEndedAt, 0);
     });
 
     /*
@@ -214,6 +283,16 @@ export class TurnLoop {
     });
 
     o.stt.on('turn_continued', (_text, meta) => {
+      /*
+       * Houden we de beurt al in, dan is dit geen afkapping maar het vervolg waarop we
+       * wachten — er is nog geen antwoord de deur uit en er is dus niets afgekapt.
+       *
+       * Zonder deze uitzondering meldt elke geslaagde wacht zichzelf als dataverlies, en
+       * dan vervuilt precies het signaal waarop risico 2 wordt gevolgd. De tekst komt zo
+       * meteen als `end_of_turn` binnen en wordt daar samengevoegd.
+       */
+      if (this.wacht) return;
+
       // De cliënt was nog aan het woord; onze beurt was gebaseerd op een halve zin.
       this.currentUtterance = meta.fullUtterance;
       this.utteranceWasCut = true;
@@ -286,6 +365,135 @@ export class TurnLoop {
   /** Optimistisch dempen zodra de VAD iets hoort. Omkeerbaar. */
   duck(): void {
     if (this.state === 'responding') this.o.onDuck?.(true);
+  }
+
+  /**
+   * Ruimt een ingehouden beurt op bij het einde van de sessie.
+   *
+   * Zonder dit vuurt de timer ná het sluiten van de sessie en gaat er een antwoord op weg
+   * over een STT, een TTS en een avatar die al dicht zijn. De uitspraak zelf is dan niet
+   * meer te redden — de sessie is voorbij — maar hij hoort wél gemeld te worden, want een
+   * cliënt die als laatste iets zei en het niet terugziet, is dataverlies.
+   */
+  sluit(): void {
+    if (!this.wacht) return;
+    const w = this.wacht;
+    this.wacht = null;
+    clearTimeout(w.timer);
+    const tekst = w.segmenten.join(' ');
+    this.o.onSkippedTurn?.(
+      `DATAVERLIES: ${tekst.length} tekens stonden ingehouden als onafgeronde zin toen de ` +
+        'sessie sloot. De uitspraak van de cliënt is niet verwerkt.',
+      { dataverlies: true, tekensGezien: tekst.length },
+    );
+  }
+
+  /**
+   * Houdt een beurt in als hij onafgerond klinkt, of voegt hem bij een lopende wacht.
+   *
+   * Geeft `true` terug als de beurt is opgevangen en de aanroeper niets meer hoeft te doen.
+   *
+   * ## Waarom zwijgen en niet aanmoedigen
+   *
+   * De eerste versie liet de assistent "Gaat u door." zeggen bij een onafgeronde zin. Dat
+   * bleek precies de fout: die zin is zélf een onderbreking. In het gemeten geval haalde de
+   * cliënt adem, begon de assistent te praten, en maakte de cliënt daardoor zijn zin niet af.
+   * Een mens die hoort dat je nog niet klaar bent, zegt niets. Zie onafgerond.ts.
+   */
+  private houdVast(text: string, speechEndedAt: number | undefined): boolean {
+    const wachtMs = this.o.onafgerondWachtMs ?? 0;
+    if (wachtMs <= 0) return false;
+
+    if (this.wacht) {
+      /*
+       * Dit is het vervolg. Samenvoegen en opnieuw beoordelen: is de zin nu wél af, dan is
+       * er geen reden meer om te wachten en gaat de assistent meteen antwoorden — het
+       * wachten hoort de beurt niet langer te maken dan nodig.
+       */
+      const w = this.wacht;
+      clearTimeout(w.timer);
+      w.segmenten.push(text);
+      if (speechEndedAt !== undefined) w.speechEndedAt = speechEndedAt;
+
+      const samen = w.segmenten.join(' ');
+      const gewachtMs = Math.round(this.o.now() - w.begonnenOp);
+      this.o.onOnafgerondeWacht?.({
+        fase: 'vervolg',
+        tekens: samen.length,
+        segmenten: w.segmenten.length,
+        gewachtMs,
+      });
+
+      if (!lijktOnafgerond(samen) || w.verlengingen >= MAX_VERLENGINGEN) {
+        this.wacht = null;
+        this.startBeurt(samen, w.speechEndedAt, gewachtMs);
+        return true;
+      }
+
+      w.verlengingen += 1;
+      w.timer = setTimeout(() => this.laatLos(), wachtMs);
+      return true;
+    }
+
+    /*
+     * Alleen inhouden als de lus zelf niets te doen heeft.
+     *
+     * Praat de assistent nog, dan is deze uitspraak een onderbreking en hoort zij te stoppen,
+     * niet te wachten. Wachten zou daar het omgekeerde doen van wat het hier moet doen: haar
+     * langer laten doorpraten over de cliënt heen.
+     */
+    if (this.state !== 'idle') return false;
+    if (!lijktOnafgerond(text)) return false;
+
+    this.wacht = {
+      segmenten: [text],
+      begonnenOp: this.o.now(),
+      speechEndedAt,
+      verlengingen: 0,
+      timer: setTimeout(() => this.laatLos(), wachtMs),
+    };
+    this.o.onOnafgerondeWacht?.({
+      fase: 'wacht',
+      tekens: text.length,
+      segmenten: 1,
+      gewachtMs: 0,
+    });
+    return true;
+  }
+
+  /** De wachttijd is verstreken zonder vervolg: antwoorden op wat er ligt. */
+  private laatLos(): void {
+    const w = this.wacht;
+    if (!w) return;
+    this.wacht = null;
+
+    const samen = w.segmenten.join(' ');
+    const gewachtMs = Math.round(this.o.now() - w.begonnenOp);
+    this.o.onOnafgerondeWacht?.({
+      fase: 'verlopen',
+      tekens: samen.length,
+      segmenten: w.segmenten.length,
+      gewachtMs,
+    });
+    this.startBeurt(samen, w.speechEndedAt, gewachtMs);
+  }
+
+  /**
+   * Start de beurtafhandeling vanuit een event-handler.
+   *
+   * De afvanger hoort hier en niet bij elke aanroeper: zonder hem wordt een fout in de lus
+   * een unhandled rejection, en die sloopt de hele worker in plaats van deze ene sessie.
+   */
+  private startBeurt(
+    utterance: string,
+    speechEndedAt: number | undefined,
+    wachttijdMs: number,
+  ): void {
+    this.wachttijdVanDezeBeurt = wachttijdMs;
+    this.handleTurn(utterance, speechEndedAt).catch((error: unknown) => {
+      this.state = 'idle';
+      this.o.onTurnError?.(error);
+    });
   }
 
   private async handleTurn(utterance: string, speechEndedAt?: number): Promise<void> {
@@ -493,9 +701,11 @@ export class TurnLoop {
       clientUtteranceWasCut: this.utteranceWasCut,
       endedBy: this.endedBy,
       trimmedLeadingMs: this.o.tts.trimmedLeadingMs?.() ?? 0,
+      wachttijdOnafgerondMs: this.wachttijdVanDezeBeurt,
       metrics: this.metrics.snapshot(),
     };
 
+    this.wachttijdVanDezeBeurt = 0;
     this.turnIndex += 1;
     this.state = 'idle';
     this.abort = null;

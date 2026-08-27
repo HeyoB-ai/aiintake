@@ -1989,3 +1989,67 @@ als inhoud terwijl de backchannel-kant het als één woord zag. Het koppelteken 
 toetst tegen `BACKCHANNEL_MAX_MS = 400` en kreeg netwerkretour van 1570 ms. Twee dingen
 repareren die elkaar opheffen levert niets op — de lijst afstemmen op een rem die niet werkt,
 had geen enkel gedrag veranderd.
+
+---
+
+## 30. Stilte in de opgeslagen rijen kan een onderbreking zijn geweest
+
+**Status:** de meetfout is benoemd; het gedrag is omgezet van aanmoedigen naar zwijgen.
+
+De aanleiding was een gesprek waarin de assistent er dwars doorheen praatte, met
+`DEEPGRAM_ENDPOINTING_MS=700` in Railway.
+
+**Eerst het deel dat wél klopte.** Die 700 komt aan. De Deepgram-adapter logt bij `connect()` de
+waarden die de query-string in gaan — het laatste punt waarop er nog iets te veranderen valt — en
+`diag:bargein` leest dezelfde omgevingsvariabelen, zodat de proef niet iets anders meet dan er
+draait:
+
+    STT: nova-3 · endpointing 700 ms · utterance_end 1000 ms · 16000 Hz
+
+**Toen mijn verkeerde conclusie.** De rijen van het gewraakte fragment:
+
+    19:05:54,782  U          "…ik ben directeur,"
+    19:05:54,828  ASSISTENT  "Gaat u door, wat gebeurde daar?"
+    19:05:57,914  U          "en die riep zich bij me"
+
+Ik las daar "een echte pauze van ruim drie seconden" en concludeerde dat de drempel precies deed
+wat hem was opgedragen. Dat was fout. De cliënt was niet stil: hij haalde adem, de assistent begon
+te praten, en dáárom hield hij zijn mond. Die drie seconden zijn háár spreektijd plus zijn reactie
+erop.
+
+**De algemene vorm, en dit is het punt van dit risico.** De opgeslagen rijen bevatten alleen
+tijdstempels van beurten, niet wie er op welk moment geluid maakte. *"Cliënt pauzeert drie
+seconden"* en *"cliënt haalt adem, assistent praat, cliënt houdt in"* zijn er niet uit elkaar te
+houden.
+
+> **Elke meting op basis van tijdsafstand tussen cliëntregels is daarmee onbetrouwbaar.**
+
+Dat raakt onder meer de poging waarmee ik het onafgerond-signaal probeerde te valideren (elf
+gemarkeerde gevallen, 8,0 tegen 10,6 seconde mediaan). Die meting zei niets — en nu is bekend
+waaróm hij niets kón zeggen, wat iets anders is dan "te weinig data".
+
+**Wat er is gebouwd.** `lijktOnafgerond()` in `packages/domain/src/onafgerond.ts`: eindigt de
+uitspraak op een komma, of op een voegwoord zonder afsluitend leesteken, dan was de cliënt
+waarschijnlijk nog niet klaar. Getoetst op echte uitspraken uit gevoerde gesprekken; van 124
+cliëntuitspraken eindigen er 85 op een punt of vraagteken en 12 op een komma of voegwoord. Een
+afsluitend leesteken wint van het laatste woord — "Nee, dat klopt, dus hij ook." markeerde de
+eerste versie ten onrechte.
+
+**Wat de lus ermee doet: zwijgen, niet aanmoedigen.** De eerste versie hing het signaal aan de
+prompt en liet de assistent "Gaat u door." zeggen. Dat is precies de zin die in het gemeten geval
+de schade aanrichtte. Een aanmoediging is zélf een onderbreking; een mens die hoort dat je nog
+niet klaar bent, zegt niets en wacht. Het signaal stuurt nu `ONAFGEROND_WACHT_MS` (standaard
+1200 ms, 0 zet het uit) in `turn-loop.ts`: de beurt wordt ingehouden, een vervolg wordt
+samengevoegd en beantwoord zodra de zin wél af is, en na ten hoogste twee verlengingen antwoordt
+ze op wat er ligt — anders legt één stotterende cliënt het gesprek stil.
+
+**Waarom een knop en geen berekend getal.** De juiste wachttijd is uit de opgeslagen gesprekken
+niet af te leiden, om precies de reden hierboven. Hij wordt op gehoor geijkt, net als de
+endpointing zelf. `onOnafgerondeWacht` logt per geval `wacht` / `vervolg` / `verlopen` met lengtes
+en de verstreken tijd (§14: geen transcriptfragmenten), zodat na een gesprek te zien is hoe vaak
+er is gewacht en hoe vaak dat wachten iets opleverde. `CompletedTurn.wachttijdOnafgerondMs` houdt
+de toegevoegde stilte apart, anders verschijnt hij in de metrics als onverklaarde vertraging.
+
+**Wat dit niet oplost.** Het inhouden gebeurt alleen als de lus stil is. Praat de assistent al,
+dan is de uitspraak een onderbreking en hoort zij te stoppen — dat blijft het werk van risico 21,
+en die rem werkt nog steeds niet op de juiste grootheid.

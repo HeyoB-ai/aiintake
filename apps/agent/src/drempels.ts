@@ -47,6 +47,8 @@ export interface Drempels {
   readonly endpointingMs: number;
   /** Deepgram: vangnet dat de beurt sluit op gaten tussen woordtijdstempels. */
   readonly utteranceEndMs: number;
+  /** Extra stilte na een beurt die grammaticaal onafgerond klinkt. 0 zet het uit. */
+  readonly onafgerondWachtMs: number;
   /** Browser: RMS waarboven de microfoonpoort opengaat. */
   readonly micGateRms: number;
   /** Browser: hoe lang het stil moet zijn voordat de poort dichtgaat. */
@@ -128,6 +130,21 @@ const REGELS: Regel[] = [
       'Deepgram accepteert onder de 1000 niet. Deze waarde voedt óók de detector voor een te ' +
       'vroege knip (`continuationInterval`), dus hem verhogen verruimt het venster waarin een ' +
       'vervolg nog als afkapping wordt herkend.',
+  },
+  {
+    env: 'ONAFGEROND_WACHT_MS',
+    sleutel: 'onafgerondWachtMs',
+    standaard: 1_200,
+    min: 0,
+    max: 5_000,
+    geheel: true,
+    waarom:
+      'Hoe lang de assistent extra zwijgt als de beurt eindigt op een komma of een voegwoord. ' +
+      'Anders dan de endpointing kost deze stilte alleen iets op de beurten die er onafgerond ' +
+      'uitzien — 12 van de 124 gemeten cliëntuitspraken. 0 zet hem uit, en dat is de stand ' +
+      'waarmee je op gehoor kunt vergelijken. Boven de 5 s wordt het wachten zelf een storing: ' +
+      'de cliënt denkt dat de verbinding weg is. De juiste waarde is niet uit te rekenen, want ' +
+      'stilte en onderbreking zijn in de opgeslagen rijen niet te scheiden (zie onafgerond.ts).',
   },
   {
     env: 'MIC_GATE_RMS',

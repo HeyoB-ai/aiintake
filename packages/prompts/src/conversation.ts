@@ -53,12 +53,14 @@ export interface ConversationVars extends Record<string, unknown> {
    * wat je nú moet vragen.
    */
   readonly narrativePhase: boolean;
-  /**
-   * De laatste uitspraak van de cliënt zag eruit alsof hij nog niet klaar was.
+  /*
+   * Hier stond `onafgerondeUitspraak`: een vlag die de assistent liet uitnodigen om door te
+   * gaan ("Gaat u door.") als de laatste zin van de cliënt onafgerond klonk.
    *
-   * Uit de interpunctie van de herkenner, niet uit een klok. Zie onafgerond.ts.
+   * Dat was het verkeerde antwoord op het juiste signaal. Elke aanmoediging is zélf een
+   * onderbreking: wie hoort dat je nog niet klaar bent, zwijgt. Het signaal stuurt nu een
+   * wachttijd in de beurtlus in plaats van een zin in de prompt. Zie onafgerond.ts.
    */
-  readonly onafgerondeUitspraak?: boolean;
   /**
    * De groet die bij het tijdstip hoort, al gekozen.
    *
@@ -255,32 +257,6 @@ function rendernl(v: ConversationVars): string {
     );
   }
 
-  if (v.onafgerondeUitspraak && !v.isOpening && !v.isClosing) {
-    regels.push(
-      '',
-      /*
-       * Waarom een uitnodiging en geen nieuwe vraag.
-       *
-       * De endpointing sluit een beurt na een vaste stilte. Een cliënt die middenin een zin
-       * nadenkt, wordt daardoor afgekapt terwijl hij nog bezig is — gemeten met een pauze van
-       * ruim drie seconden, waarna de zin doorliep met "en die riep zich bij me".
-       *
-       * De drempel verhogen tot boven zo'n pauze zou die stilte aan élke beurt toevoegen. Dit
-       * is de goedkope kant: als de zin grammaticaal niet af is, stel dan geen nieuwe vraag
-       * maar nodig uit om door te gaan. Kost niets als het loos alarm is.
-       */
-      'De cliënt is waarschijnlijk nog niet uitgesproken: zijn laatste zin loopt door — hij ' +
-        'eindigt op een komma of een voegwoord. Dat komt doordat er een stilte viel, niet ' +
-        'doordat hij klaar was.',
-      '- Stel geen nieuwe vraag. Nodig in een paar woorden uit om door te gaan: "Gaat u ' +
-        'door." of "Ik luister." Meer niet.',
-      '- Vat niet samen en herhaal niet wat hij zei. Hij is midden in een zin; een samenvatting ' +
-        'onderbreekt hem harder dan een vraag.',
-      '- Ga er niet van uit dat de halve zin al een antwoord is. Wat er nog komt, kan hem ' +
-        'veranderen.',
-    );
-  }
-
   if (v.isOpening) {
     /*
      * Hier stond het volledige sjabloon van de openingszin, met vier regels erover.
@@ -424,32 +400,6 @@ function renderen(v: ConversationVars): string {
       'Do not reintroduce yourself, do not repeat that you are an AI, and do not summarise ' +
         'or refer to anything said earlier — none of it is recorded yet, and referring to ' +
         'it implies that it is.',
-    );
-  }
-
-  if (v.onafgerondeUitspraak && !v.isOpening && !v.isClosing) {
-    regels.push(
-      '',
-      /*
-       * Waarom een uitnodiging en geen nieuwe vraag.
-       *
-       * De endpointing sluit een beurt na een vaste stilte. Een cliënt die middenin een zin
-       * nadenkt, wordt daardoor afgekapt terwijl hij nog bezig is — gemeten met een pauze van
-       * ruim drie seconden, waarna de zin doorliep met "en die riep zich bij me".
-       *
-       * De drempel verhogen tot boven zo'n pauze zou die stilte aan élke beurt toevoegen. Dit
-       * is de goedkope kant: als de zin grammaticaal niet af is, stel dan geen nieuwe vraag
-       * maar nodig uit om door te gaan. Kost niets als het loos alarm is.
-       */
-      'De cliënt is waarschijnlijk nog niet uitgesproken: zijn laatste zin loopt door — hij ' +
-        'eindigt op een komma of een voegwoord. Dat komt doordat er een stilte viel, niet ' +
-        'doordat hij klaar was.',
-      '- Stel geen nieuwe vraag. Nodig in een paar woorden uit om door te gaan: "Gaat u ' +
-        'door." of "Ik luister." Meer niet.',
-      '- Vat niet samen en herhaal niet wat hij zei. Hij is midden in een zin; een samenvatting ' +
-        'onderbreekt hem harder dan een vraag.',
-      '- Ga er niet van uit dat de halve zin al een antwoord is. Wat er nog komt, kan hem ' +
-        'veranderen.',
     );
   }
 

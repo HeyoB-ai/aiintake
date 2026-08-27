@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NullAvatarProvider, type NullAvatarSession } from '@intake/provider-avatar';
 import { FakeSttProvider, type FakeSttStream } from '@intake/provider-stt';
 import { FakeTtsProvider, FakeTtsStream, FAKE_MS_PER_CHAR } from '@intake/provider-tts';
-import { TurnLoop, type CompletedTurn, type ResponseSource } from './turn-loop';
+import {
+  TurnLoop,
+  type CompletedTurn,
+  type OnafgerondeWacht,
+  type ResponseSource,
+} from './turn-loop';
 import { formatHudLine, meetsPhaseOneGate } from './metrics';
 
 /**
@@ -62,11 +67,17 @@ interface Harness {
   backchannels: string[];
   prematureCuts: { tekst: string; gapMs: number }[];
   skipped: string[];
+  wachten: OnafgerondeWacht[];
 }
 
 async function harness(
   respond: (h: () => Harness) => ResponseSource,
-  opts: { cancelCostMs?: number; traagAnnuleren?: boolean } = {},
+  opts: {
+    cancelCostMs?: number;
+    traagAnnuleren?: boolean;
+    /** Zonder dit staat het inhouden uit, net als in de standaardconfiguratie van de lus. */
+    onafgerondWachtMs?: number;
+  } = {},
 ): Promise<Harness> {
   const clock = new TestClock();
 
@@ -90,6 +101,7 @@ async function harness(
   const backchannels: string[] = [];
   const prematureCuts: { tekst: string; gapMs: number }[] = [];
   const skipped: string[] = [];
+  const wachten: OnafgerondeWacht[] = [];
 
   let self!: Harness;
   const loop = new TurnLoop({
@@ -98,6 +110,12 @@ async function harness(
     avatar,
     language: 'nl',
     now: clock.now,
+    ...(opts.onafgerondWachtMs === undefined
+      ? {}
+      : { onafgerondWachtMs: opts.onafgerondWachtMs }),
+    onOnafgerondeWacht: (g) => {
+      wachten.push(g);
+    },
     respond: respond(() => self),
     onTurn: (turn) => {
       turns.push(turn);
@@ -116,7 +134,19 @@ async function harness(
     },
   });
 
-  self = { clock, stt, tts, avatar, loop, turns, ducks, backchannels, prematureCuts, skipped };
+  self = {
+    clock,
+    stt,
+    tts,
+    avatar,
+    loop,
+    turns,
+    ducks,
+    backchannels,
+    prematureCuts,
+    skipped,
+    wachten,
+  };
   return self;
 }
 
@@ -592,5 +622,190 @@ describe('latencytotaal per beurt', () => {
     // Geen enkele null. Vóór de reparatie was dit [120, null, null].
     expect(totalen.every((v) => typeof v === 'number')).toBe(true);
     expect(totalen).toEqual([120, 120, 120]);
+  });
+});
+
+/**
+ * Zwijgen bij een onafgeronde zin.
+ *
+ * ## Wat hier eerst stond en waarom het fout was
+ *
+ * De eerste versie liet de assistent "Gaat u door." zeggen zodra de zin van de cliënt op een
+ * komma of een voegwoord eindigde. Uit een gevoerd gesprek bleek dat precies de fout: de cliënt
+ * haalde adem, de assistent begon te praten, en dáárom maakte hij zijn zin niet af. Elke
+ * aanmoediging is zelf een onderbreking.
+ *
+ * De rijen in de database kunnen dat niet laten zien — daar staat alleen "drie seconden tussen
+ * twee cliëntregels", en dat is niet te onderscheiden van een cliënt die zweeg. Zie onafgerond.ts.
+ *
+ * ## Waarom deze tests met nagebootste timers draaien
+ *
+ * Het inhouden gebeurt met een `setTimeout`. Alleen `setTimeout` en `clearTimeout` worden
+ * nagebootst en `setImmediate` niet, want daarmee laten de bestaande tests de microtaken van de
+ * lus leeglopen — dat moet blijven werken.
+ */
+describe('een onafgeronde zin: zwijgen en wachten', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const tik = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+  /** Laat tijd verstrijken op beide klokken: die van de lus én die van de timers. */
+  async function verstrijk(h: Harness, ms: number): Promise<void> {
+    h.clock.advance(ms);
+    vi.advanceTimersByTime(ms);
+    await tik();
+  }
+
+  const KORT = 'Ik moest bij de grootaandeelhouder komen, ik ben directeur,';
+  const VERVOLG = 'en die riep zich bij me.';
+
+  const kortAntwoord =
+    () =>
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async function* (): AsyncGenerator<string> {
+      yield 'Goed.';
+    };
+
+  it('zegt niets zolang de zin onafgerond is', async () => {
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_200 });
+
+    h.stt.endOfTurn(KORT, h.clock.now());
+    await tik();
+
+    // Dit is de kern: geen beurt, dus ook geen "Gaat u door." en geen nieuwe vraag.
+    expect(h.turns).toHaveLength(0);
+    expect(h.wachten.map((w) => w.fase)).toEqual(['wacht']);
+    expect(h.wachten[0]!.tekens).toBe(KORT.length);
+  });
+
+  it('voegt het vervolg samen tot één beurt en antwoordt dan meteen', async () => {
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_200 });
+
+    h.stt.endOfTurn(KORT, h.clock.now());
+    await tik();
+    await verstrijk(h, 600);
+    h.stt.endOfTurn(VERVOLG, h.clock.now());
+    await tik();
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0]!.clientUtterance).toBe(`${KORT} ${VERVOLG}`);
+    // Niet uitzitten wat er niet meer nodig is: de zin is nu af, dus het wachten stopt.
+    expect(h.turns[0]!.wachttijdOnafgerondMs).toBe(600);
+    expect(h.wachten.map((w) => w.fase)).toEqual(['wacht', 'vervolg']);
+  });
+
+  it('antwoordt op wat er ligt als er niets meer komt', async () => {
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_200 });
+
+    h.stt.endOfTurn(KORT, h.clock.now());
+    await tik();
+    expect(h.turns).toHaveLength(0);
+
+    await verstrijk(h, 1_200);
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0]!.clientUtterance).toBe(KORT);
+    expect(h.turns[0]!.wachttijdOnafgerondMs).toBe(1_200);
+    expect(h.wachten.map((w) => w.fase)).toEqual(['wacht', 'verlopen']);
+  });
+
+  it('houdt een afgeronde zin niet in', async () => {
+    /*
+     * Zonder deze test is "hij wacht bij een komma" niet te onderscheiden van "hij wacht
+     * altijd", en dan zou een detector die overal `true` teruggeeft er even groen uitzien.
+     */
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_200 });
+
+    h.stt.endOfTurn('Ja, ik ben op 23 augustus mondeling op staande voet ontslagen.', h.clock.now());
+    await tik();
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0]!.wachttijdOnafgerondMs).toBe(0);
+    expect(h.wachten).toEqual([]);
+  });
+
+  it('doet niets als de drempel op nul staat', async () => {
+    // De stand waarmee je op gehoor kunt vergelijken. Zie ONAFGEROND_WACHT_MS in drempels.ts.
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 0 });
+
+    h.stt.endOfTurn(KORT, h.clock.now());
+    await tik();
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.wachten).toEqual([]);
+  });
+
+  it('blijft niet eeuwig hangen op een cliënt die stottert', async () => {
+    /*
+     * "en… dat ik… en… of" — elk stukje eindigt onafgerond en zou het wachten opnieuw
+     * verlengen. Na MAX_VERLENGINGEN antwoordt de lus op wat er ligt; zonder die grens is
+     * één hakkelende cliënt genoeg om het gesprek stil te leggen.
+     */
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_000 });
+
+    for (const stuk of ['En toen dacht ik,', 'dat ik', 'en']) {
+      h.stt.endOfTurn(stuk, h.clock.now());
+      await tik();
+      expect(h.turns, `na "${stuk}" hoort er nog niets gezegd te zijn`).toHaveLength(0);
+      await verstrijk(h, 100);
+    }
+
+    h.stt.endOfTurn('of', h.clock.now());
+    await tik();
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.turns[0]!.clientUtterance).toBe('En toen dacht ik, dat ik en of');
+  });
+
+  it('meldt een ingehouden zin als dataverlies wanneer de sessie sluit', async () => {
+    const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_200 });
+
+    h.stt.endOfTurn(KORT, h.clock.now());
+    await tik();
+    h.loop.sluit();
+
+    expect(h.skipped.some((s) => s.includes('DATAVERLIES'))).toBe(true);
+
+    // En de timer is écht opgeruimd: er komt geen antwoord meer over een dichte keten.
+    await verstrijk(h, 5_000);
+    expect(h.turns).toHaveLength(0);
+  });
+
+  it('wacht niet terwijl de assistent zelf aan het woord is', async () => {
+    /*
+     * Dan is de uitspraak een onderbreking, en hoort zij te stoppen. Wachten zou daar het
+     * omgekeerde doen van wat het hier moet doen: haar langer laten doorpraten over de cliënt
+     * heen — precies het gedrag dat deze hele voorziening moet wegnemen.
+     */
+    let laatDoor!: () => void;
+    const bezig = new Promise<void>((r) => {
+      laatDoor = r;
+    });
+
+    const h = await harness(
+      () =>
+        async function* (): AsyncGenerator<string> {
+          yield 'Ik ben nog aan het woord. ';
+          await bezig;
+          yield 'Klaar.';
+        },
+      { onafgerondWachtMs: 1_200 },
+    );
+
+    h.stt.endOfTurn('Eerste vraag.', h.clock.now());
+    await tik();
+
+    h.stt.endOfTurn('en toen dacht ik,', h.clock.now());
+    await tik();
+
+    expect(h.wachten, 'een onderbreking hoort niet ingehouden te worden').toEqual([]);
+
+    laatDoor();
+    await tik();
   });
 });

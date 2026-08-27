@@ -22,6 +22,17 @@ describe('zonder afwijking', () => {
     expect(heeftAfwijking(d)).toBe(false);
   });
 
+  it('leest de wachttijd voor een onafgeronde zin, nul inbegrepen', () => {
+    /*
+     * Nul is hier een geldige stand en geen "niet gezet": het is juist de stand waarmee je op
+     * gehoor kunt vergelijken. Zou hij als leeg worden gelezen, dan sprong hij terug naar 1200
+     * en zou een luistertest die het inhouden uitzet stilletjes met inhouden draaien.
+     */
+    expect(leesDrempels({}).onafgerondWachtMs).toBe(1_200);
+    expect(leesDrempels({ ONAFGEROND_WACHT_MS: '0' }).onafgerondWachtMs).toBe(0);
+    expect(heeftAfwijking(leesDrempels({ ONAFGEROND_WACHT_MS: '0' }))).toBe(true);
+  });
+
   it('behandelt een lege waarde als niet gezet', () => {
     // Railway laat een variabele leeg achter als je hem wist in plaats van verwijdert. Zonder
     // deze regel wordt dat Number('') === 0, en dan staat er stilzwijgend een drempel van nul.
@@ -103,6 +114,7 @@ describe('de opstartbanner', () => {
       'BACKCHANNEL_MAX_MS',
       'DEEPGRAM_ENDPOINTING_MS',
       'DEEPGRAM_UTTERANCE_END_MS',
+      'ONAFGEROND_WACHT_MS',
       'MIC_GATE_RMS',
       'MIC_GATE_CLOSE_MS',
     ]) {
