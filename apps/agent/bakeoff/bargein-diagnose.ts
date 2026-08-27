@@ -171,7 +171,10 @@ interface Meting {
   /** Vanaf het eerste audioframe tot `start_of_turn`. */
   readonly totStartMs: number | null;
   /** Van `start_of_turn` tot de eerste partial. Dit is wat `speechMs` in productie draagt. */
+  /** Wandklok van SpeechStarted tot de eerste partial. De oude, verkeerde grootheid. */
   readonly speechMs: number | null;
+  /** De spraakduur van de herkenner. Dit is wat de drempels sinds risico 21 zien. */
+  readonly spraakMs: number | null;
   readonly eersteTekst: string;
   readonly woorden: number;
   readonly besluit: string;
@@ -190,14 +193,18 @@ async function meet(arm: Arm, pcm: Int16Array, run: number): Promise<Meting> {
   let startOfTurnAt: number | null = null;
   let eerstePartialAt: number | null = null;
   let eersteTekst = '';
+  let spraakMs: number | null = null;
 
   stt.on('start_of_turn', () => {
     startOfTurnAt ??= performance.now();
   });
-  stt.on('partial', (text: string) => {
+  stt.on('partial', (text: string, meta?: { speechMs: number }) => {
     if (eerstePartialAt !== null) return;
     eerstePartialAt = performance.now();
     eersteTekst = text;
+    // De spraakduur van de herkenner. Zonder dit veld valt productie terug op de wandklok en
+    // meet de drempel weer netwerkretour — dan hoort deze proef dat te laten zien.
+    spraakMs = meta?.speechMs ?? null;
   });
 
   await paceAudio(metStilte(pcm), { sampleRate: SAMPLE_RATE, onFrame: (f) => stt.push(f) });
@@ -217,16 +224,25 @@ async function meet(arm: Arm, pcm: Int16Array, run: number): Promise<Meting> {
    * deze uitkomst mee — en dat is de bedoeling: een proef die zijn eigen kopie van de logica
    * meebrengt, meet die kopie.
    */
+  /*
+   * De productiefunctie op de waarde die productie óók gebruikt.
+   *
+   * Sinds de reparatie van risico 21 draagt `partial` de spraakduur van de herkenner; alleen
+   * als die ontbreekt valt de lus terug op de wandklok. Deze proef doet hetzelfde, zodat de
+   * tabel meet wat er werkelijk gebeurt en niet wat er zou gebeuren.
+   */
+  const gebruikt = spraakMs ?? speechMs;
   const besluit =
-    speechMs === null
+    gebruikt === null
       ? { kind: 'geen partial', reason: 'nooit bij classifySpeech gekomen' }
-      : classifySpeech({ speechMs, text: eersteTekst }, 'nl');
+      : classifySpeech({ speechMs: gebruikt, text: eersteTekst }, 'nl');
 
   return {
     arm: arm.naam,
     run,
     totStartMs: startOfTurnAt !== null ? Math.round(startOfTurnAt - begin) : null,
     speechMs,
+    spraakMs,
     eersteTekst,
     woorden: eersteTekst.trim() ? eersteTekst.trim().split(/\s+/u).length : 0,
     besluit: besluit.kind,
@@ -274,7 +290,8 @@ async function main(): Promise<void> {
     'arm'.padEnd(12),
     'run'.padStart(3),
     'tot start'.padStart(10),
-    'speechMs'.padStart(9),
+    'wandklok'.padStart(9),
+    'spraak'.padStart(7),
     'woorden'.padStart(8),
     'besluit'.padEnd(13),
     'reden',
@@ -288,6 +305,7 @@ async function main(): Promise<void> {
         String(m.run).padStart(3),
         (m.totStartMs === null ? '—' : `${m.totStartMs} ms`).padStart(10),
         (m.speechMs === null ? '—' : `${m.speechMs} ms`).padStart(9),
+        (m.spraakMs === null ? '—' : `${m.spraakMs} ms`).padStart(7),
         String(m.woorden).padStart(8),
         m.besluit.padEnd(13),
         m.reden,

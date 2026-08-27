@@ -78,6 +78,14 @@ export interface EchoSessionOptions {
     reason: string,
     meta?: { readonly dataverlies: boolean; readonly tekensGezien: number },
   ) => void;
+  /**
+   * De herkenner leverde geen spraakduur bij een tussentijds resultaat.
+   *
+   * Dan valt de barge-in terug op de wandklok, en meet `speechMs` weer netwerkretour in plaats
+   * van spraakduur — precies wat risico 21 beschrijft. Dat hoort niet stil te gebeuren: de
+   * drempels betekenen vanaf dat moment iets anders dan hun naam zegt.
+   */
+  readonly onGeenSpraakduur?: () => void;
   readonly onTurn?: (turn: CompletedTurn) => void;
   /**
    * Afwijkende drempels voor onderbreken en endpointing.
@@ -201,7 +209,26 @@ export async function startEchoSession(options: EchoSessionOptions): Promise<Ech
     speechStartedAt = now();
     loop.duck();
   });
-  stt.on('partial', (text) => {
+  stt.on('partial', (text, meta) => {
+    /*
+     * De spraakduur van de herkenner, niet de wandklok.
+     *
+     * Hier stond `now() - speechStartedAt`: de afstand tussen `SpeechStarted` en de aankomst
+     * van dit bericht. Dat is netwerkretour plus de cadans van de leverancier. Gemeten liep het
+     * van 565 tot 2778 ms en het is **omgekeerd evenredig** met hoeveel er gesproken is — een
+     * hele zin gaf 600 ms, één woord 2750 ms, omdat de herkenner bij weinig spraak langer
+     * wacht. De backchannel-rem sloeg daardoor nooit aan: "ja" kwam binnen op 1570 ms en de
+     * drempel stond op 400. Zie RISICOS.md risico 21.
+     *
+     * Levert de leverancier geen tijdstempel, dan valt hij terug op de wandklok — maar niet
+     * stilzwijgend: `onGeenSpraakduur` meldt het, want vanaf dat moment meet de drempel weer
+     * iets anders dan zijn naam zegt.
+     */
+    if (meta) {
+      void loop.onClientSpeech({ speechMs: meta.speechMs, text });
+      return;
+    }
+    options.onGeenSpraakduur?.();
     void loop.onClientSpeech({ speechMs: Math.round(now() - speechStartedAt), text });
   });
 

@@ -1,3 +1,4 @@
+import { INHOUDSLOZE_WOORDEN } from './korte-uitingen';
 /**
  * Instemmingen zonder inhoud herkennen.
  *
@@ -19,64 +20,27 @@
  */
 
 /**
- * Woorden die alleen instemming, twijfel of aarzeling uitdrukken.
- *
- * Bewust kort en letterlijk. Een ruime lijst zou echte antwoorden gaan wegvangen — "nee,
- * dat was in maart" is geen inhoudsloze instemming — en dat is precies het dataverlies
- * dat risico 2 verbiedt.
- */
-const INHOUDSLOOS = new Set([
-  // instemming
-  'ja',
-  'jawel',
-  'jazeker',
-  'klopt',
-  'inderdaad',
-  'precies',
-  'zeker',
-  'juist',
-  'correct',
-  'yes',
-  'yeah',
-  'right',
-  'exactly',
-  // ontkenning zonder alternatief
-  'nee',
-  'nope',
-  'no',
-  // aarzeling en vulwoorden
-  'eh',
-  'ehm',
-  'uh',
-  'uhm',
-  'hm',
-  'hmm',
-  'nou',
-  'tja',
-  'oke',
-  'ok',
-  'okay',
-  'goed',
-  'dat',
-  'is',
-  'het',
-  'was',
-  'die',
-  'dit',
-]);
-
-/**
  * Bestaat dit citaat uitsluitend uit instemming en vulwoorden?
  *
  * Leeg of alleen leestekens telt ook: daar staat helemaal niets in.
  */
 export function isContentlessAffirmation(quote: string): boolean {
+  /*
+   * Het koppelteken blijft staan.
+   *
+   * Hier stond `[^\p{L}\p{N}\s]`, en dat maakte van "mm-hm" twee woorden: "mm" en "hm". "mm"
+   * staat in geen enkele lijst, dus een luistergeluid gold als inhoud — terwijl de
+   * backchannel-kant het wél als één woord ziet. Twee normalisaties op dezelfde woorden.
+   *
+   * Een los koppelteken wordt hierdoor een eigen woord dat nergens in staat, en dat is de
+   * veilige kant op: dan geldt het citaat als inhoudelijk en gooien we niets weg.
+   */
   const woorden = quote
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
     .split(/\s+/)
     .filter(Boolean);
 
   if (woorden.length === 0) return true;
-  return woorden.every((w) => INHOUDSLOOS.has(w));
+  return woorden.every((w) => INHOUDSLOZE_WOORDEN.has(w));
 }

@@ -48,8 +48,23 @@ export interface ContinuationMeta {
 }
 
 export interface SttEvents {
-  /** Tussentijds resultaat; mag wijzigen. Alleen voor de UI, nooit voor de engine. */
-  partial: (text: string) => void;
+  /**
+   * Tussentijds resultaat; mag wijzigen. Alleen voor de UI en de barge-in, nooit voor de engine.
+   *
+   * `meta.speechMs` is de **werkelijke spraakduur** van dit segment, uit de tijdstempels van de
+   * herkenner — niet de tijd die het kostte om het bericht te krijgen.
+   *
+   * Dat onderscheid is de hele reden dat dit veld er is. `echo-session.ts` mat `speechMs` als
+   * `performance.now() - startOfTurnAt`: de afstand tussen `SpeechStarted` en de aankomst van
+   * het eerste interim-resultaat. Dat is netwerkretour plus de cadans van de leverancier, en
+   * gemeten liep het van 565 tot 2778 ms — **omgekeerd evenredig** met hoeveel er gesproken is,
+   * want bij weinig spraak wacht de herkenner langer. Zie RISICOS.md risico 21.
+   *
+   * Optioneel omdat niet elke leverancier tijdstempels op een interim geeft. Wie ze niet levert,
+   * laat het veld weg; de aanroeper hoort dan te weten dat hij niets over duur kan zeggen —
+   * en niet stilzwijgend een wandklok in te vullen.
+   */
+  partial: (text: string, meta?: { readonly speechMs: number }) => void;
   /** Definitief transcript van een beurt. */
   final: (text: string) => void;
   /** De cliënt begint te praten. Autoritatieve barge-in-trigger. */

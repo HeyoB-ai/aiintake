@@ -256,7 +256,40 @@ export class DeepgramSttStream implements SttStream {
         this.emit('final', text);
         if (message.speech_final) this.endTurn('speech_final');
       } else {
-        this.emit('partial', text);
+        /*
+         * De spraakduur, uit de woordtijdstempels — en nadrukkelijk niet uit `duration`.
+         *
+         * Drie grootheden lijken hier op elkaar en twee ervan zijn verkeerd:
+         *
+         *   wandklok    `now() - startOfTurnAt`. Netwerkretour plus de cadans van de
+         *               leverancier. Gemeten 565-2778 ms, en omgekeerd evenredig met hoeveel er
+         *               gesproken is. Dit was de oude `speechMs` (risico 21).
+         *   `duration`  de lengte van het geanalyseerde venster. Gemeten 2380 ms voor een hele
+         *               zin en 2000 ms voor een enkel woord — nauwelijks onderscheidend, want
+         *               het venster domineert de spraak erin.
+         *   `words`     het einde van het laatste woord min het begin van het eerste. Gemeten
+         *               0,96 s bij twee woorden, 1,52 bij drie, 2,32 bij zes, 3,68 bij negen.
+         *               Dit is spraakduur.
+         *
+         * Dat interims die woordenlijst meedragen is nagemeten en niet aangenomen. Ontbreekt
+         * hij, dan gaat er geen meta mee: liever niets zeggen dan een getal dat iets anders
+         * meet.
+         */
+        const woorden = message.channel?.alternatives?.[0]?.words ?? [];
+        const eersteWoord = woorden[0];
+        const laatsteWoord = woorden[woorden.length - 1];
+        if (
+          eersteWoord &&
+          laatsteWoord &&
+          Number.isFinite(eersteWoord.start) &&
+          Number.isFinite(laatsteWoord.end)
+        ) {
+          this.emit('partial', text, {
+            speechMs: Math.max(0, Math.round((laatsteWoord.end - eersteWoord.start) * 1000)),
+          });
+        } else {
+          this.emit('partial', text);
+        }
       }
     }
   }

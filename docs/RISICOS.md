@@ -1445,7 +1445,7 @@ zichtbaar was.
 
 ## 21. `speechMs` meet niet wat de naam zegt, en daardoor werkt geen van de barge-in-drempels
 
-**Status: open, gemeten 27 augustus 2026 met `pnpm diag:bargein`.**
+**Status: gerepareerd op 27 augustus 2026. Zie 21c onderaan voor de meting erna.**
 
 **De aanleiding.** De assistent onderbrak vaker, en dat begon rond de samplerate-reparatie. De
 hypothese: `INTERRUPT_MIN_SPEECH_MS = 180` stond effectief anderhalf keer ruimer toen de audio
@@ -1917,3 +1917,75 @@ het woordtellen op drie manieren, en de backchannel-lijsten die uiteenlopen.
 - **Tokenhash.** De sweep noemde divergentie tussen TS en SQL een totale uitval zonder bewaking.
   `agent-token.test.ts` pint de TS-kant op vaste SHA-256-vectoren, dus de SQL-kant moet die ook
   halen. Zwakker dan een echte pariteitstest, sterker dan niets.
+
+### 21c. Gerepareerd: de drempels zien nu spraakduur
+
+**27 augustus 2026.** `speechMs` komt niet langer van de wandklok maar uit de woordtijdstempels
+van de herkenner.
+
+**Drie grootheden leken op elkaar en twee waren verkeerd.** Alle drie gemeten, niet aangenomen:
+
+| grootheid  | wat het is                                                 | gemeten                                                                       |
+| ---------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| wandklok   | `now() - startOfTurnAt`; netwerkretour plus interim-cadans | 565–2778 ms, **omgekeerd** evenredig met de spraak                            |
+| `duration` | de lengte van het geanalyseerde venster                    | 2380 ms voor een hele zin, 2000 ms voor één woord — nauwelijks onderscheidend |
+| `words[]`  | einde laatste woord min begin eerste                       | 0,96 s bij 2 woorden, 1,52 bij 3, 2,32 bij 6, 3,68 bij 9                      |
+
+De tweede was mijn eerste poging en die deugde niet. Dat interims een woordenlijst meedragen is
+nagemeten met een losse proef tegen Deepgram; het stond niet vast.
+
+**De rem werkt weer.** `pnpm diag:bargein`, zes runs:
+
+```
+backchannel  spraak 160 ms  →  backchannel   (was: interrupt, 6/6)
+eenwoord     spraak 160 ms  →  ignore, te_kort
+zin          spraak 960 ms  →  interrupt, word_count
+```
+
+De wandklok stond in diezelfde runs op ~1800 ms: ruim tien keer de echte duur. Daarmee zijn
+`INTERRUPT_MIN_SPEECH_MS = 180` en `BACKCHANNEL_MAX_MS = 400` weer getallen die betekenen wat
+hun naam zegt.
+
+**Wat er verandert voor de cliënt.** Een kort woord onderbreekt niet meer meteen: "Wacht." komt
+op 160 ms binnen en valt onder de drempel. De onderbreking is daarmee uitgesteld, niet
+verdwenen — de volgende interim draagt meer spraak. Of 180 ms de juiste grens is, is nu pas te
+beoordelen, want tot vandaag werd hij nooit op spraak toegepast.
+
+**Geen stille terugval.** Levert een leverancier geen woordtijdstempels, dan gaat er geen meta
+mee en valt de lus terug op de wandklok — maar `onGeenSpraakduur` meldt dat. Vanaf dat moment
+meten de drempels weer iets anders dan hun naam zegt, en dat hoort zichtbaar te zijn.
+
+## 29. Twee lijsten met korte uitingen liepen uiteen zonder besluit
+
+**Status: opgelost op 27 augustus 2026.**
+
+Er waren twee lijsten met twee doelen — `BACKCHANNELS_NL/EN` ("onderbreekt dit niet?") en
+`INHOUDSLOOS` ("kan dit geen feit dragen?"). Twee doelen rechtvaardigen twee lijsten. Wat het
+niet rechtvaardigde, is dat ze **per ongeluk** verschilden:
+
+| woord                 | onderbrak | droeg feit | bedoeld?                              |
+| --------------------- | --------- | ---------- | ------------------------------------- |
+| inderdaad             | ja        | nee        | nee                                   |
+| zeker, correct, jawel | ja        | nee        | nee                                   |
+| mm-hm, uh-huh, sure   | nee       | ja         | nee                                   |
+| nee, nope, no         | ja        | nee        | **ja** — een "nee" is een correctie   |
+| eh, ehm, nou, tja     | ja        | nee        | **ja** — aarzeling kondigt inhoud aan |
+
+Nu één tabel in `korte-uitingen.ts` met twee kolommen. Elk woord staat bewust in beide of in
+één, en **een verschil zonder reden is een testfout**: `korte-uitingen.test.ts` weigert een
+regel waarin de kolommen uiteenlopen zonder uitleg.
+
+**De asymmetrie die de keuzes stuurt.** Te ruim `backchannel` maakt de assistent doof — de
+cliënt onderbreekt en zij praat door, en wie niet tussenbeide kan komen geeft het op. Te ruim
+`inhoudsloos` gooit echte antwoorden weg. Daarom staat alles wat óók het begin van een zin kan
+zijn op `backchannel: false`: "nee", "eh", "nou", "tja", "goed". Ze kosten hooguit een halve
+seconde spreektijd; het omgekeerde kost de cliënt zijn correctie.
+
+**Eén normalisatie erbij rechtgezet.** `isContentlessAffirmation` verving elk niet-letterteken
+door een spatie en maakte van "mm-hm" twee woorden, "mm" en "hm". Een luistergeluid gold daardoor
+als inhoud terwijl de backchannel-kant het als één woord zag. Het koppelteken blijft nu staan.
+
+**Waarom dit samen met risico 21 moest.** De backchannel-rem sloeg tot vandaag nooit aan: hij
+toetst tegen `BACKCHANNEL_MAX_MS = 400` en kreeg netwerkretour van 1570 ms. Twee dingen
+repareren die elkaar opheffen levert niets op — de lijst afstemmen op een rem die niet werkt,
+had geen enkel gedrag veranderd.

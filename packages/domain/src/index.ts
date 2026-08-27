@@ -10,5 +10,6 @@ export * from './vraagzin';
 export * from './erkenning';
 export * from './wanhoop';
 export * from './hervatting';
+export * from './korte-uitingen';
 export * from './niet-verstaan';
 export * from './opening';

@@ -1,3 +1,4 @@
+import { backchannelsVoor } from '../korte-uitingen';
 import { z } from 'zod';
 import { ChannelSchema, LanguageSchema, MessageRoleSchema } from '../enums';
 
@@ -90,29 +91,16 @@ export function nietGehoord(intended: string | null, interruptedAtChar: number |
  * Korte bevestigingen die het gesprek NIET onderbreken (§7). Ze gaan als
  * bevestigingssignaal naar de engine.
  */
-export const BACKCHANNELS_NL = [
-  'ja',
-  'jazeker',
-  'mm-hm',
-  'mmhm',
-  'oké',
-  'oke',
-  'hm',
-  'precies',
-  'klopt',
-  'juist',
-] as const;
-export const BACKCHANNELS_EN = [
-  'yes',
-  'yeah',
-  'mm-hm',
-  'mmhm',
-  'okay',
-  'ok',
-  'right',
-  'sure',
-  'uh-huh',
-] as const;
+/*
+ * Afgeleid uit één tabel, niet meer met de hand bijgehouden.
+ *
+ * Deze twee lijsten en de inhoudsloze-woordenlijst in affirmation.ts liepen uiteen zonder dat
+ * iemand dat had besloten: "inderdaad" onderbrak de assistent én werd als bewijs geweigerd,
+ * "mm-hm" deed geen van beide. Zie korte-uitingen.ts, waar per woord staat wat het mag en
+ * waarom de twee kolommen verschillen als ze verschillen.
+ */
+export const BACKCHANNELS_NL: readonly string[] = backchannelsVoor('nl');
+export const BACKCHANNELS_EN: readonly string[] = backchannelsVoor('en');
 
 export const BACKCHANNEL_MAX_MS = 400;
 export const INTERRUPT_MIN_SPEECH_MS = 180;
