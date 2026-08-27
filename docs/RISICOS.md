@@ -302,6 +302,57 @@ Dertien regressietests in `packages/providers/stt/src/deepgram.test.ts`.
 
 ---
 
+### 2b. Verdwijnt er spraak? Gemeten: niet in deze vormen — maar een overgeslagen beurt laat geen spoor na
+
+**Gemeten 27 augustus 2026 met `pnpm diag:dataverlies`.**
+
+De aanleiding was de vraag of `pad 2` zich werkelijk voordoet: `pending` stapelt uitsluitend op
+`is_final`, dus een tussentijds resultaat mét woorden dat nooit definitief wordt, gaat als
+`partial` naar buiten — waar alleen de barge-in naar kijkt — en verdwijnt daarna.
+
+**Uitkomst: twaalf metingen, vier vormen, nul verlies.**
+
+| arm                         | gebeurtenissen             |
+| --------------------------- | -------------------------- |
+| normaal                     | `p13 p34 p63 F64 EIND(64)` |
+| kort                        | `F11 EIND(11)`             |
+| zacht (12% amplitude)       | `p11 p43 p63 F64 EIND(64)` |
+| afgebroken (75% van de zin) | `p18 p43 F54 EIND(54)`     |
+
+Elke arm sloot af met tekst. Nul lege beurten met `tekensGezien > 0`, nul zwevende partials.
+
+**Wat de proef eerst wél liet zien, en waarom dat onzin was.** In twee eerdere opzetten gaf de
+afgebroken arm drie van de drie keer `p18 p44` en dáárna niets: geen final, geen beurt, geen
+melding. 44 tekens verstaan Nederlands, verdwenen. Dat leek het bewijs.
+
+Het was een eigenschap van de proef. Die stopte met audioframes sturen en wachtte daarna met een
+timer — en Deepgram's stroomklok loopt op ontvángen audio, dus `UtteranceEnd` ging nooit af. In
+productie stopt de microfoon niet: die stuurt de hele sessie frames, ook nullen als de poort
+dicht is. Zodra de proef dat ook doet, sluit de afgebroken arm netjes met 54 tekens.
+
+**Wat die valse uitkomst wél aantoont.** Het is precies wat er gebeurt als de audiostroom
+midden in een uitspraak ophoudt — een verbinding die wegvalt, een tab die sluit, een
+microfoon die wordt ingetrokken. Dan bevriest de klok en gaat het vangnet niet af. Dat is een
+ander risico dan pad 2 en het is niet gemeten in productie.
+
+**Het echte gat, en dat staat los van de STT.** Een overgeslagen beurt wordt **nergens
+vastgelegd**. `onSkippedTurn` in `live/server.ts` doet één ding: `stuur({ type: 'skipped',
+reden })` naar de browser. Het gaat naar het Railway-log en naar de HUD, en niet naar
+`messages`. Het transcript dat een advocaat leest, heeft dus geen enkel merkteken op de plek
+waar een uitspraak is overgeslagen — het leest als een doorlopend gesprek.
+
+Dat is precies de vorm waar het bij feiten om gaat: een dossier dat er compleet uitziet en het
+niet is. En het is goedkoop te sluiten: `messages.role` accepteert al `'system'`, en
+`agent_append_message` neemt de rol als parameter aan — er is geen migratie voor nodig. De
+demo-seed schrijft zo'n regel zelfs al, wat het des te verwarrender maakt: in de database staat
+één systeemregel en die is gezaaid.
+
+**Een fout die ik hierbij heb gemaakt en die het vermelden waard is.** Ik heb die gezaaide regel
+eerst als bewijs gepresenteerd dat er in een echt gesprek een beurt was overgeslagen. Dat was
+onjuist: intake `10000000-…-002` is demodata uit `supabase/seed/demo-data.mjs`. Seed en
+productie staan in dezelfde tabel en zijn aan niets anders te onderscheiden dan aan het
+UUID-patroon — ook dat is een risico, en het heeft hier gewerkt zoals risico's werken.
+
 ## 3. Barge-in werkt "wel", maar het transcript klopt niet
 
 **Waarom dit gevaarlijk is.** Dit is de meest gemene realtime-bug en hij is onzichtbaar in

@@ -33,6 +33,7 @@
     "dev:live": "pnpm --filter @intake/agent dev:live",
     "diag:speechfinal": "pnpm --filter @intake/agent diag:speechfinal",
     "diag:bargein": "pnpm --filter @intake/agent diag:bargein",
+    "diag:dataverlies": "pnpm --filter @intake/agent diag:dataverlies",
     "diag:gespreksvorm": "pnpm --filter @intake/agent diag:gespreksvorm",
     "diag:stilte": "pnpm --filter @intake/agent diag:stilte",
     "anam:persona": "pnpm --filter @intake/agent anam:persona",
