@@ -1,4 +1,5 @@
 import { readPublicEnv, readServerEnv } from '@intake/db';
+import { assertGeenWorkergeheim } from './lib/geen-workergeheim';
 
 /**
  * De omgeving controleren zodra de server start, niet zodra een bezoeker langskomt.
@@ -39,6 +40,16 @@ import { readPublicEnv, readServerEnv } from '@intake/db';
 export async function register(): Promise<void> {
   if (process.env['NEXT_PHASE'] === 'phase-production-build') return;
   if (process.env['NEXT_RUNTIME'] !== 'nodejs') return;
+
+  /*
+   * Eerst, en apart van de rest.
+   *
+   * Dit is geen ontbrekende variabele maar een die er níét hoort te zijn, en het is de
+   * spiegel van de controle in apps/agent. Hij staat vóór de volledigheidscontrole omdat een
+   * te ruime omgeving erger is dan een te krappe: een ontbrekende variabele geeft een
+   * storing, een te veel gedeeld geheim geeft er geen.
+   */
+  assertGeenWorkergeheim();
 
   const ontbreekt: string[] = [];
 

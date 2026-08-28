@@ -23,6 +23,13 @@ import { formatHudLine } from '../src/metrics';
 import type { AgentEnv } from '../src/env';
 import { magAfsluitenWegensStilte } from '../src/inactiviteit';
 import { assertGeenGeheimeSleutel } from '../src/geen-geheime-sleutel';
+import {
+  controleerWorkergeheim,
+  leesWorkergeheim,
+  moetWeigeren,
+  workergeheimBanner,
+} from '../src/workergeheim';
+import { createAgentClient, WORKER_SECRET_HEADER } from '@intake/db-core';
 import { haalIntakeContext, type IntakeContext } from '../src/intake-context';
 
 /**
@@ -421,11 +428,60 @@ wss.on('connection', (ws, verzoek) => {
  * dan weigert de worker daar elke verbinding met "de worker kan niet verifiëren" — een
  * melding die naar het sessietoken wijst terwijl het de configuratie is.
  */
-function supabaseBereik(): { url: string; anon: string } | null {
+function supabaseBereik(): { url: string; anon: string; workerSecret?: string } | null {
   const url = process.env['SUPABASE_URL'] ?? process.env['NEXT_PUBLIC_SUPABASE_URL'];
   const anon =
     process.env['SUPABASE_PUBLISHABLE_KEY'] ?? process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'];
-  return url && anon ? { url, anon } : null;
+  if (!url || !anon) return null;
+  // Het workergeheim hoort bij het bereik en niet bij de aanroeper: elke weg naar de
+  // database moet hem meesturen, anders weigert `app.assert_agent_scope`. Zie risico 31.
+  const workerSecret = leesWorkergeheim();
+  return { url, anon, ...(workerSecret ? { workerSecret } : {}) };
+}
+
+/**
+ * De headers voor een rechtstreekse RPC-aanroep vanuit deze module.
+ *
+ * Het workergeheim hoort hier net zo goed bij als de sleutel: `app.assert_agent_scope`
+ * weigert zonder, en deze twee aanroepen — sessieverificatie en sessie-einde — gaan buiten
+ * `@intake/db-core` om. Zonder deze helper zou het geheim op één van de twee plekken
+ * ontbreken en zou precies één ding stilletjes niet meer werken. Zie risico 31.
+ */
+function agentHeaders(bereik: { anon: string; workerSecret?: string }): Record<string, string> {
+  return {
+    apikey: bereik.anon,
+    Authorization: `Bearer ${bereik.anon}`,
+    'Content-Type': 'application/json',
+    ...(bereik.workerSecret ? { [WORKER_SECRET_HEADER]: bereik.workerSecret } : {}),
+  };
+}
+
+/**
+ * Vraagt de database of zij deze worker herkent, en zegt het hardop.
+ *
+ * Eén keer bij het opstarten, want daar is het antwoord goedkoop. Zonder deze regel wordt
+ * "het geheim staat verkeerd in Railway" pas zichtbaar als een cliënt al aan het praten is,
+ * en dan als een mislukte feitschrijving met een melding over het sessietoken — de database
+ * geeft opzettelijk dezelfde fout voor beide helften. Zie risico 31.
+ */
+async function meldWorkergeheim(): Promise<void> {
+  const bereik = supabaseBereik();
+  if (!bereik) {
+    console.log('  workergeheim: niet te controleren (geen Supabase-configuratie)');
+    return;
+  }
+  const client = createAgentClient(bereik.url, bereik.anon, bereik.workerSecret);
+  const stand = await controleerWorkergeheim(client, bereik.workerSecret);
+  console.log(workergeheimBanner(stand));
+
+  if (moetWeigeren(stand)) {
+    console.error(
+      '\n  De worker weigert te starten: er staat een workergeheim in de omgeving dat de\n' +
+        '  database niet kent. Alles ziet er goed uit en elke schrijfactie naar het dossier\n' +
+        '  zal falen. Controleer AGENT_WORKER_SECRET tegen scripts/set-worker-secret.mjs.\n',
+    );
+    process.exit(1);
+  }
 }
 
 /** Het sessietoken en de intake uit de verbindings-URL, zodra de sessie geldig bleek. */
@@ -452,11 +508,7 @@ async function magVerbinden(url: string): Promise<Toegang> {
   try {
     const res = await fetch(`${bereik.url}/rest/v1/rpc/agent_verify_session`, {
       method: 'POST',
-      headers: {
-        apikey: bereik.anon,
-        Authorization: `Bearer ${bereik.anon}`,
-        'Content-Type': 'application/json',
-      },
+      headers: agentHeaders(bereik),
       body: JSON.stringify({ p_session_token: token, p_intake_id: intake }),
     });
     if (!res.ok) return { ok: false, reden: 'sessietoken geweigerd' };
@@ -514,11 +566,7 @@ async function schrijfSessieEinde(
   try {
     const res = await fetch(`${bereik.url}/rest/v1/rpc/agent_end_session`, {
       method: 'POST',
-      headers: {
-        apikey: bereik.anon,
-        Authorization: `Bearer ${bereik.anon}`,
-        'Content-Type': 'application/json',
-      },
+      headers: agentHeaders(bereik),
       body: JSON.stringify({
         p_session_token: bewijs.token,
         p_intake_id: bewijs.intakeId,
@@ -604,6 +652,7 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
         context = await haalIntakeContext({
           supabaseUrl: bereik.url,
           publishableKey: bereik.anon,
+          ...(bereik.workerSecret ? { workerSecret: bereik.workerSecret } : {}),
           sessionToken: toegang.bewijs.token,
           intakeId: toegang.bewijs.intakeId,
         });
@@ -1130,6 +1179,7 @@ server.listen(POORT, () => {
   console.log(`\n  Praat met de intake:  ${METTLS ? 'https' : 'http'}://localhost:${POORT}\n`);
   console.log('  drempels (* = afwijkend van de standaard):');
   for (const regel of drempelBanner(drempels)) console.log(regel);
+  void meldWorkergeheim();
   console.log(
     `
   model ${env.LLM_HOT_MODEL ?? 'claude-haiku-4-5-20251001'} · ${media.tts.sampleRate} Hz`,

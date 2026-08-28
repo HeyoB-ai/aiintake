@@ -82,6 +82,13 @@ const ANON_CALLABLE = new Set([
   // Alleen controleren, geen neveneffect: nodig op het moment dat de client de
   // realtime-verbinding opent, wanneer er nog geen beurt en geen metriek is.
   'agent_verify_session',
+  /*
+   * De zelfcontrole van de worker (risico 31). Bereikbaar voor anon omdat de worker op de
+   * publiceerbare sleutel draait; er valt niets uit te halen. Het antwoord is ja of nee, en
+   * wie het geheim niet meestuurt krijgt altijd nee — dat is precies de informatie die hij
+   * ook krijgt door het gewoon te proberen.
+   */
+  'agent_verify_worker',
 ]);
 
 async function checkApiSurface(client) {

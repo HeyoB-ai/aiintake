@@ -65,6 +65,8 @@ export interface IntakeContext {
 export interface ContextOptions {
   readonly supabaseUrl: string;
   readonly publishableKey: string;
+  /** De tweede factor; zonder deze weigert `app.assert_agent_scope`. Zie risico 31. */
+  readonly workerSecret?: string;
   readonly sessionToken: string;
   readonly intakeId: string;
 }
@@ -137,7 +139,11 @@ function naarGeschiedenis(rijen: AgentContext['history']): Turn[] {
 }
 
 export async function haalIntakeContext(opties: ContextOptions): Promise<IntakeContext> {
-  const client = createAgentClient(opties.supabaseUrl, opties.publishableKey);
+  const client = createAgentClient(
+    opties.supabaseUrl,
+    opties.publishableKey,
+    opties.workerSecret,
+  );
   const rpc = createAgentRpc(client, {
     sessionToken: opties.sessionToken,
     intakeId: opties.intakeId,

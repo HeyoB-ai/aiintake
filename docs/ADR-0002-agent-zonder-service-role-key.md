@@ -52,3 +52,24 @@ Beide helften zijn groen. De broncodescan draait bij elke `pnpm test`; de runtim
 is op 22 augustus 2026 bevestigd tegen een echt Supabase-project: een sessietoken van
 intake A krijgt 42501 op intake B, een verlopen of ingetrokken token wordt geweigerd, en
 sessie-einde trekt het token direct in.
+
+## Wat dit besluit gelijkstelt — nagekomen op 28 augustus 2026
+
+Dit ADR beschreef wat de worker **niet** krijgt en niet wat hij daardoor **deelt**. Dat gat
+werd pas zes dagen later zichtbaar, als risico 31.
+
+Geen eigen sleutel betekent geen eigen rol. De worker draait op de publiceerbare sleutel, en
+zijn rol is daarmee `anon` — **dezelfde rol als de browser van de cliënt**. De grants aan
+`anon` op de `agent_*`-functies zijn er om de worker te laten werken; dat de browser er
+daarmee net zo goed bij kan, volgt er rechtstreeks uit. Gemeten: alle vier de agent-functies
+voeren uit voor `anon` en struikelen pas op het sessietoken — en dat token heeft de browser
+ook, want het komt mee in de WebSocket-URL.
+
+De mitigatie hierboven ("een gecompromitteerde worker kan hoogstens één intake beschadigen")
+bleek dus breder te gelden dan bedoeld: dat kon de cliënt zelf ook, bij zijn eigen intake.
+Opgelost met een tweede factor; zie RISICOS.md risico 31 en migratie 20260828120000.
+
+**De vorm om te onthouden.** Verandert een ADR een rol, een sleutel of een grens, dan hoort
+erin te staan **wat daarmee gelijk wordt aan iets anders**. Niet als procesregel voor de vorm:
+dit is de tweede keer dat precies deze omissie een gat opleverde dat pas maanden later
+zichtbaar werd. De andere staat in ADR-0007.

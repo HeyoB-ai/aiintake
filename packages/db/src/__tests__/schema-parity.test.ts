@@ -191,6 +191,22 @@ describe('RLS staat aan op elke tabel', () => {
   });
 });
 
+/**
+ * Functies die géén reikwijdte hoeven te controleren, met de reden erbij.
+ *
+ * De reden is verplicht en dat is het punt. Een uitzondering zonder uitleg is precies hoe
+ * deze controle stilletjes leegloopt: de volgende functie die "toevallig geen intake nodig
+ * heeft" wordt er dan ook bij gezet.
+ */
+const ZONDER_REIKWIJDTE: Readonly<Record<string, string>> = {
+  agent_verify_worker:
+    'Neemt geen intake en geen token aan en geeft alleen ja of nee: herkent de database deze ' +
+    'aanroeper als de worker? Hij is juist de eerste helft van assert_agent_scope zelf — die ' +
+    'hier aanroepen zou circulair zijn. Er valt niets te scopen: het antwoord hangt uitsluitend ' +
+    'af van een header die de aanroeper zelf meestuurt, en wie hem niet heeft krijgt nee. ' +
+    'Zie RISICOS.md risico 31.',
+};
+
 describe('de agent-RPC bewaakt zijn eigen reikwijdte', () => {
   // De agent-functies staan in `public` (het geexposeerde schema); de guard waar ze
   // mee beginnen staat in `app` (intern). Zie docs/ADR-0008-rpc-in-public-schema.md.
@@ -203,9 +219,25 @@ describe('de agent-RPC bewaakt zijn eigen reikwijdte', () => {
   });
 
   it.each(agentFns.map((f) => [f]))('app.%s roept assert_agent_scope aan', (fn) => {
+    if (fn in ZONDER_REIKWIJDTE) {
+      // Uitgezonderd, met een reden die hierboven staat. De lengte-eis maakt van "// n.v.t."
+      // geen geldige uitleg.
+      expect(ZONDER_REIKWIJDTE[fn]!.length, `${fn} mist een reden`).toBeGreaterThan(80);
+      return;
+    }
     const start = SQL.indexOf(`create or replace function public.${fn}(`);
     const end = SQL.indexOf('$$;', start);
     const body = SQL.slice(start, end);
     expect(body).toMatch(/app\.assert_agent_scope\(/);
+  });
+
+  it('zondert alleen functies uit die ook echt bestaan', () => {
+    /*
+     * Anders blijft een uitzondering staan nadat de functie is hernoemd of verwijderd, en dan
+     * dekt hij stilzwijgend een andere functie — of niets, wat net zo misleidend is.
+     */
+    for (const fn of Object.keys(ZONDER_REIKWIJDTE)) {
+      expect(agentFns, `${fn} staat in de uitzonderingen maar niet in de migraties`).toContain(fn);
+    }
   });
 });

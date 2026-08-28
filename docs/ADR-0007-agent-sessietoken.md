@@ -118,3 +118,25 @@ Dat blijft wel een koppeling om in de gaten te houden: er is geen mechanisme dat
 implementaties aan elkaar bindt, alleen een test die faalt als ze uiteenlopen. Verandert
 er ooit iets aan de codering (base64url in plaats van hex, een pepper erbij), dan moet
 dat aan beide kanten tegelijk.
+
+## Wat dit besluit gelijkstelt — nagekomen op 28 augustus 2026
+
+Hierboven staat waarom het token geen JWT is: dit project draait op asymmetrische JWT signing
+keys, dus wij kunnen geen token tekenen dat PostgREST als bearer accepteert. Dat klopt en het
+is goed onderbouwd.
+
+Wat er niet stond, is het gevolg: **als wij geen JWT kunnen tekenen, kunnen we de worker ook
+geen eigen rol geven.** Het token reist als RPC-parameter, en een parameter zegt niets over
+wie er belt. De rol van de aanroeper blijft die van de sleutel — `anon` — en die deelt hij met
+de browser. Zie ADR-0002, waar hetzelfde gat vanaf de andere kant zichtbaar wordt, en
+RISICOS.md risico 31 voor de meting.
+
+Er komt nog iets bij dat hier wél had moeten staan: het token reist niet alleen naar de worker
+maar **via de browser**. `startIntake` zet het in de WebSocket-URL die de cliënt terugkrijgt.
+De toelichting in `packages/db/src/agent-session.ts` zegt *"Geef dit door aan de worker en
+nergens anders heen"* — en de architectuur stuurt het door de browser. Die twee zinnen stonden
+maanden naast elkaar zonder dat iemand ze naast elkaar legde.
+
+**De vorm om te onthouden.** Verandert een ADR een rol, een sleutel of een grens, dan hoort
+erin te staan wat daarmee gelijk wordt aan iets anders — en langs welke partijen het reist.
+Dit is de tweede vindplaats van dezelfde omissie; de eerste staat in ADR-0002.
