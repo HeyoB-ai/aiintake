@@ -2088,3 +2088,75 @@ de toegevoegde stilte apart, anders verschijnt hij in de metrics als onverklaard
 **Wat dit niet oplost.** Het inhouden gebeurt alleen als de lus stil is. Praat de assistent al,
 dan is de uitspraak een onderbreking en hoort zij te stoppen — dat blijft het werk van risico 21,
 en die rem werkt nog steeds niet op de juiste grootheid.
+
+---
+
+## 31. De worker en de browser hebben dezelfde rol
+
+**Status:** vastgesteld en gemeten op 28 augustus 2026. Nog niet gerepareerd; de weg is gekozen
+maar de uitvoering staat open.
+
+De agent-RPC's zijn verleend aan `anon`:
+
+    grant execute on function public.agent_upsert_fact(...)     to anon, authenticated;
+    grant execute on function public.agent_append_message(...)  to anon, authenticated;
+    grant execute on function public.agent_update_progress(...) to anon, authenticated;
+
+De browser van de cliënt heeft de publiceerbare sleutel (die staat in de bundel) én het
+sessietoken (`actions.ts:274` zet het in de WebSocket-URL). Beide helften zitten dus bij de
+cliënt.
+
+**De meting.** Read-only, zonder iets aan te maken: elke functie aangeroepen met de publiceerbare
+sleutel en een *ongeldig* token van de juiste lengte.
+
+    agent_context          lezen      401  "geen geldig agent-token"
+    agent_append_message   SCHRIJVEN  401  "geen geldig agent-token"
+    agent_upsert_fact      SCHRIJVEN  401  "geen geldig agent-token"
+    agent_update_progress  SCHRIJVEN  401  "geen geldig agent-token"
+
+Ontbrak de grant, dan had PostgREST `permission denied for function` gegeven — de fout die vóór
+de functie komt. Wat er komt is de fout van binnenuit, uit `app.assert_agent_scope`. De functie
+is dus uitgevoerd. Met een geldig token was hij doorgelopen.
+
+**Wat dat betekent.** Een cliënt kan vandaag een assistent-beurt in zijn eigen dossier schrijven —
+*"Ik weiger het ontslag te accepteren"* met een geldige `turn_index` — en die is achteraf niet van
+een echte beurt te onderscheiden. Het is begrensd tot zijn eigen intake; geen tenantlek. Maar het
+dossier rust op de belofte dat elke regel is gezegd, en die belofte is een aanname en geen
+afdwinging.
+
+**Dit is geen slordige grant, en dát is het punt.** De worker draait op de publiceerbare sleutel
+(`server.ts:427`) omdat ADR-0002 hem geen service-role key gunt. Dat besluit was juist: een
+langlevend, van buiten bereikbaar proces met een sleutel die bij elke tenant kan, is het grootste
+RLS-omzeilingsrisico in dit project. De consequentie is alleen nooit uitgeschreven: **geen eigen
+sleutel betekent geen eigen rol, en de rol die overblijft is `anon` — dezelfde als die van de
+browser.** ADR-0002 beschrijft wat de worker niet krijgt en niet wat hij daardoor deelt. Dat is
+precies de vorm waar een ADR voor bedoeld is, en hij zag hem niet.
+
+**Waarom "het token niet door de browser sturen" niet volstaat.** Ook dan authenticeert de worker
+als `anon`, en `anon` mag die functies. Dat verkort de weg van het token en verplaatst de
+bevoegdheid niet — en het voegt een nieuwe faalweg toe op het pad waar de cliënt staat te wachten.
+
+**Waarom een eigen rol via JWT niet kan.** Dit project draait op de nieuwe API-sleutels en dus op
+asymmetrische JWT signing keys. De JWKS levert alleen een publieke verify-sleutel (ES256,
+`key_ops: ["verify"]`); de private key zit bij Supabase. Wij kunnen dus geen token tekenen met een
+eigen `role`-claim. Dat stond al in `packages/db/src/agent-token.ts` — het is de reden dat het
+sessietoken opaque is en geen JWT — maar het was niet doorgetrokken naar de vraag welke rol de
+worker dan wél heeft.
+
+**De gekozen weg: een tweede factor als RPC-parameter.** `app.assert_agent_scope` krijgt er een
+workergeheim bij, opgeslagen als hash, meegegeven door elke `agent_*`-functie. Het sessietoken
+bewijst *welke intake*; het workergeheim bewijst *dat je de worker bent*. De browser heeft de
+eerste en niet de tweede, en geen van beide volstaat alleen. Het starten van een gesprek verandert
+niet, dus er komt geen nieuwe faalweg bij.
+
+**Herkomst achteraf.** Vandaag is niet te zien of er ooit langs deze weg is geschreven, en dat is
+niet te repareren met terugwerkende kracht: een langs de RPC geschreven bericht is byte voor byte
+gelijk aan een echt bericht. `messages.session_id` helpt niet — die wordt binnen de functie uit
+het token afgeleid, dus een browser met een geldig token krijgt hem net zo goed correct ingevuld.
+
+Wat wél kan, en alleen sámen met de tweede factor: een `written_by` op `messages` en `case_facts`,
+gezet *binnen* de functie op grond van hoe de aanroep is geauthenticeerd — nooit uit een
+parameter. Zonder die tweede factor legt zo'n kolom alleen vast wat de aanroeper beweert en is hij
+waardeloos. Mét die factor is het één kolom en één toewijzing. Hij zal in het begin altijd
+`agent` zeggen; zijn waarde is dat een tweede schrijver — een advocaat die corrigeert, een import —
+vanaf dag één te onderscheiden is, en dat de garantie wordt vastgelegd in plaats van aangenomen.
