@@ -23,8 +23,14 @@
  *
  * Dit script nog een keer draaien met een ander label. Twee geheimen mogen tegelijk actief
  * zijn; dat is de hele rotatiestrategie. Zet het nieuwe bij de worker, rol uit, controleer, en
- * trek daarna het oude in met `retire_worker_secret`. Zonder die overlap zou roteren een
- * onderbreking betekenen, en dan wordt er niet geroteerd.
+ * trek daarna het oude in met `scripts/retire-worker-secrets.mjs`. Zonder die overlap zou
+ * roteren een onderbreking betekenen, en dan wordt er niet geroteerd.
+ *
+ * ## Draai dit zelf, niet via een assistent
+ *
+ * De uitvoer bevat het geheim. Alles wat het script print, komt terecht waar de uitvoer heen
+ * gaat — een terminal, een logbestand, een chatvenster. Het geheim hoort op precies één plek
+ * te staan en dat is de omgeving van de worker.
  *
  * Draaien met: node scripts/set-worker-secret.mjs [label]
  */
@@ -111,7 +117,13 @@ process.stdout.write(
 
   Daarna:
     1. worker uitrollen en controleren op "workergeheim: herkend"
-    2. pas dán migratie 20260828120100 pushen
+    2. staat de afdwinging er nog niet? Dan nu migratie 20260828120100 pushen.
+    3. roteer je een bestaand geheim, sluit dan af met:
+
+         node scripts/retire-worker-secrets.mjs ${geheimHash}
+
+       Die hash is niet geheim -- hij staat al in de database. Draai hem pas als de
+       worker op het nieuwe geheim draait; eerder legt hij de dienst stil.
 
 `,
 );
