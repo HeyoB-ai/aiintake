@@ -13,4 +13,5 @@ export * from './hervatting';
 export * from './korte-uitingen';
 export * from './niet-verstaan';
 export * from './onafgerond';
+export * from './onderwerp';
 export * from './opening';

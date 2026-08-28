@@ -1,6 +1,12 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { TIJDZONE_TERUGVAL, datumTijd, datumTijdSeconden, type Tijdzone } from '@intake/domain';
+import {
+  TIJDZONE_TERUGVAL,
+  datumTijd,
+  datumTijdSeconden,
+  onderwerpVerouderd,
+  type Tijdzone,
+} from '@intake/domain';
 import { requireUser } from '@/lib/auth';
 import { laadIntake, logInzage } from './data';
 import { DossierPaneel } from './dossier-paneel';
@@ -75,6 +81,12 @@ export default async function IntakeDetailPage({ params }: { params: Promise<{ i
   await logInzage(id);
 
   const { intake, dossier, documents, berichten, samenvatting, auditlog } = detail;
+  // Dezelfde regel die de agent gebruikt om het onderwerp te zetten, hier omgekeerd toegepast.
+  // Twee kanten van één functie in @intake/domain, dus ze kunnen niet uiteenlopen.
+  const verouderd = onderwerpVerouderd(
+    intake.subject,
+    Object.fromEntries(dossier.facts.map((f) => [f.key, f])),
+  );
   const secties = Object.entries(samenvatting?.sections ?? {}).filter(
     ([sleutel, waarde]) => sleutel !== 'bronnen' && typeof waarde === 'string',
   );
@@ -100,6 +112,24 @@ export default async function IntakeDetailPage({ params }: { params: Promise<{ i
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
             {intake.subject ?? 'Onderwerp nog niet bepaald'}
           </p>
+          {verouderd && (
+            /*
+             * Het onderwerp volgt niet meer uit de feiten.
+             *
+             * `agent_update_progress` werkt het bij met `coalesce(p_subject, subject)`: het kan
+             * scherper worden, maar nooit meer terug naar leeg. Raakt het feit waar het op rustte
+             * later `contradicted`, dan blijft de oude tekst staan — op de kolom waarop een
+             * advocaat kiest wat hij opent. Hier liggen de feiten toch al op tafel, dus hier is
+             * het na te rekenen; op het overzicht niet, want dat laadt geen feiten per rij.
+             */
+            <p
+              className="mt-2 rounded px-2 py-1 text-sm"
+              style={{ background: 'var(--warn-bg)', color: 'var(--ink-700)' }}
+            >
+              Dit onderwerp volgt niet meer uit de vastgelegde feiten
+              {verouderd.nu ? ` — die wijzen nu op “${verouderd.nu.tekst}”` : ''}.
+            </p>
+          )}
         </div>
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
           <Kerngegeven label="Status" waarde={STATUS_LABEL[intake.status] ?? intake.status} />

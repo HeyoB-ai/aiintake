@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { OrgConfig } from '@intake/domain';
+import type { CaseFact, OrgConfig } from '@intake/domain';
 import type { LLMProvider, TextRequest } from '@intake/provider-llm';
 import { IntakeSession } from './intake-session';
 
@@ -116,5 +116,94 @@ describe('IntakeSession — geen lege berichten naar het model', () => {
 
     const gesprek = llm.verzoeken.filter((r) => !r.system.includes('"lading"'));
     expect(gesprek).toHaveLength(0);
+  });
+});
+
+/**
+ * Het onderwerp gaat mee naar het dossier.
+ *
+ * Niet "de regel rekent goed" — dat staat in `packages/domain/src/onderwerp.test.ts`. Hier gaat
+ * het om de vraag die eerder twee keer verkeerd is beantwoord: **komt de waarde ook echt aan?**
+ * Een afleiding die klopt en nergens landt, ziet er van buiten precies zo uit als een kolom
+ * zonder bron — en dat wás risico 24.
+ *
+ * `observe()` zonder nieuwe beurten doet geen modelaanroep (zie engine.observe), dus dit draait
+ * zonder LLM en zonder netwerk.
+ */
+describe('IntakeSession — het onderwerp bereikt updateProgress', () => {
+  function feit(value: unknown): CaseFact {
+    return {
+      key: 'x',
+      value,
+      valueType: typeof value === 'boolean' ? 'boolean' : 'enum',
+      status: 'confirmed',
+      confidence: 0.9,
+      source: 'client_statement',
+      sourceRef: 'msg-1',
+      llmCallId: null,
+    };
+  }
+
+  function metFeiten(facts: Record<string, CaseFact>) {
+    const voortgang: { completeness?: number | null; subject?: string | null }[] = [];
+    const meldingen: string[] = [];
+    const sessie = new IntakeSession({
+      onVastlegging: (m) => meldingen.push(m.sleutel),
+      llm: vangLlm(),
+      organization: ORG,
+      hotModel: 'test-hot',
+      coldModel: 'test-cold',
+      now: () => new Date('2026-08-28T10:00:00Z'),
+      initialFacts: facts,
+      rpc: {
+        appendMessage: async () => undefined,
+        upsertFact: async () => undefined,
+        updateProgress: async (args: { completeness?: number | null; subject?: string | null }) => {
+          voortgang.push(args);
+          return undefined;
+        },
+      } as unknown as NonNullable<ConstructorParameters<typeof IntakeSession>[0]['rpc']>,
+    });
+    return { sessie, voortgang, meldingen };
+  }
+
+  it('stuurt het afgeleide onderwerp mee', async () => {
+    // De feiten van het gesprek van 27 augustus, 19:05.
+    const { sessie, voortgang } = metFeiten({
+      primary_issue: feit('dismissal'),
+      termination_route: feit('summary_dismissal'),
+    });
+
+    await sessie.observe();
+
+    expect(voortgang).toHaveLength(1);
+    expect(voortgang[0]!.subject).toBe('Ontslag op staande voet');
+  });
+
+  it('stuurt null zolang er niets af te leiden valt', async () => {
+    /*
+     * Leeg blijft leeg. De RPC doet `coalesce(p_subject, subject)`, dus een null overschrijft
+     * nooit een gevuld onderwerp — maar hij vult de kolom ook niet met een gok.
+     */
+    const { sessie, voortgang } = metFeiten({});
+
+    await sessie.observe();
+
+    expect(voortgang).toHaveLength(1);
+    expect(voortgang[0]!.subject).toBeNull();
+  });
+
+  it('meldt waaróp het onderwerp rust', async () => {
+    // Zonder de bronnen is achteraf niet te zien waaruit het volgde, en dan is een verouderd
+    // onderwerp niet te herkennen.
+    const { sessie, voortgang, meldingen } = metFeiten({
+      termination_route: feit('summary_dismissal'),
+      currently_ill: feit(true),
+    });
+
+    await sessie.observe();
+
+    expect(voortgang[0]!.subject).toBe('Ontslag op staande voet, tijdens ziekte');
+    expect(meldingen.some((m) => m.includes('termination_route, currently_ill'))).toBe(true);
   });
 });

@@ -9,6 +9,7 @@ import {
   type ErkenningStand,
   EMPLOYMENT_RULES,
   EMPLOYMENT_TEMPLATE,
+  onderwerpVan,
   type CaseFact,
   type Language,
   type OrgConfig,
@@ -136,7 +137,17 @@ export interface IntakeSessionOptions {
       sourceRef: string | null;
       evidenceQuote?: string | null;
     }): Promise<unknown>;
-    updateProgress(args: { completeness?: number | null }): Promise<unknown>;
+    /*
+     * `status` staat hier bewust niet in, ook al kent de RPC hem.
+     *
+     * De agent mag nooit ACCEPTED/REJECTED/REFERRED zetten (§6) en de RPC weigert dat ook — maar
+     * deze poort is smaller dan wat de RPC toelaat, zodat de vraag hier niet eens gesteld kan
+     * worden. Wat een laag niet kan aanroepen, kan hij niet per ongeluk doen.
+     */
+    updateProgress(args: {
+      completeness?: number | null;
+      subject?: string | null;
+    }): Promise<unknown>;
   };
   /**
    * Wat er van de koude weg in het dossier is beland, of waarom niet.
@@ -726,18 +737,39 @@ export class IntakeSession {
 
     try {
       /*
-       * Alleen `completeness`.
+       * `completeness` en `subject`.
        *
        * `status` blijft van de mens: de RPC laat de agent hoogstens naar READY_FOR_REVIEW,
        * maar wanneer een intake dat is, hoort niet door een teller te worden bepaald.
-       * `subject` gaat bewust niet mee — er is geen bron voor; zie RISICOS.md risico 24.
+       *
+       * `subject` volgt deterministisch uit de feiten (`onderwerpVan`) en niet uit een model —
+       * het is de kolom waarop een advocaat kiest wat hij opent, en daar hoort geen bewering
+       * zonder citaat te staan. Zie RISICOS.md risico 24.
+       *
+       * Hier en niet één keer aan het eind: zo beweegt het onderwerp mee. Vroeg in het gesprek
+       * staat er "Ontslag", en zodra de route vaststaat "Ontslag op staande voet". Levert de
+       * regel niets op, dan gaat er `null` mee en blijft de kolom leeg — de RPC doet
+       * `coalesce`, dus een leeg onderwerp overschrijft nooit een gevuld.
        */
-      await rpc.updateProgress({ completeness: resultaat.completeness });
+      const onderwerp = onderwerpVan(this.facts);
+      await rpc.updateProgress({
+        completeness: resultaat.completeness,
+        subject: onderwerp?.tekst ?? null,
+      });
       this.options.onVastlegging?.({
         soort: 'voortgang',
         sleutel: `volledigheid ${Math.round(resultaat.completeness * 100)}%`,
         stap: 'vastgelegd',
       });
+      if (onderwerp) {
+        this.options.onVastlegging?.({
+          soort: 'voortgang',
+          // De bronnen erbij: zonder die is achteraf niet te zien waaróp het onderwerp rustte,
+          // en dat is precies wat een verouderd onderwerp onherkenbaar maakt.
+          sleutel: `onderwerp "${onderwerp.tekst}" (uit ${onderwerp.bronnen.join(', ')})`,
+          stap: 'vastgelegd',
+        });
+      }
     } catch (fout) {
       this.options.onVastlegging?.({
         soort: 'voortgang',

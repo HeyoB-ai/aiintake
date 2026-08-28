@@ -1667,36 +1667,71 @@ onbetrouwbaar.
 De test bewaakt vooral de dure kant: een écht id mag nooit als demo worden bestempeld, want dan
 verdwijnt een echte intake achter een aantekening die zegt dat hij niet bestaat.
 
-## 24. "Onderwerp" heeft geen bron
+## 24. "Onderwerp" had geen bron
 
-**Status: open. Vastgesteld 27 augustus 2026.**
+**Status: opgelost, 28 augustus 2026. Deterministisch afgeleid uit de feiten, niet uit een model.**
 
-De kolom `intakes.subject` bestaat, staat op het dashboard en in de intakedetailpagina, en
-`agent_update_progress` heeft er een parameter voor (`p_subject`). Er is niets dat hem vult.
+De kolom `intakes.subject` bestond, stond op het dashboard en in de dossierpagina, en
+`agent_update_progress` had er een parameter voor (`p_subject`). Er was niets dat hem vulde. De
+hele pijp lag er; alleen de producent ontbrak.
 
-Doorzocht: `packages/intake-engine`, `packages/domain`, `packages/prompts`. Geen enkele
-component levert een onderwerp. De feitcatalogus heeft categorieën en feiten, geen samenvattende
-noemer; de engine geeft kandidaten, feiten, risicovlaggen en volledigheid terug, en verder
-niets.
+**De keuze: een regel, geen model.** Een onderwerp dat uit een model komt, is een bewering zonder
+citaat op de plek waar een advocaat in één oogopslag kiest wat hij opent. Uit de feiten afleiden
+is herleidbaar en na te rekenen — dezelfde redenering als bij de erkenning en het wanhoopspad:
+het model beslist niets over de woorden.
 
-**Waarom hij niet is meegenomen in deze ronde.** Een onderwerp afleiden vraagt een oordeel:
-"ontslag op staande voet" is een samenvatting van meerdere feiten, en dat is werk voor een model
-of voor een deterministische regel over de catalogus. Beide zijn te bouwen; geen van beide is
-te improviseren tijdens het aansluiten van twee RPC's. `updateProgress` stuurt daarom bewust
-alleen `completeness` mee — `p_subject` blijft `null` en de kolom blijft leeg.
+**Wat de rijen eerst moesten bevestigen.** Voordat er iets gebouwd is: leveren de vier gevoerde
+gesprekken enum-sleutels of Nederlandse vrije tekst? `ui/src/fixtures.ts` had
+`feit('primary_issue', 'ontslag op staande voet')` staan, en op vrije tekst is niets te mappen.
+De echte rijen van 27 augustus:
 
-Dat is de eerlijke stand. Een onderwerp verzinnen uit de eerste cliëntzin zou de kolom vullen en
-er iets neerzetten wat niemand heeft vastgesteld — precies de klasse fout die risico 16 en 22
-beschrijven.
+    20:53  beurten=5   primary_issue "dismissal"  termination_route "summary_dismissal"
+    19:05  beurten=4   primary_issue "dismissal"  termination_route "summary_dismissal"
+    16:15  beurten=55  primary_issue "dismissal"  termination_route "summary_dismissal"
+    11:53  beurten=12  primary_issue "dismissal"  termination_route "summary_dismissal"
 
-**Wat er wél moet gebeuren, in volgorde van eerlijkheid:**
+Enum-sleutels. `engine.ts:693` valideert elk feit tegen `z.enum()` en gooit weg wat er niet door
+komt; de fixture was testdata en geen productiepad. In alle vier de gesprekken mét inhoud stonden
+beide feiten er, `confirmed` — het zijn ook de twee met de hoogste prioriteit (100 en 95) en
+allebei `required`.
 
-1. Deterministisch, uit de catalogus: de hoogst gescoorde beantwoorde categorie als noemer.
-   Traceerbaar en saai, maar grof.
-2. Een koude-weg-model met gesloten schema en een citaat, zoals de feitextractie. Duurder, en
-   het levert een onderwerp op dat een advocaat kan nagaan.
+**De regel** staat in `packages/domain/src/onderwerp.ts`. `termination_route` is de kop, want die
+noemt de juridische route; `primary_issue` is de terugval als de route nog niets noemt
+(`none_yet`, `other`). Zeven van de negen routes leveren een naam, en waar ze dat niet doen vangt
+`primary_issue` zes van de zeven op. Alleen `confirmed` telt — `inferred` is een gevolgtrekking
+van het model en te zwak voor een kolom waarop een advocaat sorteert.
 
-Tot dat er is, hoort de kolom leeg te blijven en niet gevuld met een gok.
+**Het beweegt mee**, omdat het per beurt opnieuw wordt uitgerekend naast `completeness`. Eerst
+"Ontslag", zodra de route vaststaat "Ontslag op staande voet".
+
+**Eén bijzin, en niet vier.** `currently_ill` → "tijdens ziekte". De toets is niet "is dit waar"
+maar *verandert dit wat een advocaat als eerste doet*: bij opzegging tijdens ziekte speelt een
+opzegverbod, en dat is juridisch een ander dossier. `summary_dismissal_contested` haalt die toets
+niet — bij een intake is dat bijna altijd waar, en wat overal staat onderscheidt niets. De tabel
+is geordend en de eerste die aanslaat wint, dus er kan er later een bij zonder de structuur om te
+gooien; het veld `waarom` is verplicht en dwingt die vraag af te beantwoorden vóórdat de kolom
+voller wordt.
+
+**Leeg blijft leeg.** `null` als er niets uit te leiden valt, en dat is de stand in de eerste
+beurten van elk gesprek. Een streepje op het dashboard is eerlijk; een gegokt onderwerp is dat
+niet.
+
+**Het verouderde onderwerp.** `agent_update_progress` werkt bij met
+`coalesce(p_subject, subject)`: een onderwerp kan scherper worden maar nooit meer terug naar leeg.
+Raakt `termination_route` later `contradicted`, dan blijft "Ontslag op staande voet" staan terwijl
+er niets meer onder ligt. Bewust géén migratie — een verouderd onderwerp en een leeg onderwerp
+zijn allebei fout, dus daar ruil je niets mee in. Wel zichtbaar gemaakt: `onderwerpVerouderd()`
+rekent de regel op de dossierpagina omgekeerd na, waar de feiten toch al op tafel liggen, en zet
+er een melding bij. Twee kanten van één functie, dus ze kunnen niet uiteenlopen.
+
+**Wat dit niet dekt, en het is de moeite waard om op te letten.** Eén van de negen takken —
+`summary_dismissal` — is tegen echte gesprekken getoetst. De andere acht zijn redenering over de
+catalogus. De eerste intake met een ander scenario, een vaststellingsovereenkomst of een
+UWV-procedure, is meteen de moeite waard om na te kijken.
+
+De veroudering is alleen op de dossierpagina zichtbaar. Het overzicht laadt geen feiten per rij,
+dus daar staat een verouderd onderwerp zonder markering — en dat is juist de kolom waarop wordt
+gekozen. Wie dat wil sluiten, betaalt een tweede query per rij of een kolom in de database.
 
 ## 25. Dezelfde tijd werd op twee plekken anders uitgerekend
 
