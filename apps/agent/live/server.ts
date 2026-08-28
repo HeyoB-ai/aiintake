@@ -30,6 +30,7 @@ import {
   workergeheimBanner,
 } from '../src/workergeheim';
 import { createAgentClient, WORKER_SECRET_HEADER } from '@intake/db-core';
+import { koudeWegRegel, maakKoudeWeg } from '../src/koude-weg';
 import { haalIntakeContext, type IntakeContext } from '../src/intake-context';
 
 /**
@@ -764,6 +765,17 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
   let anamSessionId: string | null = null;
   let afgesloten = false;
 
+  // De koude weg van deze verbinding: alles wat nog naar het dossier moet. De uitleg en de
+  // logica staan in koude-weg.ts, waar er ook een test op kan.
+  const koudeWeg = maakKoudeWeg();
+  const volgKoudeWeg = (p: Promise<unknown>): void => koudeWeg.volg(p);
+
+  /** Wacht tot het dossier bij is, met een grens. Zie koude-weg.ts voor het waarom. */
+  async function wachtOpKoudeWeg(): Promise<void> {
+    const regel = koudeWegRegel(await koudeWeg.wacht());
+    if (regel) console.log(regel);
+  }
+
   /** Waar een afsluiting vandaan kwam. Vier routes, en ze horen uit elkaar te houden zijn. */
   type Route = 'tab' | 'server' | 'klok' | 'stopknop' | 'afgerond';
   const routeTekst: Record<Route, string> = {
@@ -841,6 +853,15 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
      * er ging iets mis bij het sluiten van de avatarsessie, dan bleef `ended_at` op null —
      * en precies dát is het gedrag dat de dienst platlegde.
      */
+    /*
+     * Wachten tot het dossier bij is, vóór het token sterft.
+     *
+     * Dit is de reparatie van de fout die de toelichting hieronder al beschreef zonder hem
+     * op te lossen: "het token wordt na agent_end_session ingetrokken en er daarna dus niets
+     * meer te schrijven valt". Dat klopte, en de koude weg liep er gewoon in.
+     */
+    await wachtOpKoudeWeg();
+
     if (toegang.ok && toegang.bewijs) {
       await schrijfSessieEinde(
         toegang.bewijs,
@@ -1048,10 +1069,22 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
          *
          * Ná `persistTurn` en ná de audio: de afsluitzin moet eerst zijn uitgesproken.
          */
-        const afsluiting = intake.afsluiting();
-        if (afsluiting) void rondAf(afsluiting);
-
-        void intake
+        /*
+         * De koude weg éérst starten en registreren, dán pas afronden.
+         *
+         * De volgorde was andersom, en dat kostte de laatste feiten van elk gesprek.
+         * `rondAf` loopt via `beeindig` naar `agent_end_session`, en dat trekt het
+         * sessietoken in — de toelichting daar wist dat al. De extractie doet ondertussen
+         * een modelaanroep van enkele seconden, dus tegen de tijd dat zij wil schrijven is
+         * het token weg. Gemeten over 25 beëindigde sessies: nul feiten ná `ended_at`, en
+         * bij vijf van de zes gesprekken viel het laatste feit binnen 30 seconden vóór het
+         * einde. Precies op de rand.
+         *
+         * Registreren vóór `rondAf` en niet erna: anders hangt het ervan af welke van de
+         * twee de microtaakwachtrij als eerste haalt, en dat is geen garantie maar een race
+         * die toevallig meestal goed gaat.
+         */
+        const koud = intake
           .observe()
           .then((r) => {
             stuur({
@@ -1075,6 +1108,10 @@ async function verbinding(ws: WebSocket, verzoekUrl: string) {
           .catch((error: unknown) => {
             stuur({ type: 'error', waar: 'cold path', wat: String(error) });
           });
+        volgKoudeWeg(koud);
+
+        const afsluiting = intake.afsluiting();
+        if (afsluiting) void rondAf(afsluiting);
       },
     });
   } catch (error) {

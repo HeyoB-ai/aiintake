@@ -68,3 +68,42 @@ describe('randgevallen', () => {
     expect(lijktOnafgerond('En toen ben ik naar huis gegaan.')).toBe(false);
   });
 });
+
+/**
+ * Het gat dat de eerste versie liet vallen.
+ *
+ * De cliënt haalde midden in een zin adem, zonder komma en zonder voegwoord. Van 51
+ * cliëntuitspraken uit acht gesprekken eindigde 22% zo — en geen daarvan werd gemarkeerd.
+ *
+ * Alle uitspraken hieronder zijn letterlijk overgenomen uit `messages`.
+ */
+describe('kaal afgebroken zinnen', () => {
+  it('markeert een zin zonder leesteken die te lang is voor een antwoord', () => {
+    for (const t of [
+      'in de week was ik op bezoek bij een concurrent om dingen te bespreken en dat heeft mijn compagnon collega gehoord',
+      'en die riep zich bij me',
+      'Ja, ik ben gisteren mondeling',
+    ]) {
+      expect(lijktOnafgerond(t), t).toBe(true);
+    }
+  });
+
+  it('laat korte antwoorden met rust, ook zonder leesteken', () => {
+    /*
+     * Dit is de helft die het onderscheid draagt. Een werkgeversnaam, een bedrag, een gespelde
+     * afkorting: die krijgen van de herkenner net zo goed geen punt, en ze zijn wél af. Zonder
+     * deze regel zou de assistent na élk kort antwoord anderhalve seconde zwijgen.
+     */
+    for (const t of ['Technohub BV', '8500 euro', 'Nee', 'Beentje', 'exclusief', 'R0VC']) {
+      expect(lijktOnafgerond(t), t).toBe(false);
+    }
+  });
+
+  it('laat een lange zin mét punt met rust', () => {
+    // Anders bewaakt de lengte niets: een regel die op woorden telt zonder naar het leesteken
+    // te kijken, zou driekwart van alle uitspraken markeren.
+    expect(
+      lijktOnafgerond('Ja, ik ben op 23 augustus mondeling op staande voet ontslagen.'),
+    ).toBe(false);
+  });
+});
