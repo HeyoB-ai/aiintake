@@ -61,7 +61,6 @@ export interface GesprekKlaar {
   readonly wsUrl: string;
 }
 
-
 /**
  * Een hash van het IP, niet het IP zelf.
  *
@@ -113,7 +112,10 @@ export async function startIntake(
       ['clientName', 'clientEmail', 'clientPhone'].includes(String(i.path[0])),
     );
     if (veldIssue) {
-      console.error('intake: veld afgekeurd', { pad: veldIssue.path.join('.'), code: veldIssue.code });
+      console.error('intake: veld afgekeurd', {
+        pad: veldIssue.path.join('.'),
+        code: veldIssue.code,
+      });
       const veld = String(veldIssue.path[0]) as ContactVeld;
       return {
         ok: false,

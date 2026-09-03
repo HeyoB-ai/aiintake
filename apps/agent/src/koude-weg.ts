@@ -81,10 +81,12 @@ export function maakKoudeWeg(opties: KoudeWegOpties = {}): KoudeWegKeten {
        * afwijzing hier doorlopen, dan valt de hele keten om en houdt één mislukte extractie
        * het afsluiten van de sessie tegen — met `ended_at` op null als gevolg.
        */
-      keten = keten.then(() => werk).then(
-        () => undefined,
-        () => undefined,
-      );
+      keten = keten
+        .then(() => werk)
+        .then(
+          () => undefined,
+          () => undefined,
+        );
     },
 
     async wacht(maxMs = 15_000): Promise<KoudeWegUitkomst> {

@@ -110,9 +110,7 @@ async function harness(
     avatar,
     language: 'nl',
     now: clock.now,
-    ...(opts.onafgerondWachtMs === undefined
-      ? {}
-      : { onafgerondWachtMs: opts.onafgerondWachtMs }),
+    ...(opts.onafgerondWachtMs === undefined ? {} : { onafgerondWachtMs: opts.onafgerondWachtMs }),
     onOnafgerondeWacht: (g) => {
       wachten.push(g);
     },
@@ -664,8 +662,7 @@ describe('een onafgeronde zin: zwijgen en wachten', () => {
   const KORT = 'Ik moest bij de grootaandeelhouder komen, ik ben directeur,';
   const VERVOLG = 'en die riep zich bij me.';
 
-  const kortAntwoord =
-    () =>
+  const kortAntwoord = () =>
     // eslint-disable-next-line @typescript-eslint/require-await
     async function* (): AsyncGenerator<string> {
       yield 'Goed.';
@@ -721,7 +718,10 @@ describe('een onafgeronde zin: zwijgen en wachten', () => {
      */
     const h = await harness(kortAntwoord, { onafgerondWachtMs: 1_200 });
 
-    h.stt.endOfTurn('Ja, ik ben op 23 augustus mondeling op staande voet ontslagen.', h.clock.now());
+    h.stt.endOfTurn(
+      'Ja, ik ben op 23 augustus mondeling op staande voet ontslagen.',
+      h.clock.now(),
+    );
     await tik();
 
     expect(h.turns).toHaveLength(1);

@@ -28,8 +28,9 @@ describe('herkennen', () => {
 
   it('laat een schone omgeving met rust', () => {
     // Anders bewaakt de rest niets: een controle die overal iets vindt, zou ook slagen.
-    expect(vindWorkergeheim({ SUPABASE_SECRET_KEY: 'sb_secret_x', NODE_ENV: 'production' }))
-      .toEqual([]);
+    expect(
+      vindWorkergeheim({ SUPABASE_SECRET_KEY: 'sb_secret_x', NODE_ENV: 'production' }),
+    ).toEqual([]);
   });
 });
 

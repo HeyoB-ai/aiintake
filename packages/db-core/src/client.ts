@@ -65,8 +65,6 @@ export function createAgentClient(
 ): AppClient {
   return createClient(url, publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    ...(workerSecret
-      ? { global: { headers: { [WORKER_SECRET_HEADER]: workerSecret } } }
-      : {}),
+    ...(workerSecret ? { global: { headers: { [WORKER_SECRET_HEADER]: workerSecret } } } : {}),
   });
 }

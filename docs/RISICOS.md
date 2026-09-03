@@ -1705,7 +1705,7 @@ van het model en te zwak voor een kolom waarop een advocaat sorteert.
 "Ontslag", zodra de route vaststaat "Ontslag op staande voet".
 
 **Eén bijzin, en niet vier.** `currently_ill` → "tijdens ziekte". De toets is niet "is dit waar"
-maar *verandert dit wat een advocaat als eerste doet*: bij opzegging tijdens ziekte speelt een
+maar _verandert dit wat een advocaat als eerste doet_: bij opzegging tijdens ziekte speelt een
 opzegverbod, en dat is juridisch een ander dossier. `summary_dismissal_contested` haalt die toets
 niet — bij een intake is dat bijna altijd waar, en wat overal staat onderscheidt niets. De tabel
 is geordend en de eerste die aanslaat wint, dus er kan er later een bij zonder de structuur om te
@@ -2053,8 +2053,8 @@ te praten, en dáárom hield hij zijn mond. Die drie seconden zijn háár spreek
 erop.
 
 **De algemene vorm, en dit is het punt van dit risico.** De opgeslagen rijen bevatten alleen
-tijdstempels van beurten, niet wie er op welk moment geluid maakte. *"Cliënt pauzeert drie
-seconden"* en *"cliënt haalt adem, assistent praat, cliënt houdt in"* zijn er niet uit elkaar te
+tijdstempels van beurten, niet wie er op welk moment geluid maakte. _"Cliënt pauzeert drie
+seconden"_ en _"cliënt haalt adem, assistent praat, cliënt houdt in"_ zijn er niet uit elkaar te
 houden.
 
 > **Elke meting op basis van tijdsafstand tussen cliëntregels is daarmee onbetrouwbaar.**
@@ -2107,7 +2107,7 @@ sessietoken (`actions.ts:274` zet het in de WebSocket-URL). Beide helften zitten
 cliënt.
 
 **De meting.** Read-only, zonder iets aan te maken: elke functie aangeroepen met de publiceerbare
-sleutel en een *ongeldig* token van de juiste lengte.
+sleutel en een _ongeldig_ token van de juiste lengte.
 
     agent_context          lezen      401  "geen geldig agent-token"
     agent_append_message   SCHRIJVEN  401  "geen geldig agent-token"
@@ -2119,7 +2119,7 @@ de functie komt. Wat er komt is de fout van binnenuit, uit `app.assert_agent_sco
 is dus uitgevoerd. Met een geldig token was hij doorgelopen.
 
 **Wat dat betekent.** Een cliënt kan vandaag een assistent-beurt in zijn eigen dossier schrijven —
-*"Ik weiger het ontslag te accepteren"* met een geldige `turn_index` — en die is achteraf niet van
+_"Ik weiger het ontslag te accepteren"_ met een geldige `turn_index` — en die is achteraf niet van
 een echte beurt te onderscheiden. Het is begrensd tot zijn eigen intake; geen tenantlek. Maar het
 dossier rust op de belofte dat elke regel is gezegd, en die belofte is een aanname en geen
 afdwinging.
@@ -2145,7 +2145,7 @@ worker dan wél heeft.
 
 **De gekozen weg: een tweede factor als RPC-parameter.** `app.assert_agent_scope` krijgt er een
 workergeheim bij, opgeslagen als hash, meegegeven door elke `agent_*`-functie. Het sessietoken
-bewijst *welke intake*; het workergeheim bewijst *dat je de worker bent*. De browser heeft de
+bewijst _welke intake_; het workergeheim bewijst _dat je de worker bent_. De browser heeft de
 eerste en niet de tweede, en geen van beide volstaat alleen. Het starten van een gesprek verandert
 niet, dus er komt geen nieuwe faalweg bij.
 
@@ -2155,7 +2155,7 @@ gelijk aan een echt bericht. `messages.session_id` helpt niet — die wordt binn
 het token afgeleid, dus een browser met een geldig token krijgt hem net zo goed correct ingevuld.
 
 Wat wél kan, en alleen sámen met de tweede factor: een `written_by` op `messages` en `case_facts`,
-gezet *binnen* de functie op grond van hoe de aanroep is geauthenticeerd — nooit uit een
+gezet _binnen_ de functie op grond van hoe de aanroep is geauthenticeerd — nooit uit een
 parameter. Zonder die tweede factor legt zo'n kolom alleen vast wat de aanroeper beweert en is hij
 waardeloos. Mét die factor is het één kolom en één toewijzing. Hij zal in het begin altijd
 `agent` zeggen; zijn waarde is dat een tweede schrijver — een advocaat die corrigeert, een import —
@@ -2170,17 +2170,17 @@ vanaf dag één te onderscheiden is, en dat de garantie wordt vastgelegd in plaa
 Drie controles kunnen alleen met de hand draaien, want ze hebben een draaiende applicatie
 nodig en de pre-push-haak heeft die niet:
 
-| controle | wat hij vangt | wat hij nodig heeft |
-|---|---|---|
-| `packages/ui/preview:check` | de componentcatalogus rendert | de etalageserver (poort 5180) |
-| `apps/web layout:check` | opmaakfouten in de échte app | Next op 3100 + database + demo-inlog |
-| `apps/agent live/zichtbaarheid.mjs` | de gesprekspagina rendert | de worker (poort 5174) + API-sleutels |
+| controle                            | wat hij vangt                 | wat hij nodig heeft                   |
+| ----------------------------------- | ----------------------------- | ------------------------------------- |
+| `packages/ui/preview:check`         | de componentcatalogus rendert | de etalageserver (poort 5180)         |
+| `apps/web layout:check`             | opmaakfouten in de échte app  | Next op 3100 + database + demo-inlog  |
+| `apps/agent live/zichtbaarheid.mjs` | de gesprekspagina rendert     | de worker (poort 5174) + API-sleutels |
 
 Dat is precies de klasse fouten die op een telefoon wordt gevonden en nergens anders: de
 iOS-melding over overlappende kaarten, en die van 3 september over een transcriptregel die
 zijwaarts uitliep. Allebei gevonden door te kijken, niet door een poort.
 
-**Correctie op de aanname waarmee dit begon.** Er *is* CI — `.github/workflows/ci.yml` draait
+**Correctie op de aanname waarmee dit begon.** Er _is_ CI — `.github/workflows/ci.yml` draait
 architectuurgrenzen, typecheck, fantoomafhankelijkheden, de volledige migratiereeks tegen een
 lege Postgres, de tests, de formattering, en in een aparte job de tenant-isolatie tegen een echt
 Supabase-testproject. Wat ontbreekt is geen CI maar een **browserstap**. Dat maakt dit een
@@ -2195,12 +2195,12 @@ stuk goedkoper dan het leek.
 **De web-app — middel, en hier zit de keuze.** `layout:check` logt in als demo-advocaat en opent
 een dossier. Er moet dus een database mét seed én een gebruiker zijn. Twee wegen:
 
-  1. *Het Supabase-testproject.* De secrets bestaan al (`SUPABASE_TEST_*`, gebruikt door de
-     isolatiejob). Snel, maar de seed van dat project moet dan kloppen en blijven kloppen, en
-     twee jobs die er tegelijk in schrijven gaan elkaar in de weg zitten.
-  2. *`supabase start` in de job.* Een verse database per run, met de eigen migraties en seed.
-     Eerlijker en isoleert beter; kost Docker-images en ongeveer twee tot vier minuten opstarttijd
-     per run.
+1. _Het Supabase-testproject._ De secrets bestaan al (`SUPABASE_TEST_*`, gebruikt door de
+   isolatiejob). Snel, maar de seed van dat project moet dan kloppen en blijven kloppen, en
+   twee jobs die er tegelijk in schrijven gaan elkaar in de weg zitten.
+2. _`supabase start` in de job._ Een verse database per run, met de eigen migraties en seed.
+   Eerlijker en isoleert beter; kost Docker-images en ongeveer twee tot vier minuten opstarttijd
+   per run.
 
 Weg 2 heeft mijn voorkeur om dezelfde reden als de migratiestap: een verse omgeving vindt wat een
 meegegroeide omgeving verbergt. Weg 1 is sneller te bouwen.

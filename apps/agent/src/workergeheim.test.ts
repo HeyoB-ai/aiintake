@@ -54,7 +54,11 @@ describe('de vier standen', () => {
      * nee, en dat zou als "niet-herkend" binnenkomen — de stand waarop de worker weigert te
      * starten. Dan zou een worker die het geheim nog niet heeft, niet meer opkomen.
      */
-    const client = { rpc: () => { throw new Error('niet aanroepen'); } } as unknown as AppClient;
+    const client = {
+      rpc: () => {
+        throw new Error('niet aanroepen');
+      },
+    } as unknown as AppClient;
     expect(await controleerWorkergeheim(client, undefined)).toEqual({ stand: 'niet-gezet' });
   });
 
@@ -85,8 +89,9 @@ describe('wanneer de worker weigert te starten', () => {
 
   it('weigert niet op een netwerkstoring', () => {
     // Dat zegt niets over het geheim; er een harde storing van maken is de verkeerde ruil.
-    expect(moetWeigeren({ stand: 'onbereikbaar', fout: 'ETIMEDOUT' }, { NODE_ENV: 'production' }))
-      .toBe(false);
+    expect(
+      moetWeigeren({ stand: 'onbereikbaar', fout: 'ETIMEDOUT' }, { NODE_ENV: 'production' }),
+    ).toBe(false);
   });
 
   it('weigert niet buiten productie', () => {

@@ -139,11 +139,7 @@ function naarGeschiedenis(rijen: AgentContext['history']): Turn[] {
 }
 
 export async function haalIntakeContext(opties: ContextOptions): Promise<IntakeContext> {
-  const client = createAgentClient(
-    opties.supabaseUrl,
-    opties.publishableKey,
-    opties.workerSecret,
-  );
+  const client = createAgentClient(opties.supabaseUrl, opties.publishableKey, opties.workerSecret);
   const rpc = createAgentRpc(client, {
     sessionToken: opties.sessionToken,
     intakeId: opties.intakeId,

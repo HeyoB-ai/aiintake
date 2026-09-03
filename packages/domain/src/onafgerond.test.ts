@@ -102,8 +102,8 @@ describe('kaal afgebroken zinnen', () => {
   it('laat een lange zin mét punt met rust', () => {
     // Anders bewaakt de lengte niets: een regel die op woorden telt zonder naar het leesteken
     // te kijken, zou driekwart van alle uitspraken markeren.
-    expect(
-      lijktOnafgerond('Ja, ik ben op 23 augustus mondeling op staande voet ontslagen.'),
-    ).toBe(false);
+    expect(lijktOnafgerond('Ja, ik ben op 23 augustus mondeling op staande voet ontslagen.')).toBe(
+      false,
+    );
   });
 });

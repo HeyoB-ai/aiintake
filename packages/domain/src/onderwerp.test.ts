@@ -114,8 +114,9 @@ describe('de kop', () => {
 
   it('geeft niets als beide niets noemen', () => {
     // De enige combinatie waarin er echt niets uit komt. Leeg blijft leeg.
-    expect(onderwerpVan(map({ primary_issue: feit('other'), termination_route: feit('other') })))
-      .toBeNull();
+    expect(
+      onderwerpVan(map({ primary_issue: feit('other'), termination_route: feit('other') })),
+    ).toBeNull();
   });
 });
 

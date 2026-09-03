@@ -49,14 +49,14 @@ describe('telefoonnummers zoals mensen ze schrijven', () => {
 
   it('weigert wat geen nummer is', () => {
     for (const nummer of [
-      '06123456',        // te kort
-      '06123456789012',  // te lang
-      '1612345678',      // Nederlands zonder de nul
+      '06123456', // te kort
+      '06123456789012', // te lang
+      '1612345678', // Nederlands zonder de nul
       'nul zes twaalf',
       '06 1234 abcd',
       '+',
       '++31612345678',
-      '+0612345678',     // geen landcode begint met een nul
+      '+0612345678', // geen landcode begint met een nul
     ]) {
       expect(geldigTelefoon(nummer), nummer).toBe(false);
     }
@@ -93,7 +93,7 @@ describe('e-mailadressen', () => {
       'jan',
       'jan@',
       '@voorbeeld.nl',
-      'jan@voorbeeld',   // geen punt in het domein
+      'jan@voorbeeld', // geen punt in het domein
       'jan@voorbeeld.n', // tld van één teken
       'jan @voorbeeld.nl',
       'jan@voor beeld.nl',

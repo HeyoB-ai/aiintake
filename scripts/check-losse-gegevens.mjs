@@ -109,7 +109,9 @@ const isGetrackt = new Set(getrackt);
 const ongetrackt = inRoot.filter((pad) => !genegeerd.has(pad) && !isGetrackt.has(pad));
 const genegeerdRisico = inRoot.filter((pad) => genegeerd.has(pad) && !isGetrackt.has(pad));
 
-process.stdout.write('\n  Losse gegevensbestanden: staat er iets in de repo dat er niet hoort?\n\n');
+process.stdout.write(
+  '\n  Losse gegevensbestanden: staat er iets in de repo dat er niet hoort?\n\n',
+);
 
 let ok = true;
 

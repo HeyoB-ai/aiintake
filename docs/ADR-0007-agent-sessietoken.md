@@ -133,8 +133,8 @@ RISICOS.md risico 31 voor de meting.
 
 Er komt nog iets bij dat hier wél had moeten staan: het token reist niet alleen naar de worker
 maar **via de browser**. `startIntake` zet het in de WebSocket-URL die de cliënt terugkrijgt.
-De toelichting in `packages/db/src/agent-session.ts` zegt *"Geef dit door aan de worker en
-nergens anders heen"* — en de architectuur stuurt het door de browser. Die twee zinnen stonden
+De toelichting in `packages/db/src/agent-session.ts` zegt _"Geef dit door aan de worker en
+nergens anders heen"_ — en de architectuur stuurt het door de browser. Die twee zinnen stonden
 maanden naast elkaar zonder dat iemand ze naast elkaar legde.
 
 **De vorm om te onthouden.** Verandert een ADR een rol, een sleutel of een grens, dan hoort
