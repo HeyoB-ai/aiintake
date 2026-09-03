@@ -256,6 +256,44 @@ try {
       lekkendeDozen.length === 0,
       lekkendeDozen.slice(0, 3).join(' | '),
     );
+
+    /*
+     * Dozen die zijwaarts scrollen zonder dat dat de bedoeling is.
+     *
+     * De paginabrede controle hierboven vindt dit per definitie níét, en dat is gemeten. Een
+     * vak met `overflow-y: auto` krijgt van de CSS-spec automatisch `overflow-x: auto` erbij.
+     * Loopt de inhoud zijwaarts uit, dan vángt dat vak het op: `documentElement.scrollWidth`
+     * blijft gelijk en de pagina meldt nul overloop.
+     *
+     * Wat de cliënt ziet is iets anders. Het vak staat dan zijwaarts verschoven en het begin
+     * van elke regel valt weg — "ASSISTENT" wordt "SSISTENT", "Kunt u" wordt "unt u". Gemeten
+     * op een iPhone 14 in WebKit: één URL in het transcript gaf 74px horizontale scroll in een
+     * vak van 358px, met de pagina op nul.
+     *
+     * De oorzaak is bijna altijd dezelfde: een flex-item zonder `min-w-0`. Zo'n item heeft
+     * `min-width: auto` en weigert te krimpen onder zijn langste woord.
+     */
+    const zijwaartseVakken = await page.evaluate(() => {
+      const gevonden = [];
+      for (const el of document.querySelectorAll('main *, aside *')) {
+        const stijl = getComputedStyle(el);
+        if (stijl.overflowX === 'visible' || stijl.overflowX === 'hidden') continue;
+        // Een pixel marge: subpixelafronding is geen overloop.
+        if (el.scrollWidth > el.clientWidth + 1) {
+          const eersteKlasse = (el.className?.toString?.() ?? '').split(' ')[0];
+          gevonden.push(
+            `${el.tagName.toLowerCase()}.${eersteKlasse} ` +
+              `(inhoud ${el.scrollWidth}px in ${el.clientWidth}px)`,
+          );
+        }
+      }
+      return gevonden;
+    });
+    eis(
+      `${maat.naam}: geen vak dat zijwaarts scrolt`,
+      zijwaartseVakken.length === 0,
+      zijwaartseVakken.slice(0, 3).join(' | '),
+    );
   }
 
   eis('geen paginafouten', fouten.length === 0, fouten.slice(0, 2).join(' | '));

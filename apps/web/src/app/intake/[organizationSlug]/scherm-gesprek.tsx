@@ -354,7 +354,24 @@ export function Gesprek({ organisatieNaam, wsUrl, micStream, onAfgerond }: Gespr
                   >
                     {r.wie}
                   </dt>
-                  <dd style={{ color: 'var(--app-text-muted)' }}>{r.tekst}</dd>
+                  {/*
+                   * `min-w-0` en `break-words`, en dat is geen voorzorg maar een gemeten
+                   * reparatie.
+                   *
+                   * Een flex-item heeft standaard `min-width: auto` en weigert te krimpen
+                   * onder de breedte van zijn langste woord. Bij gewone zinnen valt dat niet
+                   * op; bij een URL wél. Gemeten op een iPhone 14 (WebKit, 390px): de rij werd
+                   * 432px breed in een vak van 358, en het transcript kreeg 74px horizontale
+                   * scroll. Dan schuift de inhoud naar links weg en verlies je het begin van
+                   * elke regel — "ASSISTENT" wordt "SSISTENT", "Kunt u" wordt "unt u".
+                   *
+                   * De pagina zelf loopt daarbij níét over: `overflow-y-auto` maakt `overflow-x`
+                   * ook `auto`, dus het vak vangt het op en `documentElement.scrollWidth` blijft
+                   * gelijk. Precies daarom vindt een controle op paginabrede overloop dit niet.
+                   */}
+                  <dd className="min-w-0 break-words" style={{ color: 'var(--app-text-muted)' }}>
+                    {r.tekst}
+                  </dd>
                 </div>
               ))}
             </dl>
