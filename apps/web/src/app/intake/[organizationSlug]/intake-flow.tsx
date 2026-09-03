@@ -5,6 +5,7 @@ import { Welkom } from './scherm-welkom';
 import { Toestemming, type ToestemmingUitkomst } from './scherm-toestemming';
 import { Gesprek } from './scherm-gesprek';
 import type { ContactFout } from '@intake/domain';
+import { Meetlint } from './meetlint';
 import { startIntake } from './actions';
 
 /**
@@ -120,6 +121,13 @@ export function IntakeFlow(props: IntakeFlowProps) {
           onStart={() => setStap('toestemming')}
         />
       )}
+
+      {/*
+       * Alleen buiten productie. De bundler vervangt dit door een letterlijke waarde, dus in
+       * een productiebuild valt de component weg bij het samenstellen — een cliënt haalt hem
+       * niet binnen. Zie meetlint.tsx voor waarom hij bestaat.
+       */}
+      {process.env.NODE_ENV !== 'production' && <Meetlint />}
 
       {stap === 'toestemming' && (
         <Toestemming

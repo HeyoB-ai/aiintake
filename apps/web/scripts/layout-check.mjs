@@ -34,6 +34,7 @@ import { chromium } from 'playwright';
 const BASIS = process.env.WEB_URL ?? 'http://localhost:3100';
 const EMAIL = process.env.DEMO_EMAIL ?? 'advocaat@vandijk-arbeidsrecht.test';
 const WACHTWOORD = process.env.DEMO_PASSWORD ?? 'Demo-Intake-2026!aA1';
+const ORG_SLUG = process.env.ORG_SLUG ?? 'vandijk-arbeidsrecht';
 
 let mislukt = false;
 const eis = (naam, ok, detail = '') => {
@@ -53,7 +54,20 @@ const BREEDTES = [
   { naam: 'desktop', width: 1500, height: 1000 },
 ];
 
-const browser = await chromium.launch();
+/*
+ * Een nepcamera en -microfoon op browserniveau.
+ *
+ * Het cliëntscherm laat de knop "Gesprek beginnen" pas toe als `getUserMedia` is geslaagd.
+ * Zonder deze vlaggen blijft die knop uit en meet de controle een toestemmingsscherm terwijl
+ * hij denkt het gespreksscherm te meten — precies zo'n groen dat niets bewijst.
+ */
+const browser = await chromium.launch({
+  args: [
+    '--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream',
+    '--autoplay-policy=no-user-gesture-required',
+  ],
+});
 const page = await browser.newPage({ viewport: BREEDTES[1] });
 const fouten = [];
 page.on('pageerror', (e) => fouten.push(e.message));
@@ -295,6 +309,190 @@ try {
       zijwaartseVakken.slice(0, 3).join(' | '),
     );
   }
+
+  /*
+   * ==========================================================================
+   * Het gespreksscherm van de cliënt — de pagina die op een telefoon wordt gebruikt
+   * ==========================================================================
+   *
+   * Deze route stond hier niet, en dat was het gat. Drie keer op rij vond de eigenaar op zijn
+   * iPhone iets wat elke poort hier groen liet: overlappende kaarten, een uitlopende
+   * transcriptregel, en een pagina die als geheel verschoven staat. De controle keek naar het
+   * dashboard — het scherm dat een advocaat op een laptop opent — en nooit naar het scherm dat
+   * een cliënt op een telefoon krijgt.
+   *
+   * ## Waarom er een neppe worker aan te pas komt
+   *
+   * De drie elementen die misgaan — de actuele vraag, de voortgang, het transcript — bestaan
+   * pas als er een gesprek loopt. Zonder inhoud is het scherm leeg en meet je niets. De echte
+   * worker draaien zou Deepgram, ElevenLabs en Anthropic vragen; dat is geld per run en een
+   * lekoppervlak (zie risico 32).
+   *
+   * Daarom wordt `WebSocket` in de pagina vervangen door een dubbel dat het protocol van de
+   * worker spreekt: `ready`, dan `turn` en `facts`. De componenten, de stylesheet en de
+   * opmaak zijn de echte; alleen de bron van de berichten is nep. Dat is precies de grens
+   * waar deze controle over gaat.
+   *
+   * `getUserMedia` wordt om dezelfde reden vervangen: zonder microfoon blijft de knop uit en
+   * komt de cliënt nooit op dit scherm.
+   */
+  const intakePagina = await browser.newPage({
+    viewport: BREEDTES[0],
+    permissions: ['camera', 'microphone'],
+  });
+  intakePagina.on('pageerror', (e) => fouten.push(`intake: ${e.message}`));
+
+  await intakePagina.addInitScript(() => {
+    /*
+     * De neppe worker.
+     *
+     * Stuurt precies wat `conversation-client.ts` verwacht en niets meer. De teksten komen uit
+     * een gevoerd gesprek: "1 van 13 onderwerpen besproken" is de stand waarbij de klacht is
+     * gemeld, en dat getal bepaalt de breedte van de voortgangsregel.
+     */
+    class NepSocket extends EventTarget {
+      constructor() {
+        super();
+        this.readyState = 1;
+        this.binaryType = 'arraybuffer';
+        setTimeout(() => {
+          this.onopen?.(new Event('open'));
+          const stuur = (data) =>
+            this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(data) }));
+          stuur({ type: 'ready', sampleRate: 24000, avatar: 'null' });
+          stuur({
+            type: 'turn',
+            client: 'Ik ben op 23 augustus mondeling op staande voet ontslagen.',
+            assistant:
+              'Dank u wel. Ik ben een AI-assistent en geen advocaat. Kunt u vertellen wat er precies is gebeurd op de dag zelf?',
+          });
+          stuur({ type: 'facts', topicsTouched: 1, topicsRelevant: 13 });
+        }, 300);
+      }
+      send() {}
+      close() {
+        this.readyState = 3;
+      }
+      addEventListener() {}
+      removeEventListener() {}
+    }
+    NepSocket.OPEN = 1;
+    NepSocket.CLOSED = 3;
+    window.WebSocket = NepSocket;
+  });
+
+  await intakePagina.goto(`${BASIS}/intake/${ORG_SLUG}`, { waitUntil: 'networkidle' });
+  await intakePagina
+    .getByRole('button', { name: /begin|start|verder|doorgaan/i })
+    .first()
+    .click();
+  await intakePagina.waitForTimeout(1200);
+
+  const velden = await intakePagina
+    .locator('input[type="text"], input[type="email"], input[type="tel"]')
+    .all();
+  if (velden[0]) await velden[0].fill('Jan de Vries');
+  if (velden[1]) await velden[1].fill('jan@voorbeeld.nl');
+  for (const vinkje of await intakePagina.locator('input[type="checkbox"]').all()) {
+    if (!(await vinkje.isChecked())) await vinkje.check().catch(() => undefined);
+  }
+
+  /*
+   * De microfoon wordt niet vanzelf gevraagd; er is een knop voor.
+   *
+   * Dit miste in de eerste versie, en het gevolg was precies de fout die deze controle moet
+   * uitsluiten: hij "bezocht" het gespreksscherm en mat een toestemmingsscherm. De assertie
+   * over horizontale overloop draaide daardoor helemaal niet — niet rood, niet groen, maar
+   * afwezig. Vandaar dat het bereiken van het scherm zelf een eis is.
+   */
+  const micKnop = intakePagina.getByRole('button', { name: /microfoon toestaan/i });
+  if (await micKnop.count()) await micKnop.click().catch(() => undefined);
+
+  const beginnen = intakePagina.getByRole('button', { name: /gesprek beginnen/i });
+  for (let i = 0; i < 30 && (await beginnen.isDisabled()); i += 1) {
+    await intakePagina.waitForTimeout(400);
+  }
+
+  const bereikt = !(await beginnen.isDisabled());
+  eis(
+    'het gespreksscherm is te bereiken in de controle',
+    bereikt,
+    bereikt
+      ? ''
+      : (await intakePagina.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 160),
+  );
+
+  if (bereikt) {
+    await beginnen.click();
+    // Wachten tot de drie elementen er zijn; anders meet je een leeg scherm en is groen niets
+    // waard. Dat was precies de fout in de vorige ronde.
+    await intakePagina
+      .getByText(/onderwerpen besproken/)
+      .waitFor({ timeout: 15_000 })
+      .catch(() => undefined);
+
+    const inhoud = await intakePagina.evaluate(() => ({
+      vraag: Boolean(document.body.innerText.match(/Kunt u vertellen/)),
+      voortgang: Boolean(document.body.innerText.match(/onderwerpen besproken/)),
+      transcript: Boolean(document.body.innerText.match(/ASSISTENT|Assistent/i)),
+    }));
+    eis(
+      'de drie elementen uit de klacht staan er',
+      inhoud.vraag && inhoud.voortgang && inhoud.transcript,
+      `vraag=${inhoud.vraag} voortgang=${inhoud.voortgang} transcript=${inhoud.transcript}`,
+    );
+
+    const meting = await intakePagina.evaluate(() => {
+      const doc = document.documentElement;
+      const breedte = doc.clientWidth;
+      const buiten = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        if (r.right > breedte + 0.5 || r.left < -0.5) {
+          buiten.push(
+            `${el.tagName.toLowerCase()}.${(el.className?.toString?.() ?? '').split(' ')[0]} ` +
+              `[${Math.round(r.left)}..${Math.round(r.right)}] in ${breedte}`,
+          );
+        }
+      }
+      const vakken = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const s = getComputedStyle(el);
+        if (s.overflowX === 'visible' || s.overflowX === 'hidden') continue;
+        if (el.scrollWidth > el.clientWidth + 1) {
+          vakken.push(
+            `${el.tagName.toLowerCase()}.${(el.className?.toString?.() ?? '').split(' ')[0]} ` +
+              `(${el.scrollWidth} in ${el.clientWidth})`,
+          );
+        }
+      }
+      return {
+        overloop: doc.scrollWidth - doc.clientWidth,
+        breedte,
+        buiten,
+        vakken,
+      };
+    });
+
+    eis(
+      `intake ${BREEDTES[0].width}px: geen horizontale overloop`,
+      meting.overloop <= 1,
+      `${meting.overloop}px${meting.buiten.length ? ' — ' + meting.buiten.slice(0, 3).join(' | ') : ''}`,
+    );
+    eis(
+      `intake ${BREEDTES[0].width}px: niets steekt buiten de viewport`,
+      meting.buiten.length === 0,
+      meting.buiten.slice(0, 3).join(' | '),
+    );
+    eis(
+      `intake ${BREEDTES[0].width}px: geen vak dat zijwaarts scrolt`,
+      meting.vakken.length === 0,
+      meting.vakken.slice(0, 3).join(' | '),
+    );
+  }
+
+  await intakePagina.close();
 
   eis('geen paginafouten', fouten.length === 0, fouten.slice(0, 2).join(' | '));
 } catch (error) {
