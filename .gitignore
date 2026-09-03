@@ -7,10 +7,27 @@ coverage/
 .turbo/
 
 # env — nooit committen
-.env
-.env.local
-.env.*.local
+#
+# `.env*` en niet `.env` plus een paar varianten. Er lag maandenlang een `.env111.txt` met
+# echte sleutels in de hoofdmap die door geen enkel patroon werd gedekt; hij ontsnapte alleen
+# doordat niemand hem toevallig had toegevoegd.
+.env*
 !.env.example
+!**/.env.example
+
+# Losse gegevensbestanden in de hoofdmap.
+#
+# Daar belandt wat je even ergens neerzet: een export, een lijstje, een screenshot van een
+# klantsysteem. Twee keer is dat hier misgegaan — `.env111.txt` en een csv met een naam en een
+# telefoonnummer erin, die door `git add -A` in een commit terechtkwam.
+#
+# Alleen de hoofdmap: een testfixture in packages/ hoort gewoon getrackt te worden.
+/*.csv
+/*.txt
+/*.tsv
+/*.xls
+/*.xlsx
+/*.vcf
 
 # supabase
 supabase/.temp/

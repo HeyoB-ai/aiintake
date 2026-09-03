@@ -35,6 +35,16 @@
 # Het tweede is het zwaardere gat: een typecheck vangt geen fout die pas bij het uitvoeren van
 # moduleniveau ontstaat. Voor die klasse bestaat maar een controle -- het ding starten.
 
+# De vijfde is van een andere soort: hij bewaakt niet de code maar wat er per ongeluk
+# naast ligt. Twee keer stond er een bestand met echte gegevens in de hoofdmap -- een
+# .env111.txt met live sleutels, en een csv met een naam en een telefoonnummer die door
+# `git add -A` in een commit belandde. Die laatste is er handmatig uitgehaald voordat er
+# iets gepusht was, en dat was toeval.
+#
+# Getrackt blokkeert; los in de werkmap is een melding. Blokkeren op dat tweede zou
+# tegenhouden wat niet fout is, en zo'n poort wordt uitgezet.
+
+pnpm gegevens:check || exit 1
 pnpm db:status || exit 1
 pnpm samplerate:check || exit 1
 pnpm tijd:check || exit 1

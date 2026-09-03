@@ -16,6 +16,7 @@
     "test:bakeoff": "pnpm --filter @intake/agent test:bakeoff",
     "db:check": "node scripts/check-migrations.mjs",
     "db:status": "node scripts/check-db-status.mjs",
+    "gegevens:check": "node scripts/check-losse-gegevens.mjs",
     "samplerate:check": "node scripts/check-samplerate.mjs",
     "tijd:check": "node scripts/check-tijdweergave.mjs",
     "samples:check": "node scripts/check-samples-naar-ms.mjs",
