@@ -48,7 +48,25 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
       status: error.status,
       message: error.message,
     });
-    return { error: 'Inloggen mislukt. Controleer uw gegevens.' };
+
+    /*
+     * Een storing is geen typefout, en dat onderscheid mág hier wel.
+     *
+     * De vaagheid hierboven bestaat om niet te verklappen welke e-mailadressen bestaan. Die
+     * reden geldt alleen voor een afgewezen inlogpoging. Bij een storing — Supabase plat, een
+     * verkeerde publishable key, een netwerkfout — verraadt "er is nu iets mis aan onze kant"
+     * niets over accounts, en "Controleer uw gegevens" stuurt iemand zijn wachtwoord opnieuw
+     * intypen terwijl daar niets mis mee is.
+     *
+     * Dezelfde vorm als het intakeformulier, alleen omgekeerd: daar werd een invoerfout als
+     * storing getoond, hier een storing als invoerfout.
+     */
+    const storing = error.status === undefined || error.status >= 500;
+    return {
+      error: storing
+        ? 'Inloggen lukt nu niet door een storing aan onze kant. Probeer het over een paar minuten opnieuw.'
+        : 'Inloggen mislukt. Controleer uw gegevens.',
+    };
   }
 
   revalidatePath('/', 'layout');

@@ -2,6 +2,7 @@ export * from './enums';
 export * from './facts/index';
 export * from './schemas/index';
 export * from './arithmetic';
+export * from './contactgegevens';
 export * from './bestandstype';
 export * from './affirmation';
 export * from './weekdag';

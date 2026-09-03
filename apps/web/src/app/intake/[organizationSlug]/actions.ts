@@ -5,7 +5,9 @@ import { z } from 'zod';
 import { issueAgentSession } from '@intake/db';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceRoleClient } from '@/lib/supabase/service';
+import { geldigEmail, geldigTelefoon, type ContactVeld } from '@intake/domain';
 import { bepaalClientIp, hashMetPeper } from '@/lib/client-ip';
+import { meldingVoorDbFout, type GesprekMislukt } from './foutmeldingen';
 
 /**
  * Toestemming vastleggen en een gesprek klaarzetten.
@@ -39,8 +41,18 @@ const ToestemmingSchema = z.object({
   privacyPolicyVersion: z.string().min(1),
   aiDisclosureVersion: z.string().min(1),
   clientName: z.string().trim().min(2).max(200),
-  clientEmail: Optioneel,
-  clientPhone: Optioneel,
+  /*
+   * Dezelfde regel als in het formulier, en dat is het punt.
+   *
+   * Het formulier is geen grens: wie de action rechtstreeks aanroept komt hier binnen. Maar
+   * het formulier moet wél precies weigeren wat de server weigert, anders krijgt de cliënt bij
+   * een typefout een melding over een storing. Eén regel in @intake/domain, twee aanroepers.
+   *
+   * De database controleert het e-mailadres daarnaast nóg een keer (`create_public_intake`).
+   * Dat blijft zo: dat oordeel hoort daar, zodat een tweede client er niet omheen kan.
+   */
+  clientEmail: Optioneel.refine((v) => v === undefined || geldigEmail(v)),
+  clientPhone: Optioneel.refine((v) => v === undefined || geldigTelefoon(v)),
 });
 
 export interface GesprekKlaar {
@@ -49,10 +61,6 @@ export interface GesprekKlaar {
   readonly wsUrl: string;
 }
 
-export interface GesprekMislukt {
-  readonly ok: false;
-  readonly fout: string;
-}
 
 /**
  * Een hash van het IP, niet het IP zelf.
@@ -93,6 +101,32 @@ export async function startIntake(
 
   const parsed = ToestemmingSchema.safeParse(invoer);
   if (!parsed.success) {
+    /*
+     * Een veldfout is iets anders dan een kapot verzoek.
+     *
+     * Een te korte naam en een ontbrekende `organizationSlug` kwamen allebei uit als "De
+     * gegevens waren niet volledig" — de eerste is een typefout van de cliënt, de tweede een
+     * client die iets anders stuurt dan de server verwacht. Wie de eerste als de tweede toont,
+     * laat iemand naar een storing zoeken die er niet is.
+     */
+    const veldIssue = parsed.error.issues.find((i) =>
+      ['clientName', 'clientEmail', 'clientPhone'].includes(String(i.path[0])),
+    );
+    if (veldIssue) {
+      console.error('intake: veld afgekeurd', { pad: veldIssue.path.join('.'), code: veldIssue.code });
+      const veld = String(veldIssue.path[0]) as ContactVeld;
+      return {
+        ok: false,
+        veld,
+        fout:
+          veld === 'clientName'
+            ? 'Vul uw voor- en achternaam in.'
+            : veld === 'clientEmail'
+              ? 'Dit lijkt geen geldig e-mailadres.'
+              : 'Dit lijkt geen geldig telefoonnummer. Bijvoorbeeld: 06 12345678.',
+      };
+    }
+
     // Ook deze tak: hij was stil, en een afgekeurd schema is precies het geval waarin de
     // client iets anders stuurt dan de server verwacht — na een deploy bijvoorbeeld.
     console.error('intake: invoer afgekeurd', {
@@ -207,18 +241,7 @@ export async function startIntake(
       org: d.organizationSlug,
     });
 
-    // De rate limiter is de enige fout waar de bezoeker iets aan heeft; de rest zou
-    // hooguit verraden hoe het systeem in elkaar zit.
-    const teVaak = error.message.includes('te veel intakepogingen');
-    return {
-      ok: false,
-      fout: teVaak
-        ? // Het venster is een uur (`p_max_per_hour`, `date_trunc('hour', now())`). Hier stond
-          // "een kwartier"; wie dat las kwam terug en werd opnieuw geweigerd, zonder te weten
-          // waarom. Geen getal noemen dat niet uit de regel volgt.
-          'Er zijn te veel pogingen vanaf dit adres. Probeer het over een uur opnieuw.'
-        : 'Het gesprek kon niet worden gestart. Probeer het later opnieuw.',
-    };
+    return meldingVoorDbFout(error);
   }
 
   const rij = (data as { intake_id: string; organization_id: string }[] | null)?.[0];

@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Welkom } from './scherm-welkom';
 import { Toestemming, type ToestemmingUitkomst } from './scherm-toestemming';
 import { Gesprek } from './scherm-gesprek';
+import type { ContactFout } from '@intake/domain';
 import { startIntake } from './actions';
 
 /**
@@ -36,6 +37,14 @@ export interface IntakeFlowProps {
 export function IntakeFlow(props: IntakeFlowProps) {
   const [stap, setStap] = useState<Stap>('welkom');
   const [fout, setFout] = useState<string | null>(null);
+  /*
+   * Een fout die aan één veld hangt, apart van de fout die in de balk hoort.
+   *
+   * De server valideert opnieuw — het formulier is geen grens — maar zijn weigering hoort net
+   * zo goed onder het veld te staan als die van het formulier. Anders is er één weg waarop een
+   * typefout er alsnog als storing uitziet.
+   */
+  const [veldFout, setVeldFout] = useState<ContactFout | null>(null);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [bezig, setBezig] = useState(false);
   const micRef = useRef<MediaStream | null>(null);
@@ -44,6 +53,7 @@ export function IntakeFlow(props: IntakeFlowProps) {
     async (uitkomst: ToestemmingUitkomst) => {
       setBezig(true);
       setFout(null);
+      setVeldFout(null);
       const antwoord = await startIntake({
         organizationSlug: props.organizationSlug,
         privacyAccepted: uitkomst.privacy,
@@ -59,7 +69,10 @@ export function IntakeFlow(props: IntakeFlowProps) {
       setBezig(false);
 
       if (!antwoord.ok) {
-        setFout(antwoord.fout);
+        // Een veldfout gaat naar het veld, de rest naar de balk. Nooit allebei: dan staat
+        // dezelfde melding twee keer op het scherm.
+        if (antwoord.veld) setVeldFout({ veld: antwoord.veld, melding: antwoord.fout });
+        else setFout(antwoord.fout);
         // De stroom loslaten: blijft hij open, dan brandt het microfoonlampje terwijl er
         // geen gesprek is, en dat is precies het soort ding waar iemand terecht van
         // schrikt.
@@ -115,6 +128,7 @@ export function IntakeFlow(props: IntakeFlowProps) {
           aiVersie={props.aiVersie}
           bezig={bezig}
           fout={fout}
+          veldFoutVanServer={veldFout}
           onTerug={() => setStap('welkom')}
           onAkkoord={opToestemming}
         />

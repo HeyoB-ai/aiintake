@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Camera, CameraOff, Mic, RefreshCw } from 'lucide-react';
+import { controleerContact, type ContactFout } from '@intake/domain';
 
 /**
  * Scherm 2 — toestemming, apparaten en voorbeeld.
@@ -74,6 +75,8 @@ export interface ToestemmingProps {
   readonly aiVersie: string;
   readonly bezig: boolean;
   readonly fout: string | null;
+  /** Een weigering van de server die aan één veld hangt. Zie contactgegevens.ts. */
+  readonly veldFoutVanServer?: ContactFout | null;
   readonly onTerug: () => void;
   readonly onAkkoord: (uitkomst: ToestemmingUitkomst) => void | Promise<void>;
 }
@@ -123,6 +126,7 @@ export function Toestemming({
   aiVersie,
   bezig,
   fout,
+  veldFoutVanServer,
   onTerug,
   onAkkoord,
 }: ToestemmingProps) {
@@ -135,6 +139,22 @@ export function Toestemming({
   const [naam, setNaam] = useState('');
   const [email, setEmail] = useState('');
   const [telefoon, setTelefoon] = useState('');
+  /*
+   * De fout van één veld, en pas nadat er op de knop is gedrukt.
+   *
+   * Niet tijdens het typen: dan staat er "Dit lijkt geen geldig e-mailadres" zodra iemand
+   * de eerste letter heeft ingevoerd, en dat is een verwijt over iets wat nog niet af is.
+   * Wissen zodra het veld verandert, want dan is de melding niet meer over wat er staat.
+   */
+  const [veldFout, setVeldFout] = useState<ContactFout | null>(null);
+  /*
+   * De eigen controle wint van die van de server.
+   *
+   * Ze zeggen hetzelfde — het is dezelfde regel — maar de eigen is de verse: hij hoort bij wat
+   * er nú in het veld staat. De melding van de server gaat over wat er stond toen er werd
+   * ingediend, en die blijft zichtbaar tot de cliënt het veld aanraakt.
+   */
+  const zichtbareVeldFout = veldFout ?? veldFoutVanServer ?? null;
   const [toegangFout, setToegangFout] = useState<string | null>(null);
   const [apparaten, setApparaten] = useState<MediaDeviceInfo[]>([]);
   const [gekozenMic, setGekozenMic] = useState<string>('');
@@ -356,26 +376,41 @@ export function Toestemming({
             label="Naam"
             verplicht
             waarde={naam}
-            opWijziging={setNaam}
+            opWijziging={(v) => {
+              setNaam(v);
+              // De melding gaat over wat er stónd; zodra dat verandert, klopt hij niet meer.
+              if (veldFout?.veld === 'clientName') setVeldFout(null);
+            }}
             type="text"
             autoComplete="name"
             plaatshouder="Voor- en achternaam"
+            fout={zichtbareVeldFout?.veld === 'clientName' ? zichtbareVeldFout.melding : undefined}
           />
           <Veld
             label="E-mailadres"
             waarde={email}
-            opWijziging={setEmail}
+            opWijziging={(v) => {
+              setEmail(v);
+              // De melding gaat over wat er stónd; zodra dat verandert, klopt hij niet meer.
+              if (veldFout?.veld === 'clientEmail') setVeldFout(null);
+            }}
             type="email"
             autoComplete="email"
             plaatshouder="naam@voorbeeld.nl"
+            fout={zichtbareVeldFout?.veld === 'clientEmail' ? zichtbareVeldFout.melding : undefined}
           />
           <Veld
             label="Telefoonnummer"
             waarde={telefoon}
-            opWijziging={setTelefoon}
+            opWijziging={(v) => {
+              setTelefoon(v);
+              // De melding gaat over wat er stónd; zodra dat verandert, klopt hij niet meer.
+              if (veldFout?.veld === 'clientPhone') setVeldFout(null);
+            }}
             type="tel"
             autoComplete="tel"
             plaatshouder="06 12345678"
+            fout={zichtbareVeldFout?.veld === 'clientPhone' ? zichtbareVeldFout.melding : undefined}
           />
         </div>
 
@@ -453,6 +488,22 @@ export function Toestemming({
           onClick={() => {
             const stream = streamRef.current;
             if (!stream) return;
+
+            /*
+             * Vóór er iets naar de server gaat.
+             *
+             * Een typefout in een e-mailadres kwam terug als "Het gesprek kon niet worden
+             * gestart" — dezelfde zin als bij een databasestoring. Wie dat leest, denkt dat
+             * de app stuk is en probeert het niet opnieuw. Dezelfde regel als op de server;
+             * zie contactgegevens.ts.
+             */
+            const fout = controleerContact({ naam, email, telefoon });
+            if (fout) {
+              setVeldFout(fout);
+              return;
+            }
+            setVeldFout(null);
+
             void onAkkoord({
               privacy,
               aiDisclosure: aiAkkoord,
@@ -506,6 +557,7 @@ function Veld({
   autoComplete,
   plaatshouder,
   verplicht = false,
+  fout,
 }: {
   label: string;
   waarde: string;
@@ -514,6 +566,8 @@ function Veld({
   autoComplete: string;
   plaatshouder: string;
   verplicht?: boolean;
+  /** Wat er mis is met dít veld. Staat eronder, niet in de balk onderaan. */
+  fout?: string | undefined;
 }) {
   return (
     <label className="block text-sm">
@@ -529,15 +583,23 @@ function Veld({
         autoComplete={autoComplete}
         placeholder={plaatshouder}
         onChange={(e) => opWijziging(e.target.value)}
+        aria-invalid={fout ? true : undefined}
         // py-3: een aanraakzone van 44 px, de ondergrens waaronder tikken op een telefoon
         // gaat missen.
         className="mt-1 w-full rounded-xl border px-3 py-3"
         style={{
           backgroundColor: 'var(--app-card)',
-          borderColor: 'var(--app-border-strong)',
+          // De rand kleurt mee. Op een telefoon staat de melding onder de vouw zodra het
+          // toetsenbord openstaat; de rand van het veld waar de cursor in staat, niet.
+          borderColor: fout ? 'var(--urgency-critical)' : 'var(--app-border-strong)',
           color: 'var(--app-text)',
         }}
       />
+      {fout && (
+        <span className="mt-1 block text-sm" style={{ color: 'var(--urgency-critical)' }}>
+          {fout}
+        </span>
+      )}
     </label>
   );
 }
