@@ -2160,3 +2160,65 @@ parameter. Zonder die tweede factor legt zo'n kolom alleen vast wat de aanroeper
 waardeloos. Mét die factor is het één kolom en één toewijzing. Hij zal in het begin altijd
 `agent` zeggen; zijn waarde is dat een tweede schrijver — een advocaat die corrigeert, een import —
 vanaf dag één te onderscheiden is, en dat de garantie wordt vastgelegd in plaats van aangenomen.
+
+---
+
+## 32. Elke poort die een draaiende app nodig heeft, staat buiten bereik
+
+**Status:** open, bewust niet nu gebouwd. Vastgesteld 3 september 2026.
+
+Drie controles kunnen alleen met de hand draaien, want ze hebben een draaiende applicatie
+nodig en de pre-push-haak heeft die niet:
+
+| controle | wat hij vangt | wat hij nodig heeft |
+|---|---|---|
+| `packages/ui/preview:check` | de componentcatalogus rendert | de etalageserver (poort 5180) |
+| `apps/web layout:check` | opmaakfouten in de échte app | Next op 3100 + database + demo-inlog |
+| `apps/agent live/zichtbaarheid.mjs` | de gesprekspagina rendert | de worker (poort 5174) + API-sleutels |
+
+Dat is precies de klasse fouten die op een telefoon wordt gevonden en nergens anders: de
+iOS-melding over overlappende kaarten, en die van 3 september over een transcriptregel die
+zijwaarts uitliep. Allebei gevonden door te kijken, niet door een poort.
+
+**Correctie op de aanname waarmee dit begon.** Er *is* CI — `.github/workflows/ci.yml` draait
+architectuurgrenzen, typecheck, fantoomafhankelijkheden, de volledige migratiereeks tegen een
+lege Postgres, de tests, de formattering, en in een aparte job de tenant-isolatie tegen een echt
+Supabase-testproject. Wat ontbreekt is geen CI maar een **browserstap**. Dat maakt dit een
+stuk goedkoper dan het leek.
+
+### Wat het per controle kost
+
+**De etalage — klein.** De preview-server heeft geen database en geen sleutels. Een stap die
+`pnpm preview` start, wacht tot 5180 antwoordt, en `preview:check` draait. Plus
+`playwright install --with-deps chromium` (~30 s met cache). Dit kan vandaag.
+
+**De web-app — middel, en hier zit de keuze.** `layout:check` logt in als demo-advocaat en opent
+een dossier. Er moet dus een database mét seed én een gebruiker zijn. Twee wegen:
+
+  1. *Het Supabase-testproject.* De secrets bestaan al (`SUPABASE_TEST_*`, gebruikt door de
+     isolatiejob). Snel, maar de seed van dat project moet dan kloppen en blijven kloppen, en
+     twee jobs die er tegelijk in schrijven gaan elkaar in de weg zitten.
+  2. *`supabase start` in de job.* Een verse database per run, met de eigen migraties en seed.
+     Eerlijker en isoleert beter; kost Docker-images en ongeveer twee tot vier minuten opstarttijd
+     per run.
+
+Weg 2 heeft mijn voorkeur om dezelfde reden als de migratiestap: een verse omgeving vindt wat een
+meegegroeide omgeving verbergt. Weg 1 is sneller te bouwen.
+
+**De worker — duur, en niet aan te raden.** `zichtbaarheid.mjs` heeft Deepgram, ElevenLabs en
+Anthropic nodig, plus sinds 28 augustus het workergeheim. Betaalde sleutels in CI zijn kosten per
+run én een lekoppervlak, en de pagina die hij toetst is een ontwikkelharnas en geen product. Beter
+laten liggen tot er iets is dat zonder leverancierssleutels start.
+
+### Wat er in de pre-push-haak kan
+
+Niets hiervan, en dat is opzet. Een poort die een server moet starten maakt elke push seconden
+langer en faalt op een machine waar die poort bezet is. Dan wordt hij overgeslagen met
+`--no-verify`, en een poort die je overslaat is geen poort. Deze horen in CI, waar een minuut
+niemand ophoudt.
+
+### De volgorde als dit wordt opgepakt
+
+1. De etalagestap. Klein, geen geheimen, en hij bewijst dat de browserstap in CI werkt.
+2. `layout:check` erachteraan, met de keuze tussen testproject en `supabase start` hierboven.
+3. De worker: niet, tenzij er een startpad komt zonder betaalde sleutels.
