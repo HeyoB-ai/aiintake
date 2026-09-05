@@ -219,10 +219,42 @@ try {
           }
         }
       }
+      /*
+       * "Buiten de viewport" is een ánder signaal dan "horizontale overloop".
+       *
+       * Dat is gemeten op een echte iPhone en het is de kern van waarom deze controle drie
+       * keer groen bleef terwijl het beeld stuk was:
+       *
+       *     vw ??? · overloop 0px · buiten 9
+       *     main    [-45..705]
+       *     section [-21..681]
+       *
+       * Nul overloop en negen elementen buiten beeld. Een element dat naar links uitsteekt
+       * levert geen scrollbreedte op — je kunt niet naar negatieve coördinaten scrollen — en
+       * een gecentreerd blok dat te breed is, steekt naar bééde kanten uit en wordt aan beide
+       * kanten geknipt. `scrollWidth - clientWidth` blijft dan nul terwijl de cliënt de
+       * linkerrand van elke regel mist.
+       *
+       * Deze lijst vangt dat wél: elk element waarvan de rand buiten de viewport valt.
+       */
+      const buitenBeeld = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        if (r.right > document.documentElement.clientWidth + 0.5 || r.left < -0.5) {
+          const s = getComputedStyle(el);
+          buitenBeeld.push(
+            `${el.tagName.toLowerCase()}.${(el.className?.toString?.() ?? '').split(' ')[0]} ` +
+              `[${Math.round(r.left)}..${Math.round(r.right)}] w=${s.width} ar=${s.aspectRatio}`,
+          );
+        }
+      }
+
       return {
         aantal: vakken.length,
         botsingen,
         overloop: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        buitenBeeld,
       };
     });
 
@@ -232,6 +264,11 @@ try {
       meting.botsingen.join(' | '),
     );
     eis(`${maat.naam}: geen horizontale overloop`, meting.overloop <= 1, `${meting.overloop}px`);
+    eis(
+      `${maat.naam}: niets steekt buiten de viewport`,
+      meting.buitenBeeld.length === 0,
+      meting.buitenBeeld.slice(0, 3).join(' | '),
+    );
     eis(`${maat.naam}: alle blokken staan er`, meting.aantal >= 6, `${meting.aantal} blokken`);
 
     /*
