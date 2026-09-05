@@ -125,7 +125,19 @@ export function Meetlint() {
 
   if (!m) return null;
 
-  const raak = m.overloop > 1 || m.buiten.length > 0;
+  /*
+   * Zoom ongelijk aan 1 gaat vóór alles.
+   *
+   * Dit was de oorzaak, en drie ronden lang keek ik eroverheen. Bij zoom 1.14 stond de layout
+   * er goed bij — `main` precies 390 breed, nul overloop, één element buiten beeld — en tóch
+   * viel het begin van elke regel weg. Elke meting hieronder gaat over de layout; staat de
+   * pagina ingezoomd, dan verklaren die getallen niet wat je ziet.
+   *
+   * Vandaar een eigen regel bovenaan in plaats van een getal tussen de rest. Wie hem negeert,
+   * meet het verkeerde ding.
+   */
+  const ingezoomd = m.schaal !== '-' && Math.abs(Number(m.schaal) - 1) > 0.01;
+  const raak = ingezoomd || m.overloop > 1 || m.buiten.length > 0;
 
   return (
     <div
@@ -141,6 +153,12 @@ export function Meetlint() {
         borderTop: '1px solid var(--app-border)',
       }}
     >
+      {ingezoomd && (
+        <div className="break-all font-bold">
+          INGEZOOMD ({m.schaal}×) — de pagina staat gescrold; de getallen hieronder verklaren niet
+          wat je ziet. Oorzaak is meestal een invoerveld onder 16px.
+        </div>
+      )}
       <div className="break-all">
         client {m.viewport} · inner {m.innerWidth} · visueel {m.visueel} · zoom {m.schaal}
       </div>

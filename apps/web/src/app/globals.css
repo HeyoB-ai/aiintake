@@ -27,3 +27,49 @@ body {
   outline: 2px solid var(--accent-500);
   outline-offset: 2px;
 }
+
+/*
+ * Formuliervelden op een aanraakscherm: minstens 16px.
+ *
+ * iOS Safari zoomt automatisch in zodra je een invoerveld aantikt waarvan de lettergrootte
+ * onder 16px ligt, en zoomt daarna NIET terug. De pagina blijft in gescrolde stand staan en
+ * dan valt het begin van elke regel weg — "ASSISTENT" wordt "SSISTENT", "Kunt u" wordt
+ * "unt u", en de voortgangsregel wordt rechts afgekapt.
+ *
+ * Gemeten op het toestel zelf, na drie ronden waarin elke geautomatiseerde controle groen
+ * bleef:
+ *
+ *     client 390 · inner 341 · visueel 341 · zoom 1.14
+ *     overloop 0px · buiten 1
+ *
+ * De layout was al die tijd in orde: `main` precies 390 breed, nul overloop. Wat er stuk
+ * leek, was een ingezoomde pagina. Playwright zet de viewport expliciet en kan deze zoom per
+ * constructie niet nabootsen; alleen een echt toestel laat hem zien.
+ *
+ * De velden stonden op `text-sm` (14px) — het toestemmingsscherm (naam, e-mail, telefoon en
+ * de microfoonkeuze) en het inlogformulier.
+ *
+ * ## Waarom dit hier staat en niet per veld
+ *
+ * Eén regel voor alle formuliervelden, zodat het volgende veld dat iemand toevoegt hem
+ * gratis meekrijgt. Per veld een klasse zetten betekent dat je het moet onthouden, en dit is
+ * precies het soort ding dat je niet onthoudt: het gaat pas mis op een toestel dat de
+ * ontwikkelaar niet gebruikt.
+ *
+ * ## Waarom GEEN maximum-scale in de viewport-meta
+ *
+ * `maximum-scale=1` of `user-scalable=no` voorkomt dit ook, en is de reparatie die overal op
+ * internet wordt aangeraden. Hij zet knijpzoomen uit voor iedereen — ook voor iemand die
+ * slecht ziet. Bij een intake voor mensen die net ontslagen zijn, is dat de verkeerde ruil.
+ * De letters worden groter; het zoomen blijft.
+ *
+ * `pointer: coarse` en niet een breedte: iOS zoomt op een iPad net zo goed, en dat is geen
+ * smal scherm.
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

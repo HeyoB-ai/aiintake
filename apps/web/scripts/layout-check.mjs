@@ -373,9 +373,19 @@ try {
    * `getUserMedia` wordt om dezelfde reden vervangen: zonder microfoon blijft de knop uit en
    * komt de cliënt nooit op dit scherm.
    */
+  /*
+   * `isMobile` en `hasTouch`, en dat is niet cosmetisch.
+   *
+   * Zonder die twee meldt de browser `pointer: fine` en slaat de regel voor formuliervelden
+   * over — de regel die er juist is om iOS' automatische zoom te voorkomen. De controle zou
+   * dan iets meten wat op een telefoon niet geldt.
+   */
   const intakePagina = await browser.newPage({
     viewport: BREEDTES[0],
     permissions: ['camera', 'microphone'],
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 3,
   });
   intakePagina.on('pageerror', (e) => fouten.push(`intake: ${e.message}`));
 
@@ -442,6 +452,38 @@ try {
    * over horizontale overloop draaide daardoor helemaal niet — niet rood, niet groen, maar
    * afwezig. Vandaar dat het bereiken van het scherm zelf een eis is.
    */
+  /*
+   * Formuliervelden onder 16px: de oorzaak van drie ronden zoeken.
+   *
+   * iOS Safari zoomt in zodra je een veld met een kleinere lettergrootte aantikt, en zoomt
+   * niet terug. Gemeten op het toestel: zoom 1.14, waarna de pagina in gescrolde stand staat
+   * en het begin van elke regel wegvalt. De layout was al die tijd in orde — `main` precies
+   * 390 breed, nul overloop, één element buiten beeld.
+   *
+   * Playwright kan die zoom per constructie niet nabootsen: de viewport wordt expliciet gezet.
+   * Wat wél te meten is, is de oorzaak — en dat is precies de reden dat deze assertie op de
+   * lettergrootte zit en niet op het gevolg.
+   *
+   * Hier op het toestemmingsscherm, want daar staan de velden. Het gespreksscherm erna heeft
+   * er geen.
+   */
+  const kleineVelden = await intakePagina.evaluate(() => {
+    const uit = [];
+    for (const el of document.querySelectorAll('input, select, textarea')) {
+      if (el.type === 'hidden' || el.type === 'checkbox' || el.type === 'radio') continue;
+      const px = Number.parseFloat(getComputedStyle(el).fontSize);
+      if (px < 16) {
+        uit.push(`${el.tagName.toLowerCase()}[${el.type ?? '-'}] ${px}px`);
+      }
+    }
+    return uit;
+  });
+  eis(
+    'formuliervelden zijn minstens 16px (anders zoomt iOS in en scrollt de pagina weg)',
+    kleineVelden.length === 0,
+    kleineVelden.slice(0, 4).join(' | '),
+  );
+
   const micKnop = intakePagina.getByRole('button', { name: /microfoon toestaan/i });
   if (await micKnop.count()) await micKnop.click().catch(() => undefined);
 
